@@ -245,7 +245,8 @@ test('the bridge drops an SSE client that stops reading', async () => {
 test('POST /action: guards, then pane.focus', async () => {
   const fake = await fakeHerdr()
   const TOKEN = 'tok-123'
-  const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, token: TOKEN })
+  let raised = 0
+  const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, token: TOKEN, raise: () => raised++ })
   const port = portOf(b)
   const post = (body, headers = { 'x-office-token': TOKEN }) => request(port, 'POST', '/action', headers, body)
   const focus = (pane_id) => JSON.stringify({ type: 'focus', pane_id })
@@ -264,15 +265,27 @@ test('POST /action: guards, then pane.focus', async () => {
     const big = await post(JSON.stringify({ type: 'focus', pane_id: 'w1:p2', pad: 'x'.repeat(5000) }))
     assert.ok([400, 413].includes(big.status), String(big.status))
     assert.equal(fake.lines.length, 0, 'no rejected request reaches herdr')
+    assert.equal(raised, 0, 'no rejected request raises WezTerm')
 
     const ok = await post(focus('w1:p2'))
     assert.equal(ok.status, 200)
     assert.deepEqual(JSON.parse(ok.body), { ok: true })
     assert.deepEqual(fake.lines, ['{"id":"office:focus","method":"pane.focus","params":{"pane_id":"w1:p2"}}\n'])
+    assert.equal(raised, 1, 'a focus raises WezTerm')
 
     const fail = await post(focus('w9:p9'))
     assert.equal(fail.status, 502)
     assert.match(JSON.parse(fail.body).error, /pane_not_found/)
+    assert.equal(raised, 1, 'a herdr error does not raise WezTerm')
+
+    const b2 = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, token: TOKEN, raise: () => { throw new Error('x') } })
+    try {
+      const thrown = await request(portOf(b2), 'POST', '/action', { 'x-office-token': TOKEN }, focus('w1:p2'))
+      assert.equal(thrown.status, 200, 'a throw in raise does not change the reply')
+      assert.deepEqual(JSON.parse(thrown.body), { ok: true })
+    } finally {
+      await b2.close()
+    }
   } finally {
     await b.close()
     await fake.close()

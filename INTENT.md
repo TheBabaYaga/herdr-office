@@ -6,7 +6,7 @@ This file records what the user wants from herdhouse, and why. The code does not
 
 The user runs coding agents in herdr, a terminal multiplexer. The user wants to see those agents work in a real office, in 3D, in the browser. The office uses the herdr concepts: a workspace is a room, a pane is a desk, and an agent is a worker at that desk. One look tells the user which agent works, which agent waits for the user, and which agent finished.
 
-The office watches. It never prompts an agent, and it never answers a blocked question. Its only write to herdr is a focus. A click on "Focus in herdr" moves the herdr focus to that pane.
+The office watches. It never prompts an agent, and it never answers a blocked question. Its only write to herdr is a focus. A click on "Focus in herdr" moves the herdr focus to that pane and brings WezTerm to the front.
 
 `docs/herdr-agent-model.md` has the analysis of herdr. Its section 5 is the first design of the mapping. The table below shows the mapping in the code. Where the two differ, this file wins.
 
@@ -71,6 +71,7 @@ The user made these decisions between 2026-10-03 and 2026-10-05.
 15. Workers vary in look (skin, hair, trousers, accessories). The shirt color still shows the agent kind.
 16. Meetings: "Agents that are working together in a workflow should be together in a meeting room." The user chose Claude Code subagents and workflows, not herdr agents that share one repo.
 17. A SketchyBar item for herdr, with colors that the user chose. See "Related".
+18. A focus click also brings WezTerm to the front, in the user's words: "When clicking the focus in herdr button I want you to open up wezterm (which is probably open) so I can see the pane". The bridge runs `open -a WezTerm`, the same as the SketchyBar row click.
 
 ## Cut on purpose
 
@@ -99,7 +100,7 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 
 ## Open items and known limits
 
-- Nobody tested "Focus in herdr" or the SketchyBar row click against the live herdr. The tests use fake sockets and stubs.
+- Nobody tested "Focus in herdr" (with the WezTerm raise) or the SketchyBar row click against the live herdr. The tests use fake sockets and stubs.
 - The HUD box can cover labels in the top-left corner.
 - A Claude session maps to a herdr pane by cwd. The bridge takes one session per cwd: the newest transcript. A second session in the same cwd gets no meeting room.
 - If two claude panes share that cwd, the office takes the working one as the orchestrator.

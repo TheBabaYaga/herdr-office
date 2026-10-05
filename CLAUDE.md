@@ -62,6 +62,7 @@ Contracts between the files:
 - `GET /events` is SSE. A message is `{ online: true, snapshot, meetings }`, or `{ online: false, snapshot: null, error }` when the herdr request fails.
 - The bridge sends a message only when its JSON changes. While a client is connected, it polls `session.snapshot` every 500 ms and reads meetings every 2000 ms.
 - `POST /action` takes the body `{"type":"focus","pane_id":"w<id>:p<id>"}` and the header `x-office-token`. It sends `pane.focus` to herdr and returns 200 `{ ok: true }`.
+- After a successful `pane.focus`, the bridge brings WezTerm to the front with `open -a WezTerm`. `startBridge()` runs this only through its `raise` option. The tests pass a stub. A failed `open` does not change the reply.
 - Each start of the bridge makes a new token. The page reloads when its `/events` stream reconnects, so it gets the new token.
 - `POST /action` errors: a bad token or `Host` gives 403, a body over 4 KB gives 413, other bad input gives 400, and a herdr error gives 502.
 

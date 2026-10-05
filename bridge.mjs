@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { readFile, readdir, stat, open } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as sleep } from 'node:timers/promises'
 
@@ -145,7 +146,7 @@ export async function readMeetings(projects, cwds, now = Date.now()) {
   return out
 }
 
-export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypto.randomUUID(), claudeDir = null, meetMs = 2000 }) {
+export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypto.randomUUID(), claudeDir = null, meetMs = 2000, raise = null }) {
   publicDir = path.resolve(publicDir)
   const clients = new Set()
   let last = null // the last SSE payload; null while nobody listens
@@ -214,10 +215,11 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
       }
       try {
         await herdrRequest(sock, 'pane.focus', { pane_id: msg.pane_id })
-        return json(res, 200, { ok: true })
       } catch (e) {
         return json(res, 502, { error: e.message })
       }
+      try { raise?.() } catch (e) { console.error(`herdhouse: raise: ${e.message}`) } // bring the terminal to the front, so the user sees the pane
+      return json(res, 200, { ok: true })
     }
 
     if (req.method !== 'GET') return res.writeHead(404).end()
@@ -264,6 +266,8 @@ if (import.meta.main) {
     port: Number(process.env.PORT) || 4747,
     publicDir: fileURLToPath(new URL('public', import.meta.url)),
     claudeDir: path.join(os.homedir(), '.claude', 'projects'),
+    // Fixed arguments only. A failed open does not change the reply, because the focus already worked.
+    raise: () => execFile('open', ['-a', 'WezTerm'], (e) => e && console.error(`herdhouse: open WezTerm: ${e.message}`)),
   })
   console.log(`herdhouse: ${url}`)
 }
