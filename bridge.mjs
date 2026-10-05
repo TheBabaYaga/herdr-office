@@ -265,5 +265,5 @@ if (import.meta.main) {
     publicDir: fileURLToPath(new URL('public', import.meta.url)),
     claudeDir: path.join(os.homedir(), '.claude', 'projects'),
   })
-  console.log(`herdr office: ${url}`)
+  console.log(`herdhouse: ${url}`)
 }

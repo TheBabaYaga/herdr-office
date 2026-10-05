@@ -1,6 +1,6 @@
-# herdr office
+# herdhouse
 
-The herdr office is a local web page that shows herdr agents as workers in a 3D voxel office. `bridge.mjs` polls the herdr socket and streams the snapshot to the browser. The files in `public/` turn the snapshot into rooms (workspaces), pods (tabs), and desks (panes) with three.js.
+herdhouse is a local web page that shows herdr agents as workers in a 3D voxel office. `bridge.mjs` polls the herdr socket and streams the snapshot to the browser. The files in `public/` turn the snapshot into rooms (workspaces), pods (tabs), and desks (panes) with three.js.
 
 Read these files for more context:
 

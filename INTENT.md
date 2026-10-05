@@ -1,6 +1,6 @@
-# herdr office: intent
+# herdhouse: intent
 
-This file records what the user wants from the herdr office, and why. The code does not record it. Read this file before you change the office. Do not ask again about a settled decision. Do not add a cut feature again. If this file and the code disagree, ask the user.
+This file records what the user wants from herdhouse, and why. The code does not record it. Read this file before you change the office. Do not ask again about a settled decision. Do not add a cut feature again. If this file and the code disagree, ask the user.
 
 ## Purpose
 
