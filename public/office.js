@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings } from './model.js'
+import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, hash, route, along, calm, stepBreak, endBreak } from './model.js'
 import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
 
 const $ = (id) => document.getElementById(id)
@@ -13,7 +13,6 @@ const COLOR = Object.fromEntries(Object.entries({ ...STATUS_COLOR, working: '#ff
 const SHELL = new THREE.Color('#313244')
 const fresh = (color, Mat = THREE.MeshBasicMaterial) => new Mat({ color }) // an own material, for a color that changes in place
 const SHIRT = { claude: '#d97757', codex: '#e6e6e6', gemini: '#4285f4', opencode: '#9b87f5', opus: '#c0392b', sonnet: '#2f8f83', haiku: '#e59ac0', subagent: '#7f8c8d' } // subagents: by model family, grey when unknown
-const hash = (s, m = 360) => [...(s ?? '')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % m, 0)
 const shirt = (kind) => SHIRT[kind] ?? `hsl(${hash(kind)}, 55%, 60%)`
 const who = (d) => d.agent.name || d.agent.displayAgent || d.agent.kind || 'agent'
 const family = (model) => model?.match(/opus|sonnet|haiku/)?.[0] ?? model ?? 'default'
@@ -159,7 +158,7 @@ function door(r) {
 const spot = new THREE.SpotLight('#89b4fa', 400, 0, 0.18, 0.3)
 scene.add(spot, spot.target)
 
-// ---- scene build: only when the layout signature changes ----
+// ---- scene build: only when the build signature changes ----
 let world = null
 const views = new Map() // room, pod and desk id -> the objects that show its state
 const live = new Set() // objects whose look changes in place: never merged
@@ -271,11 +270,12 @@ function desk(d) {
   if (d.agent) { // keyboard under the typing hands (hands end near z -0.1)
     box(g, [0.8, 0.04, 0.25], [0, 0.8, -0.09], '#2a2a35')
     box(g, [0.72, 0.01, 0.19], [0, 0.84, -0.09], '#5c5c70')
+    box(g, [0.1, 0.03, 0.12], [0.47, 0.8, 0.01], '#2a2a35') // mouse, at the desk edge right of the keyboard (z -0.05..0.07): an idle worker browses with its right hand on it (the arm turns 0.3 rad toward it)
   }
   deskChair(g, 0, 0.5, 2) // the back on +z, behind the worker
   clutter(g, hash(d.id, 1e6))
   const away = d.away && seatAt(d.away) // in a meeting: the worker and its typing screen move to the head of the table
-  views.set(d.id, { desk: d, screen: away?.screen ?? screen, halo: away?.halo, logo: away?.logo, phase: d.x * 7 + d.z * 3, worker: d.agent && worker(away?.g ?? g, d) })
+  views.set(d.id, { desk: d, screen: away?.screen ?? screen, halo: away?.halo, logo: away?.logo, phase: d.x * 7 + d.z * 3, seed: hash(d.terminalId ?? d.id, 1e9), worker: d.agent && worker(away?.g ?? g, d) })
 }
 
 // A meeting seat (see the model): a group like a desk group, turned to the table, with a laptop under the typing hands.
@@ -342,10 +342,18 @@ function worker(parent, d) {
     box(g, [0.4, 0.1, 0.4], [0, 0.96, 0], lit('#c0392b'))
     box(g, [0.3, 0.03, 0.14], [0, 0.96, -0.25], lit('#c0392b'))
   }
-  // legs: thighs under the desk top, lower legs down to the floor
-  ;[-1, 1].forEach((s) => {
-    box(g, [0.16, 0.16, 0.34], [s * 0.12, 0.02, -0.18], lit(pants)) // rests on the cushion top (0.02 above the pivot)
-    box(g, [0.16, 0.52, 0.16], [s * 0.12, -0.5, -0.36], lit(pants))
+  // Seated legs: thighs under the desk top, lower legs down to the floor. Standing legs hang from the hips and swing on a walk.
+  const sit = new THREE.Group(), stand = new THREE.Group()
+  g.add(sit, stand)
+  stand.visible = false
+  const legs = [-1, 1].map((s) => {
+    box(sit, [0.16, 0.16, 0.34], [s * 0.12, 0.02, -0.18], lit(pants)) // rests on the cushion top (0.02 above the pivot)
+    box(sit, [0.16, 0.52, 0.16], [s * 0.12, -0.5, -0.36], lit(pants))
+    const l = new THREE.Group()
+    l.position.set(s * 0.12, 0, 0)
+    stand.add(l)
+    box(l, [0.16, 0.52, 0.16], [0, -0.5, 0], lit(pants))
+    return l
   })
   const arms = [-1, 1].map((s) => {
     const a = new THREE.Group()
@@ -360,10 +368,12 @@ function worker(parent, d) {
   g.add(beacon)
   box(beacon, [0.16, 0.16, 0.16], [0, 0, 0], fresh(COLOR.blocked))
   box(beacon, [0.16, 0.4, 0.16], [0, 0.24, 0], fresh(COLOR.blocked))
+  const mug = box(g, [0.14, 0.18, 0.16], [0.32, 0.25, -0.47], lit('#4a6fa8')) // in the right hand: raised at the counter, low near a door (stroll() puts it at the hand)
+  mug.visible = false
   const mats = []
   g.traverse((o) => o.material && mats.push(Object.assign(o.material, { transparent: true })))
   // A seated subagent never shows the beacon, so its badge sits just over its head. At 2.2 it would cover the worker behind it.
-  return { g, arms, paper, beacon, mats, badge: label(g, 'badge', [0, d.seated ? 1.2 : 2.2, 0]) }
+  return { g, arms, sit, stand, legs, mug, paper, beacon, mats, badge: label(g, 'badge', [0, d.seated ? 1.2 : 2.2, 0]) }
 }
 
 // ---- typing screens: a tiny canvas per working desk, redrawn 10x a second ----
@@ -374,16 +384,20 @@ const glow = shared(new THREE.MeshBasicMaterial({ // one soft yellow halo for al
   color: COLOR.working, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.35, depthWrite: false,
 }))
 const haloGeo = new THREE.PlaneGeometry(1.7, 1.2) // one for all desks: build() never disposes it
-function typing(v, tick) {
-  const seed = v.phase * 1000 | 0, pos = tick + (rnd(seed, 0, 0) * 1e4 | 0), li = Math.floor(pos / LINE), cc = pos % LINE
-  if (v.typed === pos) return
-  v.typed = pos
+function screenCtx(v) { // the canvas of a desk screen: typing and browsing draw into it, one at a time
   if (!v.ctx) {
     const c = Object.assign(document.createElement('canvas'), { width: SCR_W, height: SCR_H })
     v.ctx = c.getContext('2d')
     v.tex = Object.assign(new THREE.CanvasTexture(c), { magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter, colorSpace: THREE.SRGBColorSpace })
   }
-  const x = v.ctx
+  return v.ctx
+}
+function typing(v, tick) {
+  const seed = v.phase * 1000 | 0, pos = tick + (rnd(seed, 0, 0) * 1e4 | 0), li = Math.floor(pos / LINE), cc = pos % LINE
+  if (v.typed === pos) return
+  v.typed = pos
+  v.shown = null
+  const x = screenCtx(v)
   x.fillStyle = '#ffd43b'
   x.fillRect(0, 0, SCR_W, SCR_H)
   x.fillStyle = '#7a5a00'
@@ -393,24 +407,111 @@ function typing(v, tick) {
   }
   v.tex.needsUpdate = true
 }
+// ---- browsing screens: an idle worker looks at a fake web page, or watches a video. The idle green stays the main color. ----
+const IDLE = '#a6e3a1', INK = '#40704a', PIC = ['#89b4fa', '#cba6f7', '#f5c2e7', '#b4befe', '#cdd6f4'] // no status color: a picture must never read as working or done
+function browse(v, t) {
+  const seed = v.seed, video = rnd(seed, 0, 5) < 0.4, f = Math.floor(t * 2) // 2 frames a second. A worker watches a video, or reads a page.
+  const sc = Math.floor(t) // the page scrolls 1 pixel a second
+  const key = video ? f : sc
+  if (v.shown === key) return // draw only when the picture changes
+  v.shown = key
+  v.typed = null
+  const x = screenCtx(v)
+  x.fillStyle = IDLE
+  x.fillRect(0, 0, SCR_W, SCR_H)
+  if (video) {
+    x.fillStyle = INK
+    x.fillRect(2, 1, 12, 1) // the title
+    x.fillRect(4, 4, 24, 12) // the player frame
+    x.fillStyle = PIC[(f >> 2) % PIC.length]
+    x.fillRect(5, 5, 22, 10) // the picture changes every 2 s
+    x.fillStyle = INK
+    x.fillRect(5 + (f * 2) % 18, 8 + (f >> 1) % 3, 4, 4) // something moves in it
+    x.fillRect(2, 19, 28, 2) // the progress bar: a 60 s clip
+    x.fillStyle = '#fff'
+    x.fillRect(2, 19, Math.floor(28 * ((t % 60) / 60)), 2)
+  } else {
+    for (let k = Math.floor(sc / 7); k <= Math.floor((sc + SCR_H) / 7); k++) { // rows of 7 pixels: a picture with text, or text
+      const y = 4 + k * 7 - sc, pic = rnd(seed, k, 6) < 0.4, left = pic ? 16 : 2
+      if (pic) { x.fillStyle = PIC[(rnd(seed, k, 7) * PIC.length) | 0]; x.fillRect(2, y, 12, 5) }
+      x.fillStyle = INK
+      for (let i = 0; i < 3; i++) x.fillRect(left, y + i * 2, 8 + ((rnd(seed, k, 8 + i) * (pic ? 6 : 20)) | 0), 1)
+    }
+    x.fillStyle = INK
+    x.fillRect(0, 0, SCR_W, 3) // the header bar, over the rows that scroll under it
+    x.fillStyle = '#fff'
+    x.fillRect(2, 1, 3, 1)
+    x.fillStyle = IDLE
+    for (const nx of [20, 24, 28]) x.fillRect(nx, 1, 2, 1)
+  }
+  v.tex.needsUpdate = true // the texture uploads again, also when it came from a typing screen
+}
+
+// ---- idle breaks: after a wait, an idle worker walks to the kitchen counter and back ----
+// The clock is t of the animation loop. A trip lives in trips by desk id, so it survives a rebuild for a new subagent.
+// ponytail: a change of the route inputs (`lay`) clears every trip: the workers sit at their desks again. Tracking a trip across a new layout needs a new route.
+const trips = new Map() // desk id -> { n: the next trip, next: when it starts, trip: the one that runs now }
+const claimed = new Map() // kitchen spot index -> desk id: two workers never stand on one spot
+// Where the worker of this view is now: { x, z, dx, dz, s, phase, got, trip }, or null at the desk. stepBreak() in model.js keeps the state.
+function breaks(v, t) {
+  const d = v.desk, k = office.rooms.find((r) => r.kind === 'kitchen')
+  const a = stepBreak(trips, claimed, d.id, { idle: d.status === 'idle' && !d.away, seed: v.seed, spots: k.spots.length, route: (i) => route(office, d.id, k.spots[i]) }, t)
+  return a && { ...along(a.trip.path, a.s), ...a }
+}
+
+const TAU = Math.PI * 2
+// A worker on a trip stands and walks. The legs swing with the distance, the arms swing the other way. After the
+// kitchen the right hand holds the mug. It faces the way it moves, and the counter during the stay.
+// Near a door (see calm() in model.js) the arms hang and the mug hand stays low, so no hand goes through the open leaf or a post.
+function stroll(w, d, a, t) {
+  const g = w.g, back = a.phase === 'back' || a.phase === 'rush', stay = a.phase === 'stay'
+  const to = stay ? 0 : Math.atan2(a.dx * (back ? 1 : -1), a.dz * (back ? 1 : -1)), tr = a.trip
+  const sw = stay ? 0 : 0.7 * Math.sin(a.s * 5), c = calm(Math.min(...office.rooms.map((r) => Math.hypot(a.x - r.door.x, a.z - r.door.z))))
+  const hand = stay ? 1.2 + 0.1 * Math.sin(t * 2) : 0.1 + 1.1 * c // the angle of the mug arm
+  tr.rot = tr.rot == null ? to : tr.rot + (to - tr.rot - Math.round((to - tr.rot) / TAU) * TAU) * 0.25 // the heading lives on the trip: a rebuild makes a new group
+  g.rotation.set(0, tr.rot, 0)
+  g.position.set(a.x - d.x, 0.5 + 0.04 * Math.abs(sw), a.z - d.z)
+  w.sit.visible = false
+  w.stand.visible = true
+  w.mug.visible = a.got
+  w.mug.position.set(0.32, 0.43 - 0.5 * Math.cos(hand), -0.56 * Math.sin(hand)) // at the hand, a little past it
+  w.legs[0].rotation.x = sw
+  w.legs[1].rotation.x = -sw
+  w.arms[0].rotation.x = -sw * c
+  w.arms[1].rotation.x = a.got ? hand : sw * c
+}
+
 // ---- state looks, every frame from the latest status ----
+let moving = false // a worker walks this frame: its badge moves, so declutter() must look again
 const ARM = { working: [1.35, 1.35], blocked: [1.35, 3], done: [2.6, 2.6], idle: [0.2, 0.2], unknown: [0.2, 0.2] }
 function pose(v, t) {
   const s = v.desk.status, w = v.worker, k = v.phase
-  const typed = w && s === 'working', m = v.screen.material
+  const walk = w && breaks(v, t) // on a trip: where the worker is now. null: at the desk.
+  const typed = w && s === 'working' && !walk, browsing = w && s === 'idle' && !walk && !v.desk.away, m = v.screen.material // an empty chair types nothing
   if (typed) {
     typing(v, Math.floor(t * 10))
     if (!v.halo) { v.halo = new THREE.Mesh(haloGeo, glow); v.halo.position.set(v.screen.position.x, v.screen.position.y, v.screen.position.z + 0.04); v.screen.parent.add(v.halo) }
   }
   if (v.halo) v.halo.visible = typed
   if (v.logo) v.logo.visible = typed, v.logo.material.color.copy(COLOR.working).multiplyScalar(0.75 + 0.25 * Math.sin(t * 3 + k))
-  if (!!m.map !== !!typed) { m.map = typed ? v.tex : null; m.needsUpdate = true } // a screen that stops working loses its text at once
-  (typed ? m.color.setRGB(1, 1, 1) : m.color.copy(w ? COLOR[s] : SHELL)).multiplyScalar(typed ? 0.925 + 0.075 * Math.sin(t * 23 + k) : 1) // 0.85..1: a flicker that stays yellow
+  if (browsing) browse(v, t)
+  const lit = typed || browsing // the screen shows a picture
+  if (!!m.map !== !!lit) { m.map = lit ? v.tex : null; m.needsUpdate = true } // a screen that stops working loses its text at once
+  (lit ? m.color.setRGB(1, 1, 1) : m.color.copy(w ? COLOR[s] : SHELL)).multiplyScalar(typed ? 0.925 + 0.075 * Math.sin(t * 23 + k) : 1) // 0.85..1: a flicker that stays yellow
   if (!w) return
-  const bob = s === 'working' ? 0.15 * Math.sin(t * 16 + k) : 0
-  w.g.rotation.x = s === 'idle' ? 0.25 : 0
-  w.arms[0].rotation.x = ARM[s][0] + bob
-  w.arms[1].rotation.x = ARM[s][1] - bob
+  if (walk) {
+    stroll(w, v.desk, walk, t)
+    moving = true
+  } else {
+    const bob = s === 'working' ? 0.15 * Math.sin(t * 16 + k) : 0
+    w.g.position.set(0, 0.5, 0.4)
+    w.g.rotation.set(s === 'idle' ? 0.25 : 0, 0, 0)
+    w.sit.visible = true
+    w.stand.visible = w.mug.visible = false
+    w.arms[0].rotation.x = ARM[s][0] + bob
+    w.arms[1].rotation.x = browsing ? 1.15 + 0.02 * Math.sin(t * 1.3 + k) : ARM[s][1] - bob // browsing: the right hand rests on the mouse
+  }
+  w.arms[1].rotation.z = !walk && browsing ? 0.3 : 0 // browsing: the arm turns out to the mouse
   w.paper.visible = s === 'done'
   w.beacon.visible = s === 'blocked'
   w.beacon.scale.setScalar(1 + 0.25 * Math.sin(t * 8))
@@ -418,7 +519,7 @@ function pose(v, t) {
 }
 
 // ---- labels: hide one that overlaps a more important one ----
-let tags = [], seen = '' // seen: the view of the last pass. '' forces a new pass.
+let tags = [], seen = '', nextPass = 0 // seen: the view of the last pass. '' forces a new pass.
 function declutter() {
   const key = [camera.zoom, camera.position.x, camera.position.z, innerWidth, innerHeight].join()
   if (key === seen) return
@@ -433,15 +534,19 @@ function declutter() {
 }
 
 // ---- update from a new office model ----
-let office = null, sig = ''
+let office = null, sig = '', laid = '' // sig: the build signature. laid: the route inputs of the last update
 
 function update(next) {
   office = next
-  const s = JSON.stringify([
-    office.rooms.map((r) => [r.id, r.x, r.z, r.w, r.d, r.pods.map((p) => [p.id, p.x, p.z, p.w, p.d])]),
-    office.desks.map((d) => [d.id, d.x, d.z, d.agent ? d.agent.kind ?? '?' : 0, d.away]),
-    office.subagents.map((s) => [s.id, s.x, s.z, s.rot, s.model]),
+  const rooms = office.rooms.map((r) => [r.id, r.x, r.z, r.w, r.d, r.pods.map((p) => [p.id, p.x, p.z, p.w, p.d])])
+  const lay = JSON.stringify([ // the inputs of route(): the workspace rooms and the kitchen with their doors, the cross corridor and the desks
+    office.rooms.filter((r) => r.kind === 'workspace' || r.kind === 'kitchen').map((r) => [r.id, r.x, r.z, r.w, r.d, r.door, r.pods.map((p) => [p.id, p.x, p.z, p.w, p.d])]),
+    office.corridors.at(-1),
+    office.desks.map((d) => [d.id, d.x, d.z, d.roomId, d.podId]),
   ])
+  const s = JSON.stringify([rooms, office.desks.map((d) => [d.id, d.x, d.z, d.agent ? d.agent.kind ?? '?' : 0, d.away]), office.subagents.map((s) => [s.id, s.x, s.z, s.rot, s.model])])
+  if (lay !== laid) { trips.clear(); claimed.clear(); laid = lay } // a change of the routes ends every trip
+  for (const d of office.desks) if (d.away || !d.agent) endBreak(trips, claimed, d.id) // the worker sits at the meeting table, or the agent quit: no worker, no trip
   if (s !== sig) {
     build(office)
     if (!sig) frame(office.rooms.find((r) => r.id === office.focus.workspaceId) ?? { x: 0, z: 0, w: office.bounds.w, d: office.bounds.d })
@@ -612,7 +717,9 @@ renderer.setAnimationLoop((ms) => {
   controls.update()
   if (office) keepInView()
   labels.domElement.style.fontSize = `${Math.min(13, Math.max(8, 3 + camera.zoom * 4))}px` // labels shrink with the rooms
+  moving = false
   for (const v of views.values()) if (v.desk) pose(v, t)
+  if (moving && t > nextPass) { seen = ''; nextPass = t + 0.25 } // a walking badge: a few passes a second
   renderer.render(scene, camera)
   labels.render(scene, camera)
   declutter()

@@ -319,9 +319,9 @@ test('demoSnapshot has the snapshot shape', () => {
   assert.equal(s.workspaces.length, 4)
   assert.equal(s.tabs.length, 6)
   assert.ok(s.panes.length >= 10 && s.panes.length <= 14)
-  assert.equal(s.agents.length, 7)
+  assert.equal(s.agents.length, 9) // two long-idle agents on former shell panes: see test/walk.test.mjs
   assert.deepEqual([...new Set(s.agents.map(a => a.agent))].sort(), ['claude', 'codex', 'gemini', 'opencode'])
-  assert.ok(s.panes.some(p => !p.agent), 'has shell panes')
+  assert.ok(s.panes.filter(p => !p.agent).length >= 2, 'has shell panes')
   for (const a of s.agents) assert.equal(s.panes.find(p => p.pane_id === a.pane_id).agent, a.agent)
   assert.equal(s.layouts.length, s.tabs.length)
   const sizes = s.layouts.map(l => l.panes.length)
@@ -336,7 +336,7 @@ test('demo ticks 0..50 build and cover every status', () => {
   for (let t = 0; t <= 50; t++) {
     const o = buildOffice(demoSnapshot(t))
     assert.equal(o.rooms.filter(r => r.kind === 'workspace').length, 4)
-    assert.equal(o.desks.filter(d => d.agent).length, 7)
+    assert.equal(o.desks.filter(d => d.agent).length, 9)
     assert.ok(o.desks.every(d => Number.isFinite(d.x) && Number.isFinite(d.z)))
     assertSpacing(o.desks)
     for (const s of ['working', 'blocked', 'done', 'idle']) assert.ok(o.counts[s] >= 1, `tick ${t} has no ${s} agent`)

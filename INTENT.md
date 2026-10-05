@@ -22,14 +22,14 @@ The office watches. It never prompts an agent, and it never answers a blocked qu
 | `working` | The worker types | Strong yellow `#ffd43b`. The screen glows and shows text that types and scrolls. |
 | `blocked` | The worker raises a hand | Red `#fa5252`. A red beacon pulses over the head. |
 | `done` | The worker raises a paper | Teal `#94e2d5`. |
-| `idle` | The worker reclines | Green `#a6e3a1`. |
+| `idle` | The worker reclines and browses. Now and then it walks to the kitchen. | Green `#a6e3a1`. The screen shows a fake web page or a video on a green background. See decision 19. |
 | `unknown` | The worker is semi-transparent | Grey `#6c7086`. |
 | Focus (`focused_pane_id`) | A blue spotlight on the desk | The first view frames the room of the focused workspace. |
 | Roll-up | Door light, pod lamp, HUD | Rank: blocked > done > working > idle > unknown. |
 | Claude Code subagents | A meeting room | See "Meetings". |
 
 - Skin, hair, trousers and accessories vary, but one worker always looks the same. The shirt keeps the agent kind.
-- Each agent desk has a keyboard. The worker badge shows the agent name (or else the display name, or else the kind) and the pane ID, for example `claude · w1:p1`.
+- Each agent desk has a keyboard and a mouse. The worker badge shows the agent name (or else the display name, or else the kind) and the pane ID, for example `claude · w1:p1`.
 - Only 3D objects use the strong yellow. The HUD, the badges and the door signs keep the herdr theme yellow.
 - The HUD is the box at the top left. It counts each status and lists the agents by rank, then by the newest state change.
 - The building also has a kitchen, a lobby with the reception and the entrance, plants, and desk clutter.
@@ -72,12 +72,17 @@ The user made these decisions between 2026-10-03 and 2026-10-05.
 16. Meetings: "Agents that are working together in a workflow should be together in a meeting room." The user chose Claude Code subagents and workflows, not herdr agents that share one repo.
 17. A SketchyBar item for herdr, with colors that the user chose. See "Related".
 18. A focus click also brings WezTerm to the front, in the user's words: "When clicking the focus in herdr button I want you to open up wezterm (which is probably open) so I can see the pane". The bridge runs `open -a WezTerm`, the same as the SketchyBar row click.
+19. Idle breaks, in the user's words: "Create it so that idle agents are either running around a bit to the kitchen like in a real office are they act like they're browsing the internet or so the have a bit more entertainment." This approves walks for idle workers only. An idle worker alternates two activities:
+    - It browses at the desk. The monitor shows a fake web page or a video, and the worker keeps one hand on the mouse.
+    - It walks to a free spot at the kitchen counter, stands there with a mug, and walks back. The first trip starts 5 to 30 s after the idle state starts. A stay lasts 6 to 15 s. Between two trips the worker browses for 20 to 60 s.
+    - If the status leaves `idle` during a trip, the worker runs back at once and sits down.
+    - A worker with another status, an orchestrator that sits in a meeting, and a subagent never take a break.
 
 ## Cut on purpose
 
 The user cut these with "ponytail ultra" (decision 6). Do not add them again without the user's approval.
 
-- Walk animations. A worker does not walk to a desk, leave, or move.
+- Walk animations, except the idle breaks (decision 19). A worker does not walk to a new desk and does not walk to the meeting room. Nobody else walks. An orchestrator moves to the meeting room without a walk: its worker sits at the head of the meeting table.
 - Toasts and sound. The office has no desk phone and no bell.
 - Zoom dimming. A zoomed herdr tab does not dim the other desks.
 - The herdr event subscription. The bridge polls `session.snapshot` every 500 ms instead. A status change can take up to 500 ms to show.
@@ -107,4 +112,12 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 - The bridge does not find a worktree folder whose transcript starts in another cwd.
 - In the demo, a subagent badge on the south side can cover the laptop logo of the head seat.
 - The badge-overlap check after the last revert of the orchestrator badge did not run.
+- A change of the route inputs ends every idle trip. The workers sit at their desks again. The route inputs are the size, the position, and the door of a workspace room or the kitchen, the pods of these rooms, the cross corridor, and the position, room, and pod of a desk. A meeting start or end ends no trip while the floor plan stays the same. A meeting room that gets wider (9 or more subagents in the demo plan) and a second meeting at the same time move the rooms, so they end every trip. A desk that gets `away` loses its trip, because its worker moves to the meeting room. A desk that loses its agent also loses its trip, because no worker is left.
+- The first wait counts from the time the page first sees the idle state. A page reload starts it again.
+- Two workers can overlap in a corridor.
+- A worker stands up inside its chair and slides 0.65 to the side through the chair edge. This takes about 0.4 s at the start and at the end of a trip. The chair does not move.
+- Near a door the arms of a walker hang still, and the mug hand stays low.
+- A worker on a trip is not clickable. The click boxes stay at the desks. The HUD row still works.
+- In a room with two pod rows (wider than 30 units), the route of a worker can cross the lower pod row. Nothing tests that case.
+- The walk and run speeds (1.6 and 4 units a second) and the break times come from the first run in the demo. The user did not tune them. A trip in the demo takes about 100 s.
 - Section 5 of `docs/herdr-agent-model.md` lists ideas that nobody built and that the user did not decide on. Examples: worktree annex rooms, a focus marker in each pod, a per-viewer acknowledged map, the briefcase and headset badges. Ask the user before you build one.

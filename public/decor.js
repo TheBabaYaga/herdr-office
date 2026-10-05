@@ -106,11 +106,12 @@ function plants(put, spots, n) {
 }
 
 // Places props on free floor only: inside the walls, clear of the pods (and their lamp posts), the 2 x 2 area
-// inside the door, the keep-out rects, and what is placed already. Room-local coords. Returns true when the prop fits.
+// inside the door, the walk rects of the room (where idle workers walk), the keep-out rects, and what is placed already.
+// Room-local coords. Returns true when the prop fits.
 // ponytail: greedy first fit over a few candidate spots. A prop that fits none is skipped.
 function placer(g, room, ...keep) {
   const dx = room.door.x - room.x, dz = room.door.side === 'north' ? 0 : room.d - 2
-  const taken = [[dx - 1, dz, dx + 1, dz + 2], ...keep]
+  const taken = [[dx - 1, dz, dx + 1, dz + 2], ...keep, ...(room.walk ?? []).map(([a, b, c, d]) => [a - room.x, b - room.z, c - room.x, d - room.z])]
   for (const p of room.pods) {
     const x = p.x - room.x, z = p.z - room.z, lx = x + LAMP[0], lz = z + LAMP[1]
     taken.push([x - 0.3, z - 0.3, x + p.w + 0.3, z + p.d + 0.3], [lx - 0.15, lz - 0.15, lx + 0.15, lz + 0.15])
@@ -184,12 +185,12 @@ const cafe = (g, x, z) => {
 }
 
 export function kitchen(g, room) {
-  const put = placer(g, room), { w, d } = room
-  const L = Math.min(3.2, room.door.side === 'north' ? w / 2 - 1.4 : w - 2.5)
-  put(counter(L), E + L / 2, E)
+  const put = placer(g, room), { w, d } = room, { len: L } = room.counter // the model sets the counter, the spots and the walk rects
+  put(counter(L), room.counter.x - room.x, room.counter.z - room.z)
   const fx = [E + L + 0.5, w / 2 + 1.5, w - E - 0.45].find((x) => put(fridge, x, E))
   ;[[fx + 0.7, E, 0], [E, 1.6, 1], [E, d - 1.2, 1]].some(([x, z, r]) => put(cooler, x, z, r))
-  if (![[w / 3, d / 2 + 0.3], [(2 * w) / 3, d / 2 + 0.3]].filter(([x, z]) => put(cafe, x, z)).length) put(cafe, w / 2, d / 2 + 0.3)
+  // The walk rects can block a table. Then the other spots try, so the kitchen keeps one table.
+  if (![w / 3, (2 * w) / 3].filter((x) => put(cafe, x, d / 2 + 0.3)).length) [w / 4, (3 * w) / 4, w / 2].some((x) => put(cafe, x, d / 2 + 0.3))
   const [nw, , sw, se] = corners(room)
   plants(put, [sw, nw, se], 1)
 }
