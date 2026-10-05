@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="office-token" content="__OFFICE_TOKEN__">
+<title>herdr office</title>
+<link rel="icon" href="data:,">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+}, "integrity": {
+  "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js": "sha384-m8JoFX52V6NGv2usipnlLJKnJfL7IE8dbniPDDCSGSQv3Hm4n6PjfV6syVwfuoRc",
+  "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.core.js": "sha384-mdKeCwPEcbDvzaxwhm+MVuLoMou+E7jQqrs4tmu/n8HBYPGI1kZt0MkJxlMR4zFM",
+  "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/controls/OrbitControls.js": "sha384-LSqANrugPGTgf0eYsQTloqKWy926dOOXo2iZ9y6wLMIDEQoU9AaCLJF1Vcc7oJXr",
+  "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/renderers/CSS2DRenderer.js": "sha384-sicuTcKHR+f+SfOkVkM/a5EZq0oBKqaZhIxhweXKWUtjBhdBfsP6VGFlaszbuAI4",
+  "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/utils/BufferGeometryUtils.js": "sha384-Rm97j4mcjlLkGsYC2LX3nZG9VU2R8lgK0QE+DmBr4thue+H7J+SHm+68If2ZLBVg"
+} }
+</script>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #181825; color: #cdd6f4; font: 13px/1.4 ui-monospace, Menlo, monospace; }
+  canvas { display: block; image-rendering: pixelated; }
+  #labels { position: fixed; top: 0; left: 0; pointer-events: none; }
+  .offline canvas, .offline #labels { filter: brightness(0.35) grayscale(1); }
+  .sign { background: #1e1e2e; border: 2px solid var(--c); padding: 0 6px; font-weight: bold; white-space: nowrap; }
+  .badge { background: #11111bd0; border-left: 3px solid var(--c); padding: 0 4px; font-size: 0.85em; white-space: nowrap; }
+  .box { position: fixed; top: 12px; background: #1e1e2ef0; border: 1px solid #45475a; padding: 10px; max-height: calc(100% - 44px); overflow: auto; }
+  #hud { left: 12px; width: 280px; }
+  #panel { right: 12px; width: min(320px, calc(100% - 46px)); }
+  h1, h2 { font-size: 14px; margin: 0 0 6px; }
+  #counts { display: flex; flex-wrap: wrap; gap: 0 10px; }
+  #counts span { color: var(--c); }
+  #note { color: #f38ba8; }
+  #list { display: flex; flex-direction: column; max-height: 40vh; overflow: auto; }
+  #list button { display: block; flex: none; width: 100%; text-align: left; background: none; border: 0; color: inherit; font: inherit; padding: 2px 4px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #list button:hover, #list button:focus-visible { background: #313244; }
+  #list button::before { content: '■ '; color: var(--c); }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; }
+  dt { color: #9399b2; }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  #close { position: absolute; top: 6px; right: 6px; }
+  .warn { color: #f9e2af; font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="hud" class="box">
+  <h1>herdr office</h1>
+  <div id="counts"></div>
+  <div id="meetings"></div>
+  <div id="note"></div>
+  <div id="list"></div>
+</div>
+<aside id="panel" class="box" hidden>
+  <button id="close" aria-label="Close">x</button>
+  <h2 id="who"></h2>
+  <dl id="fields"></dl>
+  <button id="focus">Focus in herdr</button> <small id="demo" hidden>demo mode</small>
+  <p class="warn">Focus marks the whole tab as seen in herdr. Done desks in that tab turn idle.</p>
+  <p id="result"></p>
+</aside>
+<script type="module" src="office.js"></script>
+</body>
+</html>
