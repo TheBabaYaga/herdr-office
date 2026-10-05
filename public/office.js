@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, hash, route, along, calm, stepBreak, endBreak } from './model.js'
+import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, hash, route, along, calm, opens, stepBreak, endBreak } from './model.js'
 import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
 
 const $ = (id) => document.getElementById(id)
@@ -134,8 +134,9 @@ function inner(axis, c, s, e, gaps) {
   }
   run(axis, c, s, e, H - 0.12, 0.12, C.inner)
 }
-// A door in a wall along x: frame, lintel with the status light, glass transom, and a wooden door open into the room.
-// The hinge is on the +x post of a south wall and the -x post of a north wall, so every open door stands near edge-on to the camera.
+// A door in a wall along x: frame, lintel with the status light, glass transom, and a wooden door, closed in the wall line.
+// A walker opens it into the room (swing()). The hinge is on the +x post of a south wall and the -x post of a north wall, so an open
+// door stands near edge-on to the camera. The hinge is live: bake() skips the leaf and the knob, so they can turn.
 function door(r) {
   const { x, z, side } = r.door, s = side === 'south' ? 1 : -1 // s: the corridor side, +1 = +z
   for (const k of [-1, 1]) box(world, [0.12, 2.1, T + 0.06], [x + k * 0.6, 0, z], C.wood)
@@ -144,14 +145,14 @@ function door(r) {
   const light = box(world, [0.5, 0.16, T + 0.1], [x, 2.26, z], fresh(0))
   const hinge = new THREE.Group()
   hinge.position.set(x + s * 0.54, 0, z)
-  hinge.rotation.y = -1.1
+  hinge.rotation.y = doors.get(r.id) ?? 0 // closed, or the angle from before the rebuild
   world.add(hinge)
   box(hinge, [1.08, 2.04, 0.06], [-s * 0.54, 0.02, 0], C.door)
   box(hinge, [0.05, 0.05, 0.16], [-s * 0.94, 1, 0], C.brass)
-  live.add(light)
+  live.add(light).add(hinge)
   // Over the room, not the corridor: facing signs stay apart. Over a meeting room with a south door, the sign covers the
   // south seat about 2 west of it. Seats fill from the head (-x) end, so the sign moves to 1 from the +x wall.
-  views.set(r.id, { light, sign: label(world, 'sign', [x + (r.kind === 'meeting' && s === 1 ? r.w / 2 - 1 : 0), 3, z - s * 0.4]) })
+  views.set(r.id, { light, sign: label(world, 'sign', [x + (r.kind === 'meeting' && s === 1 ? r.w / 2 - 1 : 0), 3, z - s * 0.4]), hinge })
 }
 
 // The focused pane gets a spotlight. It moves without a rebuild. Cool blue, so a lit desk never looks like the working yellow.
@@ -459,6 +460,20 @@ function breaks(v, t) {
   return a && { ...along(a.trip.path, a.s), ...a }
 }
 
+// ---- doors: closed. A walker opens its own door and the kitchen door (opens() in model.js), and the door closes after it. ----
+// The angle lives by room id, outside views: a rebuild for a new subagent keeps a door open while a worker stands in it.
+const OPEN = -1.1, SWING = 0.25 // the open angle (into the room), and the seconds from closed to open: open before a runner gets to the leaf
+const doors = new Map() // room id -> the door angle now
+const ajar = new Set() // the room ids whose door a walker opens this frame. pose() fills it.
+function swing(dt) { // dt: the frame time in seconds, so a door moves at the same speed at any frame rate
+  const step = (dt * -OPEN) / SWING
+  for (const r of office.rooms) {
+    const a = doors.get(r.id) ?? 0, b = a + Math.max(-step, Math.min(step, (ajar.has(r.id) ? OPEN : 0) - a))
+    doors.set(r.id, b)
+    views.get(r.id).hinge.rotation.y = b
+  }
+}
+
 const TAU = Math.PI * 2
 // A worker on a trip stands and walks. The legs swing with the distance, the arms swing the other way. After the
 // kitchen the right hand holds the mug. It faces the way it moves, and the counter during the stay.
@@ -502,6 +517,7 @@ function pose(v, t) {
   if (walk) {
     stroll(w, v.desk, walk, t)
     moving = true
+    for (const id of opens(office, v.desk, walk)) ajar.add(id)
   } else {
     const bob = s === 'working' ? 0.15 * Math.sin(t * 16 + k) : 0
     w.g.position.set(0, 0.5, 0.4)
@@ -707,6 +723,7 @@ renderer.domElement.addEventListener('click', (e) => {
   if (best) open(best)
 })
 
+let last = 0 // the time of the last frame
 renderer.setAnimationLoop((ms) => {
   const t = ms / 1000
   if (goal) {
@@ -718,7 +735,10 @@ renderer.setAnimationLoop((ms) => {
   if (office) keepInView()
   labels.domElement.style.fontSize = `${Math.min(13, Math.max(8, 3 + camera.zoom * 4))}px` // labels shrink with the rooms
   moving = false
+  ajar.clear()
   for (const v of views.values()) if (v.desk) pose(v, t)
+  if (office) swing(t - last)
+  last = t
   if (moving && t > nextPass) { seen = ''; nextPass = t + 0.25 } // a walking badge: a few passes a second
   renderer.render(scene, camera)
   labels.render(scene, camera)

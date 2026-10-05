@@ -259,6 +259,11 @@ export const WALK = 1.6, RUN = 4 // world units a second
 // How free the arms of a walker are, from the distance to the nearest door center: 0 up to 1.4, 1 from 2.0. An open leaf reaches 0.96
 // into the room, so near a door the arms hang and the mug hand stays low (stroll() in office.js).
 export const calm = (dd) => Math.min(1, Math.max(0, (dd - 1.4) / 0.6))
+// The ids of the rooms whose door the walker of desk d opens, at a = { x, z, phase }: its own room and the kitchen, within 3 of the
+// door center. A runner needs about 0.4 s from 3 to the sweep of the leaf (the door lane, about 1.35 from the center), so the
+// door has time to open. Another door in a corridor stays closed. At the counter (stay) the kitchen door closes.
+export const opens = (o, d, a) => a.phase === 'stay' ? [] :
+  o.rooms.filter((r) => (r.id === d.roomId || r.kind === 'kitchen') && Math.hypot(a.x - r.door.x, a.z - r.door.z) < 3).map((r) => r.id)
 export const hash = (s, m = 360) => [...(s ?? '')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % m, 0)
 
 // The browse wait before trip n and the stay in the kitchen, in seconds, for one idle stretch. The first trip comes sooner.

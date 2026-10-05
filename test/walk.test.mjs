@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildOffice, demoSnapshot, demoMeetings, along, tripAt, breakPlan, route, hash, calm, pathLen, stepBreak, endBreak, WALK, RUN } from '../public/model.js'
+import { buildOffice, demoSnapshot, demoMeetings, along, tripAt, breakPlan, route, hash, calm, opens, pathLen, stepBreak, endBreak, WALK, RUN } from '../public/model.js'
 
 // Synthetic snapshots. All values are made up.
 const AREA = { x: 10, y: 2, width: 100, height: 40 }
@@ -341,6 +341,26 @@ test('every route runs from a seat to a kitchen spot through rooms, doors and co
     for (const d of o.desks.filter(d => d.agent)) for (const spot of kitchen.spots) { checkRoute(name, o, d, spot); n++ }
   }
   assert.ok(n > 500, `${n} routes`)
+})
+
+// A seat can stand within 3 of its own door. That door then opens when the worker stands up.
+test('a walker opens only its own door and the kitchen door, near the door, and none at the counter', () => {
+  for (const [name, o] of offices) {
+    const kitchen = o.rooms.find(r => r.kind === 'kitchen')
+    for (const d of o.desks.filter(d => d.agent)) for (const spot of kitchen.spots) {
+      const path = route(o, d.id, spot), len = pathLen(path), mine = [o.rooms.find(r => r.id === d.roomId), kitchen]
+      for (let i = 0; i * 0.1 <= len; i++) {
+        const p = along(path, i * 0.1), ids = opens(o, d, { x: p.x, z: p.z, phase: 'out' }), at = `${name}: ${d.id} at (${p.x.toFixed(2)}, ${p.z.toFixed(2)})`
+        assert.ok(ids.every(id => mine.some(r => r.id === id)), `${at}: opens ${ids}`)
+        for (const r of mine) {
+          const dd = Math.hypot(p.x - r.door.x, p.z - r.door.z)
+          if (dd <= 1.4) assert.ok(ids.includes(r.id), `${at}: the door of ${r.id} stays closed`)
+          if (dd >= 3) assert.ok(!ids.includes(r.id), `${at}: opens the door of ${r.id} from ${dd.toFixed(2)}`)
+        }
+      }
+      assert.deepEqual(opens(o, d, { x: spot.x, z: spot.z, phase: 'stay' }), [], `${name}: ${d.id}: at the counter`)
+    }
+  }
 })
 
 // ---- the demo ----

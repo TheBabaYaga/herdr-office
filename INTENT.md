@@ -77,6 +77,11 @@ The user made these decisions between 2026-10-03 and 2026-10-05.
     - It walks to a free spot at the kitchen counter, stands there with a mug, and walks back. The first trip starts 5 to 30 s after the idle state starts. A stay lasts 6 to 15 s. Between two trips the worker browses for 20 to 60 s.
     - If the status leaves `idle` during a trip, the worker runs back at once and sits down.
     - A worker with another status, an orchestrator that sits in a meeting, and a subagent never take a break.
+20. Doors that open and close, in the user's words: "In the office, make it so that doors are closed and that they are opened and closes whenever an agent walks through it". Every door is closed. A worker on a kitchen trip opens two doors: the door of its own room and the kitchen door.
+    - A door opens when the walker comes within 3 of the door center, and closes when the walker is farther away. It takes 0.25 s, so it is open before a runner gets to the leaf.
+    - A walker that passes another door in a corridor does not open it.
+    - At the counter the kitchen door closes. It opens again when the worker walks back.
+    - The doors of the meeting room and the lobby stay closed, because nobody walks there.
 
 ## Cut on purpose
 
@@ -117,6 +122,7 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 - Two workers can overlap in a corridor.
 - A worker stands up inside its chair and slides 0.65 to the side through the chair edge. This takes about 0.4 s at the start and at the end of a trip. The chair does not move.
 - Near a door the arms of a walker hang still, and the mug hand stays low.
+- A desk can stand within 3 of its own door. The door then opens when the worker stands up, and closes after the worker sits down. In the test floor plans, 36 of 302 seats are that close.
 - A worker on a trip is not clickable. The click boxes stay at the desks. The HUD row still works.
 - In a room with two pod rows (wider than 30 units), the route of a worker can cross the lower pod row. Nothing tests that case.
 - The walk and run speeds (1.6 and 4 units a second) and the break times come from the first run in the demo. The user did not tune them. A trip in the demo takes about 100 s.
