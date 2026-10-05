@@ -84,7 +84,7 @@ Contracts between the files:
 - `build()` disposes each material without `userData.shared` and each merged geometry. Mark a material that must stay across builds with `shared()` from `office.js`.
 - `views` maps each room, pod, desk, and subagent id to the objects that show its state. `pose()` runs each frame for each view that has a `desk`.
 - Each `DECOR` function gets a group at the room corner, so decor uses room-local coordinates. `placer()` puts a prop on free floor only, and skips a prop that does not fit.
-- `COLOR` in `office.js` is for 3D meshes. It uses a strong yellow `#ffd43b` for `working`. `STATUS_COLOR` in `model.js` holds the herdr theme colors for HTML: the HUD, the list, the badges, and the door signs.
+- `COLOR` in `office.js` is for 3D meshes. It uses a strong yellow `#ffd43b` for `working`. `STATUS_COLOR` in `model.js` holds the herdr theme colors for HTML: the HUD, the list, the badges, and the door signs. For `blocked`, it uses a strong red `#fa5252` instead of the herdr pink-red, in the HTML and in 3D.
 - `declutter()` hides a label that overlaps a label with a higher priority. Agent badges come first by status rank, then door signs by status rank. It sets `visibility`, because `CSS2DRenderer` owns `display`.
 - Add each new label to `tags` in `update()`. A label that is not in `tags` never hides.
 - Put text into a label, the HUD, or the panel with `textContent` only. Pane labels, titles, cwds, and subagent labels come from outside the page, so never use `innerHTML`.

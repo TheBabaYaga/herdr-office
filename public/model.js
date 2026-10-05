@@ -2,7 +2,7 @@
 // Floor plane is x/z (y is up). North is -z, south is +z.
 
 export const STATUS_RANK = { unknown: 0, idle: 1, working: 2, done: 3, blocked: 4 }
-export const STATUS_COLOR = { working: '#f9e2af', blocked: '#f38ba8', done: '#94e2d5', idle: '#a6e3a1', unknown: '#6c7086' }
+export const STATUS_COLOR = { working: '#f9e2af', blocked: '#fa5252', done: '#94e2d5', idle: '#a6e3a1', unknown: '#6c7086' }
 
 const GAP_X = 2.4, GAP_Z = 2.2 // one desk cell: desk footprint 2 x 1.5 plus room to breathe
 const POD_GAP = 1.5, WALL = 1.5, HALL = 3, MAX_ROW = 30 // WALL: free floor between pods and a room wall. HALL: corridor width

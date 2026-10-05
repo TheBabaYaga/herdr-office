@@ -20,7 +20,7 @@ The office watches. It never prompts an agent, and it never answers a blocked qu
 | Pane | A desk with a monitor | The pane rect in the tab layout sets the desk position. A shell pane (no agent) is an empty desk with a dark screen. |
 | Agent | A worker in the desk chair | The shirt color shows the agent kind: claude orange, codex white, gemini blue, opencode purple. Other kinds get a color from the kind name. |
 | `working` | The worker types | Strong yellow `#ffd43b`. The screen glows and shows text that types and scrolls. |
-| `blocked` | The worker raises a hand | Red `#f38ba8`. A red beacon pulses over the head. |
+| `blocked` | The worker raises a hand | Red `#fa5252`. A red beacon pulses over the head. |
 | `done` | The worker raises a paper | Teal `#94e2d5`. |
 | `idle` | The worker reclines | Green `#a6e3a1`. |
 | `unknown` | The worker is semi-transparent | Grey `#6c7086`. |

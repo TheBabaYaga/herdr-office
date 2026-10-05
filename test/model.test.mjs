@@ -182,7 +182,7 @@ const positions = (o) => ({
 
 test('constants', () => {
   assert.deepEqual(STATUS_RANK, { unknown: 0, idle: 1, working: 2, done: 3, blocked: 4 })
-  assert.deepEqual(STATUS_COLOR, { working: '#f9e2af', blocked: '#f38ba8', done: '#94e2d5', idle: '#a6e3a1', unknown: '#6c7086' })
+  assert.deepEqual(STATUS_COLOR, { working: '#f9e2af', blocked: '#fa5252', done: '#94e2d5', idle: '#a6e3a1', unknown: '#6c7086' })
 })
 
 test('rollup takes the highest rank', () => {
