@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, hash, route, along, calm, opens, stepBreak, endBreak } from './model.js'
-import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, party, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
+import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, party, terrace, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
 
 const $ = (id) => document.getElementById(id)
 const DEMO = new URLSearchParams(location.search).has('demo')
@@ -72,6 +72,7 @@ const FLOOR = {
   planks: [pix(8, (x, y) => grey(x === (Math.floor(y / 2) * 3) % 8 ? 212 : 250 - 7 * (Math.floor(y / 2) % 3) - (y % 2) * 8)), 2],
   checker: [pix(2, (x, y) => ((x + y) % 2 ? [236, 226, 204] : [178, 112, 88])), 1.5],
   stone: [pix(8, (x, y) => grey(x === 0 || y === 0 ? 196 : (x * y) % 7 === 3 ? 232 : 248)), 2],
+  grass: [pix(4, (x, y) => grey([255, 226, 244, 236, 232, 250, 222, 246, 242, 228, 255, 230, 224, 248, 234, 240][y * 4 + x])), 1],
 }
 function floor({ x, z, w, d }, [tex, size], color) {
   const map = Object.assign(tex.clone(), { needsUpdate: true })
@@ -82,7 +83,8 @@ function floor({ x, z, w, d }, [tex, size], color) {
 // ---- walls: zero-width lines on the room edges, drawn T thick and centered ----
 const T = 0.3, H = 2.6, DOOR = 1.2
 // C.wood is also the door light and sign of a room without a status: no status color.
-const C = { cream: CREAM, inner: '#e8dcc6', cap: '#8a7663', frame: '#8c7b6b', wood: '#9c6f4a', door: WOOD, sill: '#f7f2e8', brass: '#d8b45c', slab: '#3a322d', post: '#5a4d42' }
+// C.grass and C.hedge are dark plain greens, far from the idle green.
+const C = { cream: CREAM, inner: '#e8dcc6', cap: '#8a7663', frame: '#8c7b6b', wood: '#9c6f4a', door: WOOD, sill: '#f7f2e8', brass: '#d8b45c', slab: '#3a322d', post: '#5a4d42', grass: '#6b9a48', hedge: '#4f7a3a' }
 const shared = (m) => Object.assign(m, { userData: { shared: true } }) // never disposed on rebuild
 const GLASS = shared(new THREE.MeshLambertMaterial({ color: '#b3d8f0', transparent: true, opacity: 0.45, depthWrite: false }))
 const SKY = shared(new THREE.MeshLambertMaterial({ color: '#a9d5ef', emissive: '#55819e' }))
@@ -216,9 +218,30 @@ function build(office) {
       views.set(p.id, { lamp })
     }
   }
-  // Outer walls: the far ones full height with windows, the camera-side ones cut down, the entrance in the south one.
+  // Terraces: the grass, terrace() in a group at the corner, and one glass wall on each edge to a room or a corridor. A room draws
+  // no +x wall away from the cross corridor, and a south row draws no +z wall, so the terrace draws these. Two terraces back to back
+  // share their edge with no wall: one courtyard. A first-row terrace gets a hedge on its north edge (below), and a last-row one keeps the stub.
+  for (const t of office.terraces) {
+    floor(t, FLOOR.grass, C.grass)
+    const g = new THREE.Group()
+    g.position.set(t.x, 0, t.z)
+    world.add(g)
+    terrace(g, t)
+    const back = office.terraces.find((u) => Math.abs(u.z + u.d - t.z) < 1e-6), x1 = back ? Math.max(t.x, back.x) : W // the wall behind ends where the courtyard starts
+    inner('z', t.x, t.z, t.z + t.d, []) // the last room of the row
+    inner('z', W, t.z, t.z + t.d, []) // the cross corridor
+    if (t.z > 0 && x1 > t.x) inner('x', t.z, t.x, x1, []) // the band corridor, or the rooms of the row behind
+    if (office.corridors.some((c) => Math.abs(c.z - t.z - t.d) < 1e-6)) inner('x', t.z + t.d, t.x, W, []) // the band corridor in front
+  }
+  // Outer walls: the far ones full height with windows, the camera-side ones cut down, the entrance in the south one. The north wall
+  // skips a first-row terrace: a low hedge stands there, so the camera sees in, and the cross corridor keeps its piece of the wall.
   outer('z', 0, 0, BD, office.rooms.filter((r) => r.x === 0).flatMap((r) => [0, r.z, r.z + r.d, BD]))
-  outer('x', 0, 0, BW, office.rooms.filter((r) => r.z === 0).flatMap((r) => [r.x, r.x + r.w, BW]))
+  const open = office.terraces.find((t) => t.z === 0), nx = open ? open.x : BW
+  outer('x', 0, 0, nx, office.rooms.filter((r) => r.z === 0).flatMap((r) => [r.x, r.x + r.w, BW]).filter((s) => s <= nx))
+  if (open) {
+    outer('x', 0, W, BW, [W, BW])
+    run('x', 0, open.x + T / 2, W - T / 2, 0, 0.9, C.hedge, T + 0.06)
+  }
   stub('z', BW, 0, BD, [])
   const { x: ex } = office.entrance
   stub('x', BD, 0, BW, [[ex, 2]])
@@ -374,8 +397,18 @@ function worker(parent, d) {
   mug.visible = false
   const mats = []
   g.traverse((o) => o.material && mats.push(Object.assign(o.material, { transparent: true })))
+  // The lunch plate on the table top (stroll() shows it in a lunch stay). It comes after mats: only an idle worker eats, so it never fades,
+  // and the cached colors stay opaque. Bread, a carrot and a beet: no color near a status color.
+  const plate = new THREE.Group()
+  plate.position.set(0, 0.28, -0.5) // the table top (world y 0.78), in front of the worker
+  plate.visible = false
+  g.add(plate)
+  box(plate, [0.36, 0.03, 0.28], [0, 0, 0], '#eef0f4')
+  box(plate, [0.12, 0.07, 0.1], [-0.08, 0.03, 0], '#8b5a2b')
+  box(plate, [0.06, 0.05, 0.06], [0.08, 0.03, -0.05], '#e8913a')
+  box(plate, [0.06, 0.05, 0.06], [0.1, 0.03, 0.06], '#7a4b94')
   // A seated subagent never shows the beacon, so its badge sits just over its head. At 2.2 it would cover the worker behind it.
-  return { g, arms, sit, stand, legs, mug, paper, beacon, mats, badge: label(g, 'badge', [0, d.seated ? 1.2 : 2.2, 0]) }
+  return { g, arms, sit, stand, legs, mug, plate, paper, beacon, mats, badge: label(g, 'badge', [0, d.seated ? 1.2 : 2.2, 0]) }
 }
 
 // ---- typing screens: a tiny canvas per working desk, redrawn 10x a second ----
@@ -449,16 +482,19 @@ function browse(v, t) {
   v.tex.needsUpdate = true // the texture uploads again, also when it came from a typing screen
 }
 
-// ---- idle breaks: after a wait, an idle worker walks to the kitchen counter or the party room and back ----
+// ---- idle breaks: after a wait, an idle worker walks to the kitchen counter, a kitchen chair for lunch, or the party room, and back ----
 // The clock is t of the animation loop. A trip lives in trips by desk id, so it survives a rebuild for a new subagent.
 // ponytail: a change of the route inputs (`lay`) clears every trip: the workers sit at their desks again. Tracking a trip across a new layout needs a new route.
 const trips = new Map() // desk id -> { n: the next trip, next: when it starts, trip: the one that runs now }
-const claimed = new Map() // '<room>:<spot index>' (room: kitchen or party) -> desk id: two workers never stand on one spot
+const claimed = new Map() // '<kind>:<spot index>' (kind: kitchen, lunch, or party) -> desk id: two workers never stand on one spot or sit on one chair
 // Where the worker of this view is now: { x, z, dx, dz, s, phase, got, trip, room }, or null at the desk. stepBreak() in model.js keeps the state.
 function breaks(v, t) {
-  const d = v.desk, room = (id) => office.rooms.find((r) => r.id === id), spots = { kitchen: room('kitchen').spots.length, party: room('party')?.spots.length ?? 0 }
-  const a = stepBreak(trips, claimed, d.id, { idle: d.status === 'idle' && !d.away, seed: v.seed, spots, route: (to, i) => route(office, d.id, room(to).spots[i], to) }, t)
-  return a && { ...along(a.trip.path, a.s), ...a, room: a.trip.room }
+  const d = v.desk, room = (id) => office.rooms.find((r) => r.id === id), kit = room('kitchen')
+  const spots = { kitchen: kit.spots.length, party: room('party')?.spots.length ?? 0, lunch: kit.chairs.length }
+  // The trip kind: 'kitchen' (a counter spot), 'party' (a dance spot), or 'lunch' (a kitchen chair). A lunch route ends at the chair point.
+  const go = (kind, i) => (kind === 'lunch' ? route(office, d.id, kit.chairs[i], 'kitchen') : route(office, d.id, room(kind).spots[i], kind))
+  const a = stepBreak(trips, claimed, d.id, { idle: d.status === 'idle' && !d.away, seed: v.seed, spots, route: go }, t)
+  return a && { ...along(a.trip.path, a.s), ...a, room: a.trip.room === 'lunch' ? 'kitchen' : a.trip.room } // room: a room id for opens()
 }
 
 // ---- doors: closed. A walker opens its own door and the door of its target room (opens() in model.js), and the door closes after it. ----
@@ -480,10 +516,12 @@ const TAU = Math.PI * 2
 // kitchen the right hand holds the mug. It faces the way it moves, and the counter during the stay.
 // Near a door (see calm() in model.js) the arms hang and the mug hand stays low, so no hand goes through the open leaf or a post.
 // In the party room the stay is a dance: the worker faces the booth with a sway, at its own tempo and phase.
+// In a lunch stay the worker sits on its kitchen chair, faces the table, and eats from the plate.
 function stroll(w, d, a, t) {
   const g = w.g, back = a.phase === 'back' || a.phase === 'rush', stay = a.phase === 'stay', tr = a.trip
   const dance = stay && tr.room === 'party', h = hash(d.id, 1e6), b = t * Math.PI * (1.6 + (h % 100) / 125) + h, beat = Math.sin(b) // 1.6 to 2.4 steps a second: a step is half a turn of b
-  const to = dance ? (office.rooms.find((r) => r.id === tr.room).booth.z < a.z ? 0 : Math.PI) + 0.35 * Math.sin(b / 2) : stay ? 0 : Math.atan2(a.dx * (back ? 1 : -1), a.dz * (back ? 1 : -1))
+  const chair = stay && tr.room === 'lunch' && office.rooms.find((r) => r.id === 'kitchen').chairs[+tr.spot.split(':')[1]] // tr.spot: 'lunch:<index>'
+  const to = dance ? (office.rooms.find((r) => r.id === tr.room).booth.z < a.z ? 0 : Math.PI) + 0.35 * Math.sin(b / 2) : chair ? (chair.rot * Math.PI) / 2 : stay ? 0 : Math.atan2(a.dx * (back ? 1 : -1), a.dz * (back ? 1 : -1))
   const sw = stay ? 0 : 0.7 * Math.sin(a.s * 5), c = calm(Math.min(...office.rooms.map((r) => Math.hypot(a.x - r.door.x, a.z - r.door.z))))
   const hand = stay ? 1.2 + 0.1 * Math.sin(t * 2) : 0.1 + 1.1 * c // the angle of the mug arm
   tr.rot = tr.rot == null ? to : tr.rot + (to - tr.rot - Math.round((to - tr.rot) / TAU) * TAU) * 0.25 // the heading lives on the trip: a rebuild makes a new group
@@ -497,6 +535,16 @@ function stroll(w, d, a, t) {
   w.legs[1].rotation.x = -sw
   w.arms[0].rotation.x = -sw * c
   w.arms[1].rotation.x = a.got ? hand : sw * c
+  w.plate.visible = !!chair
+  if (chair) { // lunch: sit on the chair (the body point), face the table, and eat. Every 3 to 5 s the right hand goes to the mouth in 1 s.
+    g.position.set(chair.x - d.x, 0.5, chair.z - d.z)
+    w.sit.visible = true
+    w.stand.visible = false
+    const u = (t + (h % 50)) % (3 + (h % 200) / 100) // the time in this bite. The phase and the period come from the desk id.
+    w.arms[0].rotation.x = 1.2 // on the table
+    w.arms[1].rotation.x = 1.2 + 0.8 * (u < 1 ? Math.sin(Math.PI * u) : 0) // 2.0 or less: a hand over the shoulder means blocked
+    return
+  }
   if (!dance) return
   dancing = true // hop from foot to foot, sway the hips, pump the arms in turn. An arm stays at 1.5 or less: a hand over the shoulder means blocked.
   g.rotation.z = 0.08 * beat
@@ -594,7 +642,7 @@ function pose(v, t) {
     w.g.position.set(0, 0.5, 0.4)
     w.g.rotation.set(s === 'idle' ? 0.25 : 0, 0, 0)
     w.sit.visible = true
-    w.stand.visible = w.mug.visible = false
+    w.stand.visible = w.mug.visible = w.plate.visible = false
     w.arms[0].rotation.x = ARM[s][0] + bob
     w.arms[1].rotation.x = browsing ? 1.15 + 0.02 * Math.sin(t * 1.3 + k) : ARM[s][1] - bob // browsing: the right hand rests on the mouse
   }
@@ -631,7 +679,7 @@ function update(next) {
     office.corridors.at(-1),
     office.desks.map((d) => [d.id, d.x, d.z, d.roomId, d.podId]),
   ])
-  const s = JSON.stringify([rooms, office.desks.map((d) => [d.id, d.x, d.z, d.agent ? d.agent.kind ?? '?' : 0, d.away]), office.subagents.map((s) => [s.id, s.x, s.z, s.rot, s.model])])
+  const s = JSON.stringify([rooms, office.terraces, office.desks.map((d) => [d.id, d.x, d.z, d.agent ? d.agent.kind ?? '?' : 0, d.away]), office.subagents.map((s) => [s.id, s.x, s.z, s.rot, s.model])])
   if (lay !== laid) { trips.clear(); claimed.clear(); laid = lay } // a change of the routes ends every trip
   for (const d of office.desks) if (d.away || !d.agent) endBreak(trips, claimed, d.id) // the worker sits at the meeting table, or the agent quit: no worker, no trip
   if (s !== sig) {
@@ -878,7 +926,7 @@ renderer.domElement.addEventListener('click', (e) => {
     ...office.desks.map((d) => [d.id, d.x - 1, d.z - 0.8, d.x + 1, d.z + 0.9]),
     ...office.desks.filter((d) => d.away).map((d) => seated(d.id, d.away)),
     ...office.subagents.map((s) => seated(s.id, s)),
-    ...[...views].filter(([, v]) => v.worker?.stand.visible).map(([id, v]) => (v.worker.g.getWorldPosition(hip), [...sq(id, hip.x, hip.z), true])), // stroll() shows the standing legs on a trip only
+    ...[...views].filter(([, v]) => v.worker?.stand.visible || v.worker?.plate.visible).map(([id, v]) => (v.worker.g.getWorldPosition(hip), [...sq(id, hip.x, hip.z), true])), // stroll() shows the standing legs or the plate on a trip only
   ]) {
     pick.min.set(x0, 0, z0)
     pick.max.set(x1, 1.8, z1)

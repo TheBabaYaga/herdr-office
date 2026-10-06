@@ -67,17 +67,19 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
 ### Fixtures and helpers
 
 - `rect()`, `layout()`, `pane()` (a shell pane with status `unknown`), and `agent()` build a snapshot.
-- `synthetic()`: two workspaces out of number order, with a shell pane `logs` and a 2x2 split. `big()`: 18 workspaces, 26 tabs, and 49 panes.
-- `assertPlan(o, snap, meetings = [])`: the floor-plan invariants. It calls `assertSeats()` (the table, the seats, the head seat, the side seats), `assertParty()`, and `assertSpacing()`.
-- `assertParty(o, rows, W)`: finds the row with the most spare width from `normal()` (the width of a room before the stretch). It wants a party room only for a spare width of 7 or more, as the last room of that row or just before the lobby, with the spare width. Each other room of that row keeps its normal width. Each room of another row gets the same extra width.
+- `synthetic()`: two workspaces out of number order, with a shell pane `logs` and a 2x2 split. `big()`: 18 workspaces, 26 tabs, and 49 panes. `garden()`: one wide workspace "api" (4 panes side by side) and four small ones. Its two middle rows get a terrace each, back to back, and its last row (3.6 spare width) stretches.
+- `assertPlan(o, snap, meetings = [])`: the floor-plan invariants. Rooms, corridors, and terraces tile the building, and the rooms and the terrace of each row span `W`. It calls `assertSeats()` (the table, the seats, the head seat, the side seats), `assertRows()`, `assertSpacing()`, and `assertKitchen()`.
+- `assertRows(o, rows, W)`: finds the row with the most spare width from `normal()` (the width of a room before the stretch). It wants a party room only for a spare width of 7 or more, as the last room of that row or just before the lobby, with the spare width. Each other room of that row keeps its normal width, and the row has no terrace. Each other row with 4 or more spare width keeps its normal room widths and has one terrace: the id `terrace:<row index>`, from the last room to the cross corridor, with the spare width and the row depth. Each room of another row gets the same extra width, and the row has no terrace.
 - `assertSpacing(desks)`: copies `GAP_X` (2.4) and `GAP_Z` (2.2) from `public/model.js`.
+- `assertKitchen(o)`: 2 or more kitchen chairs, each 0.8 west (`rot` 3) or east (`rot` 1) of its table. Each table top (0.9 x 0.9) and each chair (the seat and its back, 0.45 behind the chair point) is 0.2 or more inside the kitchen, south of a walker on the strip, clear of the door, and off each walk rect. A chair may touch only its own lane. Chairs of two tables keep 0.85 apart. With a north door and a kitchen 8.6 or more wide, each chair is 1.8 or more from the east wall, so the wall does not hide a seated worker. It copies the chair size from `decor.js` and `kitchenZ()` (1.9) from `public/model.js`.
 - `meeting(sessionId, cwd, n, workflow = 'flow')`: a meeting in the bridge shape with `n` agents.
 
 ### Gotchas
 
 - `constants` pins each `STATUS_COLOR` value.
 - `assertPlan()` pins the room order (without the party room) and the label of a room that is not a workspace. A new room kind must update both lines, and `normal()` if its width differs.
-- `synthetic()` gets no party room (its most spare width is 6.9). The demo, `big()`, `synthetic()` with a meeting of 13, and `big()` with a meeting of 11 (the party room before the lobby) get one.
+- `synthetic()` gets no party room (its most spare width is 6.9), but it gets a terrace in its first row. The demo, `big()`, `synthetic()` with a meeting of 13, and `big()` with a meeting of 11 (the party room before the lobby) get a party room. The demo gets no terrace, so its routes did not change with the terraces.
+- `assertRows()` copies the 4 of the terrace rule from `buildOffice()`.
 - `demoSnapshot has the snapshot shape` and `demo ticks 0..50 ...` pin the demo counts. The second test also wants each of `working`, `blocked`, `done`, and `idle` in every tick. A change to `DEMO_PANES` can break them. Two of the 9 agents are the long-idle agents of `test/walk.test.mjs`.
 - A status change can still change `sig`, because `away` goes to the working claude desk in the session cwd. `positions do not change when only statuses change` uses no meetings and does not see this.
 - `the orchestrator desk is away` compares the full `o.subagents[0]`. A new subagent field must go into it.
@@ -89,8 +91,9 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
 - `snap(spec)`: a snapshot from a list of tabs for each workspace, and a list of pane rects for each tab. Every fourth pane is a shell, the others are idle claude agents. `G(c, r)` gives a grid, `SIX` a 6-way split.
 - `CASES` maps a name to `[snapshot, meetings]`. `close(a, b, msg)` compares floats to 1e-6.
 - `world()` and `step(w, t, over, id = 'a')`: `step()` calls `stepBreak()` with `idle: true`, `seed: 7`, `spots: { kitchen: 3 }`, and `route: () => PATH`. `over` replaces any of these.
-- `PARTY` is `{ kitchen: 3, party: 5 }`, the spot counts with a party room. `seedFor(party)` gives the first seed whose first trip has that coin: `seedFor(true)` for the party room first, `seedFor(false)` for the kitchen first.
-- `checkRoute(name, o, d, spot, to = 'kitchen')`: samples the route to a spot of the room `to` every 0.1, plus each corner, against the walls, doors, desks, lamp posts, walk rects, the open leaf and posts, and the other spots of that room. Its comments give each box and margin.
+- `ALL` is `{ kitchen: 3, lunch: 4, party: 5 }`, the spot counts of the three kinds. `KINDS` is `['kitchen', 'lunch', 'party']`. `kindOf(seed, n, kinds = KINDS)` copies the first pick of `stepBreak()`. `seedFor(kind, kinds = KINDS)` gives the first seed whose first trip picks that kind.
+- `ROWS`: one workspace with two rows of 4 pods, short and tall pods in each row. The short-pod test uses it with the `CASES` offices. It copies the last-row test (`d.z + 1.1`) and the aside x (`d.x + 0.65`) from `route()`.
+- `checkRoute(name, o, d, spot, to = 'kitchen')`: samples the route to a spot of the room `to` every 0.1, plus each corner, against the walls, doors, desks, lamp posts, walk rects, the open leaf and posts, the other spots and chairs of that room, and the kitchen tables and chairs. The route line keeps 0.3 from a table top, and the body keeps 0.39 from each other chair. Its comments give each box and margin.
 
 ### Gotchas
 
@@ -102,10 +105,11 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
 - `checkRoute()` opens the leaf of every door within 3, also a door that `opens()` keeps closed. So no test fails on a route through a third room, but in the page that door stays closed. Such a route needs a change in `opens()`.
 - The wall loop also holds the building rect, which has no `door`. A point closer than 0.3 to the outer wall makes `inDoor()` throw a `TypeError`, not a clean message.
 - Only '3 small workspaces' has a kitchen door in the south wall. If a room width change moves it, `the cases cover both kitchen door sides` fails. Then add a case.
+- 11 cases get one or two terraces. The routes never enter a terrace, but the rooms of a terrace row keep their normal width, so their routes differ from a stretched room.
 - 12 cases get a party room. The two demo cases, '3 small workspaces', and '7 small workspaces' give it a north door, and the others a south door. The party room test needs both sides, so a room width change can make it fail. Then add a case.
-- The two route tests are the slowest tests: about 15 s for the party room (1802 routes) and 7 s for the kitchen (906 routes).
-- The coin test of `breakPlan()` copies the old `wait` and `stay` formula in `before()`. It fails when a new plan value takes the index 0, 1, or 2.
-- The demo test uses the seed `hash(d.terminalId, 1e9)`, as `public/office.js` does. For each trip, it uses the longest route into the room that the coin of that trip picks. It depends on the long-idle entries of `w2:p2` and `w3:p3` in `DEMO_PANES`, on `WALK`, on `breakPlan()`, and on the demo floor plan. `w2:p2` has the smallest margin, so a longer stay or a slower walk breaks it first.
+- The three route tests are the slowest tests: about 15 s for the party room (1802 routes), 10 s for the kitchen chairs (1208 routes), and 7 s for the counter (906 routes).
+- The pick test of `breakPlan()` copies the `wait` and `stay` formula in `before()`. It fails when a new plan value takes the index 0 or 1.
+- The demo test uses the seed `hash(d.terminalId, 1e9)`, as `public/office.js` does. For each trip, it uses the longest route to the kind that the pick of that trip picks, and the lunch stay for a lunch. It depends on the long-idle entries of `w2:p2` and `w3:p3` in `DEMO_PANES`, on `WALK`, on `breakPlan()` (also the index of `pick`), and on the demo floor plan. The first lunch of `w3:p3` has the smallest margin (about 50 s), so a longer lunch or a slower walk breaks it first.
 
 ## Change recipes
 
@@ -152,7 +156,7 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
 
 1. Start with `const w = world()`. Call `step(w, t, over, id)` for each frame time `t`.
 2. Read the times from `breakPlan(7, n)` or `w.trips.get('a').next`. Do not pin a `breakPlan()` value. Only `breakPlan is deterministic and stays in range` holds the ranges, and only the coin test holds the formula.
-3. With `seed: 7` and `spots: { kitchen: 3 }`, a worker takes the first free spot in the order `'kitchen:1'`, `'kitchen:2'`, `'kitchen:0'`. For a party trip, pass `seed: seedFor(true)` and `spots: PARTY`. The worker then starts at `'party:<seed % 5>'`.
+3. With `seed: 7` and `spots: { kitchen: 3 }`, a worker takes the first free spot in the order `'kitchen:1'`, `'kitchen:2'`, `'kitchen:0'`. For a lunch or a party trip, pass `seed: seedFor('lunch')` or `seedFor('party')` and `spots: ALL`. The worker then starts at `'lunch:<seed % 4>'` or `'party:<seed % 5>'`.
 4. Assert on the return value (`null` at the desk, else `{ s, phase, got, trip }`), `w.trips`, and `w.claimed`.
 
 - For a timing change in `tripAt()`, build a trip `{ len, start, stay, rush }` and compare `s` with `close()`.
@@ -168,7 +172,8 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
 
 ## What no test covers
 
-- `public/office.js` and `public/decor.js`. After a change to `placer()`, `kitchen()`, or `party()`, load `decor.js` with three.js in a scratch script. Check that no prop stands on a walk rect, that the kitchen keeps its cafe table, and that no party prop stands on the dance floor or the speaker floor (`docs/decor.md` "Check placement in Node").
+- The terrace walls, the hedge, and the grass in `build()`. A scratch check can copy the wall lines of `build()` and count the walls on each region edge: one, and none between two terraces.
+- `public/office.js` and `public/decor.js`. After a change to `placer()`, `kitchen()`, `party()`, or `terrace()`, load `decor.js` with three.js in a scratch script. Check that no prop stands on a walk rect, that the kitchen draws a table and two chairs at each `room.tables` entry, and that no party prop stands on the dance floor or the speaker floor (`docs/decor.md` "Check placement in Node").
 - The sha384 `integrity` values in `public/index.html`. A wrong hash fails only in the browser.
 - The `if (import.meta.main)` block of `bridge.mjs`, and the focus with the WezTerm raise.
 - The message field in the page: the `#say` hide rule, the demo lock, and the `#msg` clear. Use a fake herdr socket for a browser check (see "Visual check in the browser").
@@ -180,8 +185,9 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
 1. Start a check bridge in the background: `PORT=4848 npm start`.
 2. Open `http://127.0.0.1:4848/?demo`. The demo page opens no `/events` stream, and the focus button and the message field are disabled.
 3. For a party trip, watch `w2:p2` in the "web" room. It walks to the party room about 18 s after load and sits again about 51 s after load. Its second trip goes to the kitchen at about 100 s, and the status change at 110 s cuts it short.
-4. For a rush, watch `w3:p3` in the "docs" room. It turns `working` at tick 30, during its first trip. A rush in the demo always shows `working`, never `blocked` or `done`.
-5. Stop the check bridge:
+4. For a rush, watch `w3:p3` in the "docs" room. It turns `working` at tick 30, during the walk to its first lunch. A rush in the demo always shows `working`, never `blocked` or `done`.
+5. For a lunch, watch `w3:p3` again. It is idle again from tick 80. It walks to a kitchen chair about 97 s after load, sits there from about 144 s to 183 s, and sits at its desk again about 229 s after load.
+6. Stop the check bridge:
    1. Get the PID with `lsof -nP -tiTCP:4848 -sTCP:LISTEN`. Do not use `$!`, because it can give the PID of a wrapper shell.
    2. Kill that PID.
    3. Run the `lsof` command again to make sure that the port is free.

@@ -84,6 +84,25 @@ function big() {
   return s
 }
 
+// One wide workspace "api" (one tab, 4 panes side by side) and four small ones with one pane each. The rows: api, web (19.6, the
+// building width) | docs, infra (5.6 spare) | ops, Meeting (4.6 spare) | Kitchen, Lobby (3.6 spare). No row has 7 spare: no party room.
+function garden() {
+  const s = { version: '0.0.0', protocol: 20, focused_workspace_id: 'w1', focused_tab_id: 'w1:t1', focused_pane_id: 'w1:p1', workspaces: [], tabs: [], panes: [], layouts: [], agents: [] }
+  ;['api', 'web', 'docs', 'infra', 'ops'].forEach((label, i) => {
+    const ws = `w${i + 1}`, tab = `${ws}:t1`, n = i ? 1 : 4, rects = {}
+    s.workspaces.push({ workspace_id: ws, number: i + 1, label })
+    s.tabs.push({ tab_id: tab, workspace_id: ws, number: 1, label: 'main' })
+    for (let m = 0; m < n; m++) {
+      const p = pane(`${ws}:p${m + 1}`, tab, { agent: 'claude', agent_status: 'idle' })
+      s.panes.push(p)
+      s.agents.push(agent(p, 'claude', 'idle', s.agents.length + 1))
+      rects[p.pane_id] = rect((m * 100) / n, 0, 100 / n, 40)
+    }
+    s.layouts.push(layout(ws, tab, rects, `${ws}:p1`))
+  })
+  return s
+}
+
 const EPS = 1e-9
 const overlap = (a, b) => a.x < b.x + b.w - EPS && b.x < a.x + a.w - EPS && a.z < b.z + b.d - EPS && b.z < a.z + a.d - EPS
 const inside = (p, c) => p.x > c.x && p.x < c.x + c.w && p.z > c.z && p.z < c.z + c.d
@@ -102,7 +121,7 @@ function assertPlan(o, snap, meetings = []) {
   assert.deepEqual(rows.flat().map(r => r.id), o.rooms.map(r => r.id), 'rows in room order')
   assert.equal(rows.length % 2, 0)
   const W = o.bounds.w - 3
-  assertParty(o, rows, W)
+  assertRows(o, rows, W)
   rows.forEach((row, i) => {
     assert.equal(row[0].x, 0)
     row.forEach((r, j) => {
@@ -113,7 +132,8 @@ function assertPlan(o, snap, meetings = []) {
       const out = { x: r.door.x, z: r.door.z + (north ? -0.1 : 0.1) }
       assert.ok(o.corridors.some(c => inside(out, c)), `${r.id} door opens into a corridor`)
     })
-    assert.ok(Math.abs(row.at(-1).x + row.at(-1).w - W) < EPS, 'every row spans the same width')
+    const end = o.terraces.find(t => t.z === row[0].z) ?? row.at(-1)
+    assert.ok(Math.abs(end.x + end.w - W) < EPS, 'the rooms and the terrace of a row span the building width')
     if (i % 2) {
       const n = rows[i - 1][0], s = row[0]
       assert.ok(o.corridors.some(c => c.x === 0 && Math.abs(c.w - W) < EPS && c.z === n.z + n.d && c.d === 3 && c.z + 3 === s.z), `corridor in band ${(i - 1) / 2}`)
@@ -126,8 +146,8 @@ function assertPlan(o, snap, meetings = []) {
   assert.equal(lobby.z + lobby.d, o.bounds.d, 'the lobby is on the outer wall')
   assert.deepEqual(o.entrance, { x: lobby.x + lobby.w / 2, z: o.bounds.d }, 'entrance in the middle of the lobby outer wall')
 
-  // Rooms and corridors tile the whole building: inside bounds, no overlap, no gap.
-  const rects = [...o.rooms, ...o.corridors]
+  // Rooms, corridors, and terraces tile the whole building: inside bounds, no overlap, no gap.
+  const rects = [...o.rooms, ...o.corridors, ...o.terraces]
   for (const r of rects) assert.ok(r.x >= 0 && r.z >= 0 && r.x + r.w <= o.bounds.w + EPS && r.z + r.d <= o.bounds.d + EPS, 'inside bounds')
   rects.forEach((a, i) => rects.slice(i + 1).forEach(b => assert.ok(!overlap(a, b), `${a.id ?? 'corridor'} overlaps ${b.id ?? 'corridor'}`)))
   assert.ok(Math.abs(rects.reduce((s, r) => s + r.w * r.d, 0) - o.bounds.w * o.bounds.d) < 1e-6, 'no gaps')
@@ -138,27 +158,77 @@ function assertPlan(o, snap, meetings = []) {
     assert.ok(d.x - 1 >= r.x && d.x + 1 <= r.x + r.w && d.z - 0.75 >= r.z && d.z + 0.75 <= r.z + r.d, `${d.id} inside its room`)
   }
   assertSpacing(o.desks)
+  assertKitchen(o)
+}
+
+// The kitchen tables for a lunch: a table top is 0.9 x 0.9 round (x, z). A chair stands 0.8 west (rot 3, faces +x) or 0.8 east
+// (rot 1, faces -x) of its table. Its seat is 0.5 x 0.5 round the chair point, and its back reaches 0.45 behind the point (decor.js).
+const box = (x, z, x0, x1, z0, z1) => [x + x0, z + z0, x + x1, z + z1] // [x0, z0, x1, z1]
+const hits = (a, b) => a[0] < b[2] - EPS && b[0] < a[2] - EPS && a[1] < b[3] - EPS && b[1] < a[3] - EPS
+function assertKitchen(o) {
+  const k = o.rooms.find(r => r.kind === 'kitchen'), { tables, chairs, walk } = k, s = k.door.side === 'south' ? 1 : -1
+  assert.ok(chairs.length >= 2, `${chairs.length} kitchen chairs`)
+  const tops = tables.map(t => box(t.x, t.z, -0.45, 0.45, -0.45, 0.45))
+  const seats = chairs.map(c => {
+    const t = tables[c.table]
+    assert.ok(t && c.z === t.z && Math.abs(Math.abs(c.x - t.x) - 0.8) < EPS, `chair (${c.x}, ${c.z}) is 0.8 west or east of its table`)
+    assert.equal(c.rot, c.x < t.x ? 3 : 1, 'a chair faces its table')
+    return c.rot === 3 ? box(c.x, c.z, -0.45, 0.25, -0.25, 0.25) : box(c.x, c.z, -0.25, 0.45, -0.25, 0.25)
+  })
+  const lane = (c, w) => Math.abs(w[0] - (c.x - 0.3)) < EPS && Math.abs(w[2] - (c.x + 0.3)) < EPS && Math.abs(w[1] - (k.z + 1.9)) < EPS && Math.abs(w[3] - c.z) < EPS
+  const door = box(k.door.x, k.door.z, -1, 1, s > 0 ? -1 : 0, s > 0 ? 0 : 1) // the posts, the open leaf and the first step in
+  for (const [i, b] of [...tops, ...seats].entries()) {
+    const what = i < tops.length ? `table ${i}` : `chair ${i - tops.length}`
+    assert.ok(b[0] >= k.x + 0.2 - EPS && b[2] <= k.x + k.w - 0.2 + EPS && b[1] >= k.z + 0.2 - EPS && b[3] <= k.z + k.d - 0.2 + EPS, `${what} is 0.2 or more inside the kitchen`)
+    assert.ok(b[1] >= k.z + 1.9 + 0.39 - EPS, `${what} is clear of the counter, its spots and a walker on the strip`)
+    assert.ok(!hits(b, door), `${what} is clear of the door`)
+    const own = i < tops.length ? [] : walk.filter(w => lane(chairs[i - tops.length], w))
+    assert.equal(own.length, i < tops.length ? 0 : 1, `${what}: one lane from the strip`)
+    for (const w of walk) assert.ok(own.includes(w) || !hits(b, w), `${what} is on the walk rect ${w}`)
+  }
+  chairs.forEach((a, i) => chairs.slice(i + 1).forEach(b => assert.ok(a.table === b.table || Math.hypot(a.x - b.x, a.z - b.z) >= 0.85 - EPS, 'chairs of two tables keep 0.85 apart')))
+  // The camera looks along (1, 1, 1), and the east wall is 2.6 high. A seated torso (0.8 high) shows only 1.8 or more from that wall.
+  if (s < 0 && k.w >= 8.6) for (const c of chairs) assert.ok(k.x + k.w - c.x >= 1.8 - EPS, `the chair at x ${c.x} is ${(k.x + k.w - c.x).toFixed(2)} from the east wall`)
 }
 
 // The party room fills the row with the most spare width (the first on a tie), if that width is 7 or more. The spare width is the
 // building width minus the normal widths of the other rooms in the row. The other rooms of the party row keep their normal width.
-// Each other row stretches as before: every room gets the same extra width.
+// Each other row with a spare width of 4 or more keeps its normal room widths, and a terrace fills the spare width at its east end:
+// from the last room to the cross corridor at W, with the row depth. Each other row stretches as before: every room gets the same extra width.
 const close = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${msg}: ${a} is not ${b}`)
 const span = (r) => r.pods.length ? Math.max(...r.pods.map(p => p.x + p.w)) - Math.min(...r.pods.map(p => p.x)) : 0
 const normal = (r) => r.kind === 'workspace' ? Math.max(7, 3 + span(r)) : r.kind === 'meeting' ? Math.max(8, r.table.len + 2.6) : 8
-function assertParty(o, rows, W) {
+function assertRows(o, rows, W) {
   const spare = rows.map(row => W - row.filter(r => r.kind !== 'party').reduce((s, r) => s + normal(r), 0))
   const most = Math.max(...spare), at = spare.findIndex(s => s > most - 1e-6), party = o.rooms.filter(r => r.kind === 'party')
   assert.equal(party.length, most >= 7 ? 1 : 0, `a party room only for a spare width of 7 or more (${most})`)
+  let n = 0
   rows.forEach((row, i) => {
+    const ts = o.terraces.filter(t => t.z === row[0].z)
     if (party.length && i === at) {
       const p = party[0]
       assert.equal(row.at(-1).kind === 'lobby' ? row.at(-2) : row.at(-1), p, 'the party room is the last room of its row, or just before the lobby')
       assert.deepEqual([p.id, p.door.side], ['party', i % 2 ? 'north' : 'south'])
       close(p.w, spare[i], 'the party room takes the spare width')
       for (const r of row) if (r !== p) close(r.w, normal(r), `${r.id} keeps its normal width`)
-    } else for (const r of row) close(r.w, normal(r) + spare[i] / row.length, `${r.id} stretches`)
+      assert.equal(ts.length, 0, 'the party row has no terrace')
+    } else if (spare[i] >= 4 - 1e-6) {
+      for (const r of row) close(r.w, normal(r), `${r.id} keeps its normal width next to a terrace`)
+      assert.equal(ts.length, 1, `row ${i} with ${spare[i]} spare width has one terrace`)
+      const [t] = ts, last = row.at(-1)
+      assert.equal(t.id, `terrace:${i}`)
+      close(t.x, last.x + last.w, `${t.id} starts at the east wall of the last room`)
+      close(t.x + t.w, o.corridors.at(-1).x, `${t.id} touches the cross corridor`)
+      close(t.w, spare[i], `${t.id} takes the spare width`)
+      assert.ok(t.w >= 4 - 1e-6, `${t.id} is ${t.w} wide`)
+      assert.deepEqual([t.z, t.d], [row[0].z, row[0].d], `${t.id} has the row depth`)
+      n++
+    } else {
+      for (const r of row) close(r.w, normal(r) + spare[i] / row.length, `${r.id} stretches`)
+      assert.equal(ts.length, 0, `row ${i} with ${spare[i]} spare width stretches and has no terrace`)
+    }
   })
+  assert.equal(o.terraces.length, n, 'each terrace sits in a row')
 }
 
 // Meeting rooms: the table and every seat inside the room, seats apart, one seat per attendee, the head seat for the orchestrator.
@@ -197,7 +267,7 @@ function assertSpacing(desks) {
 }
 
 const positions = (o) => ({
-  bounds: o.bounds, corridors: o.corridors, entrance: o.entrance,
+  bounds: o.bounds, corridors: o.corridors, entrance: o.entrance, terraces: o.terraces,
   rooms: o.rooms.map(r => [r.id, r.x, r.z, r.w, r.d, r.door, r.pods.map(p => [p.id, p.x, p.z, p.w, p.d])]),
   desks: o.desks.map(d => [d.id, d.x, d.z]),
 })
@@ -425,10 +495,29 @@ test('the demo gets a party room in the row of the docs workspace', () => {
   assert.equal(o.rooms.at(-1).id, 'lobby')
 })
 
+test('the demo kitchen has two tables with a chair on each side', () => {
+  const k = buildOffice(demoSnapshot(0), demoMeetings(0)).rooms.find(r => r.kind === 'kitchen')
+  assert.deepEqual([k.tables.length, k.chairs.map(c => [c.table, c.rot])], [2, [[0, 3], [0, 1], [1, 3], [1, 1]]])
+})
+
 test('no party room without a row with 7 or more spare width', () => {
   const s = synthetic(), o = buildOffice(s) // the most spare width is 6.9
   assert.deepEqual(o.rooms.map(r => r.id), ['w1', 'w2', 'meeting', 'kitchen', 'lobby'])
-  assertPlan(o, s) // each row stretches to the building width as before
+  assertPlan(o, s) // the row with 6.9 spare width gets a terrace instead
+  assert.deepEqual(o.terraces.map(t => t.id), ['terrace:0'])
+})
+
+test('a row with 4 or more spare width keeps its room widths and gets a terrace, a row with less stretches', () => {
+  const s = garden(), o = buildOffice(s), w = (z) => o.rooms.filter(r => r.z === z).map(r => [r.label, +r.w.toFixed(9)])
+  assertPlan(o, s)
+  assert.equal(o.rooms.find(r => r.kind === 'party'), undefined, 'no party room: the most spare width is 5.6')
+  assert.deepEqual(o.terraces.map(t => [t.id, +t.x.toFixed(9), +t.w.toFixed(9)]), [['terrace:1', 14, 5.6], ['terrace:2', 15, 4.6]])
+  const [a, b] = o.terraces
+  assert.deepEqual(w(a.z), [['docs', 7], ['infra', 7]])
+  assert.deepEqual(w(b.z), [['ops', 7], ['Meeting', 8]])
+  assert.equal(a.z + a.d, b.z, 'the two middle rows sit back to back, so the terraces make one courtyard')
+  assert.deepEqual(w(o.rooms.at(-1).z), [['Kitchen', 9.8], ['Lobby', 9.8]], 'the row with 3.6 spare width stretches')
+  assert.deepEqual(buildOffice(demoSnapshot(0), demoMeetings(0)).terraces, [], 'the demo has no terrace: each of its rows has less than 4 spare width, or the party room')
 })
 
 test('the party room is the last room of the row with the most spare width, before the lobby in the lobby row', () => {

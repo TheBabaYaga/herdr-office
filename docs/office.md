@@ -20,7 +20,7 @@
 | `sig`, `laid` | the build signature and the last `lay` (route inputs), as JSON | `update()` | page |
 | `views` | id -> view (see "View shapes") | the build and screen functions, `pose()`, `update()` (`v.desk`) | one build |
 | `world`, `live` | the group of one build, and the objects that `bake()` does not merge | `build()` and the build functions | one build |
-| `trips`, `claimed` | desk id -> `{ n, next, trip }`, and the spot key `'<room>:<index>'` (kitchen or party) -> desk id | `stepBreak()`, `endBreak()`, `update()` (clears on a `lay` change), `stroll()` (`trip.rot`) | page |
+| `trips`, `claimed` | desk id -> `{ n, next, trip }`, and the spot key `'<kind>:<index>'` (kind: `kitchen`, `lunch` for a kitchen chair, or `party`) -> desk id | `stepBreak()`, `endBreak()`, `update()` (clears on a `lay` change), `stroll()` (`trip.rot`) | page |
 | `doors` | room id -> the door angle now | `swing()` | page. A rebuild keeps it |
 | `ajar`, `moving`, `dancing` | the room ids whose door a walker opens, whether a worker walked, and whether a worker danced, in this frame | frame loop resets, `pose()` sets (`dancing` through `stroll()`) | one frame |
 | `last` | the time of the last frame in seconds, 0 at first | frame loop | page |
@@ -45,7 +45,7 @@
 - Subagent view, from `attendee(s)`: `desk` is a fixed `{ status: 'working' }` that `update()` never replaces. It has `screen`, `halo`, `logo` (`false` for `rot` 0 or 1), `phase`, and `worker`, and no `seed`.
 - Later fields: `ctx` and `tex` (`screenCtx()`), `typed` (`typing()`), `shown` (`browse()`).
 
-Worker object, from `worker()`: `g` (the body group, in `live`, at `(0, 0.5, 0.4)` in its parent), `arms` (`[0]` is the -x arm), `sit`, `stand`, `legs` (the hip pivots in `stand`), `mug`, `paper`, `beacon`, `mats`, and `badge`. The part sizes and heights are in `worker()`. Add 0.5 to a `g` y for the world y.
+Worker object, from `worker()`: `g` (the body group, in `live`, at `(0, 0.5, 0.4)` in its parent), `arms` (`[0]` is the -x arm), `sit`, `stand`, `legs` (the hip pivots in `stand`), `mug`, `plate` (a group at the table top in front of the body, made after `mats`, so it never fades), `paper`, `beacon`, `mats`, and `badge`. The part sizes and heights are in `worker()`. Add 0.5 to a `g` y for the world y.
 
 The face of a worker is on local -z. At a desk the camera sees its back and its +x side. At the head seat (`rot` 3) it faces +x, toward the camera, so a flat mark that reads correctly at a desk reads mirrored there.
 
@@ -68,9 +68,9 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 ### Floors and walls
 
-- `floor()`: a floor box with a cloned `FLOOR` texture and a new material, which the next rebuild disposes.
+- `floor()`: a floor box with a cloned `FLOOR` texture and a new material, which the next rebuild disposes. `FLOOR.grass` is the terrace floor, tinted `C.grass`, a dark plain green far from the idle green.
 - `run()` puts one box on a wall line, and `pieces()` gives the solid spans around the gaps.
-- `outer()` draws the far walls (west, north) with windows, and `stub()` the cut camera-side walls (east, south, with the entrance).
+- `outer()` draws the far walls (west, north) with windows, and `stub()` the cut camera-side walls (east, south, with the entrance). The north wall skips a first-row terrace: `run()` draws a low hedge there (0.9 high, `T + 0.06` thick, `C.hedge`), and the cross corridor keeps its piece of the wall.
 - `inner()`: a glass inner wall. Its comment says why the header stays thin.
 - `door(r)`: the posts, the lintel, the transom, the status `light`, and a `hinge` group with the leaf and the knob. The hinge starts at `doors.get(r.id) ?? 0`, so a rebuild keeps an open door open. The leaf and the knob use cached colors. Sets the room view.
 
@@ -80,8 +80,12 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
   1. Dispose `v.tex` of each view, each geometry with `userData.merged`, and each material without `userData.shared` (with its `map`). Remove each label element from the DOM.
   2. Make a new `world`, and clear `views` and `live`.
   3. The corridors, then each room: the floor, `DECOR[r.kind](g, r)` in a group at the room corner, the inner walls (each wall once), `door(r)`, `partyLights(r)` for the party room, and the pod lamps.
-  4. The outer walls, then `desk()` for each desk and `attendee()` for each subagent.
-  5. `bake()`, the sun, and the shadow flags. A material with `depthWrite` false (the glass, a light beam, a halo) casts no shadow.
+  4. Each terrace: the grass, `terrace(g, t)` in a group at the terrace corner, and its glass walls. A room draws no wall on its +x edge away from the cross corridor, and a south-row room draws none on its +z edge, so the terrace draws its walls itself:
+     - the -x edge (the last room of the row) and the +x edge (the cross corridor), always.
+     - the -z edge, when `z` is more than 0. A terrace in the row behind shares the span from the larger x of the two to `W`. That span gets no wall, so the two terraces make one courtyard.
+     - the +z edge, only when the band corridor is in front. Else the rooms or the terrace of the next row draw it, or the south stub stands there.
+  5. The outer walls, then `desk()` for each desk and `attendee()` for each subagent.
+  6. `bake()`, the sun, and the shadow flags. A material with `depthWrite` false (the glass, a light beam, a halo) casts no shadow.
 - `bake()`: skips each object in `live` with its subtree. It merges the meshes of each material with 2 or more meshes into one mesh, and marks its geometry `userData.merged`.
 
 ### Desks, seats, and workers
@@ -99,8 +103,8 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 ### Idle breaks
 
-- `breaks(v, t)`: calls `stepBreak()` with the spot counts of the kitchen and the party room (0 without one) and a route to a spot of either room, then `along()`. It returns where the worker is on its trip, with `room` (the target room id), or `null` at the desk (always for a subagent). `pose()` passes this result to `opens()`.
-- `stroll(w, d, a, t)`: poses a worker on a trip, as `CLAUDE.md` "Scene conventions" describes. The arm swing and the mug hand use `calm()` of the nearest door. In the stay of a party trip, it adds the dance and sets `dancing`.
+- `breaks(v, t)`: calls `stepBreak()` with the counts of the kitchen spots, the party spots (0 without a party room), and the kitchen `chairs` (`lunch`), and a route for each trip kind. A lunch route goes to `kitchen.chairs[i]` in the room `kitchen`. Then it calls `along()`. It returns where the worker is on its trip, or `null` at the desk (always for a subagent). Its `room` is the target room id: `kitchen` for a lunch trip, because `opens()` takes a room id. `a.trip.room` keeps the kind. `pose()` passes this result to `opens()`.
+- `stroll(w, d, a, t)`: poses a worker on a trip, as `CLAUDE.md` "Scene conventions" describes. The arm swing and the mug hand use `calm()` of the nearest door. In the stay of a party trip, it adds the dance and sets `dancing`. In the stay of a lunch trip, it puts the body group on the chair point (`chairs[i]` from the `lunch:<i>` key in `trip.spot`) at y 0.5, turns it to `rot` quarter turns, shows `sit` and `plate`, and hides `stand`. The left arm rests at 1.2. The right arm rests at 1.2, and in each bite it goes to 2.0 and back in 1 s (a sine). A bite starts every 3 to 5 s, and the period and the phase come from `hash(d.id)`. In each other phase it hides `plate`. The click handler makes a walker box when `stand` or `plate` shows, so a click on a seated eater also opens its panel and follows it.
 - `swing(dt)`: turns each door toward `OPEN` when `ajar` has its room id, else toward 0, at a speed set by `SWING`. It writes `doors` and `hinge.rotation.y`.
 - `opens()` in `model.js` gives the doors that one walker opens: its own room door and the door of its target room. See `docs/model.md` "Breaks".
 
@@ -121,7 +125,7 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 2. `typed` (working, not walking) calls `typing()` and shows the halo and the `logo`. `browsing` (idle, not walking, not away) calls `browse()`.
 3. The screen gets `v.tex` while `typed` or `browsing`, else `COLOR[status]`, or `SHELL` for a shell desk.
 4. A view with no worker stops here.
-5. On a walk: `stroll()`, `moving = true`, and the ids from `opens()` go into `ajar`. At the desk: reset the position and rotation, show `sit`, hide `stand` and `mug`, and set the arms from `ARM`.
+5. On a walk: `stroll()`, `moving = true`, and the ids from `opens()` go into `ajar`. At the desk: reset the position and rotation, show `sit`, hide `stand`, `mug`, and `plate`, and set the arms from `ARM`.
 6. In both cases: `paper` for `done`, `beacon` for `blocked`, and opacity 0.35 for `unknown`. So a run back shows these parts.
 
 ### declutter()

@@ -22,7 +22,7 @@ The office watches. It has two writes to herdr: a focus and a message. A click o
 | `working` | The worker types | Strong yellow `#ffd43b`. The screen glows and shows text that types and scrolls. |
 | `blocked` | The worker raises a hand | Red `#fa5252`. A red beacon pulses over the head. |
 | `done` | The worker raises a paper | Teal `#94e2d5`. |
-| `idle` | The worker reclines and browses. Now and then it walks to the kitchen or dances in the party room. | Green `#a6e3a1`. The screen shows a fake web page or a video on a green background. See decision 19. |
+| `idle` | The worker reclines and browses. Now and then it walks to the kitchen for a coffee or a lunch, or dances in the party room. | Green `#a6e3a1`. The screen shows a fake web page or a video on a green background. See decision 19. |
 | `unknown` | The worker is semi-transparent | Grey `#6c7086`. |
 | Focus (`focused_pane_id`) | A blue spotlight on the desk | The first view frames the room of the focused workspace. |
 | Roll-up | Door light, pod lamp, HUD | Rank: blocked > done > working > idle > unknown. |
@@ -32,7 +32,7 @@ The office watches. It has two writes to herdr: a focus and a message. A click o
 - Each agent desk has a keyboard and a mouse. The worker badge shows the agent name (or else the display name, or else the kind) and the pane ID, for example `claude · w1:p1`.
 - Only 3D objects use the strong yellow. The HUD, the badges and the door signs keep the herdr theme yellow.
 - The HUD is the box at the top left. It counts each status and lists the agents by rank, then by the newest state change.
-- The building also has a kitchen, a lobby with the reception and the entrance, plants, and desk clutter. A row with enough spare width also gets a party room (decision 24).
+- The building also has a kitchen, a lobby with the reception and the entrance, plants, and desk clutter. A row with enough spare width also gets a party room (decision 24). A big room gets more props from a pool for its kind (decision 25). Each other row with 4 or more spare width gets a garden terrace at its east end, and its rooms keep their own width (decision 26).
 - A drag moves the view. The mouse wheel zooms to the mouse pointer. Labels declutter: a label that covers a more important one hides.
 - A click on a desk, a worker, or a HUD row opens the side panel. The panel shows kind, name, status, room, tab, cwd, title, and pane. A click on a worker on a trip also zooms in and follows that worker (decision 23).
 - The panel of an agent desk has a message field. Enter or "Send" sends the text to that agent. A subagent and a shell desk have no message field.
@@ -104,13 +104,41 @@ The user made these decisions between 2026-10-03 and 2026-10-06.
 24. A party room, in the user's words: "Maybe as a fun factor, if there is enough room we could create a party room with disco lights where idle agent are dancing and partying". The request came from "The big offices feel kind of empty". For the speakers: "make the speakers like a breathing effect so it seems they're playing music".
     - The party room fills the spare width of the row with the most spare width, if that width is 7 or more. The other rooms in that row keep their normal width. Without such a row, the office has no party room.
     - The party room is the last room of its row. In the row of the lobby, it comes just before the lobby.
-    - An idle worker picks the kitchen or the party room at random for each trip. If the pick has no free spot, the worker goes to the other room. If both rooms are full, it keeps browsing.
+    - An idle worker picks the kitchen or the party room at random for each trip. If the pick has no free spot, the worker goes to the other room. If both rooms are full, it keeps browsing. Decision 27 adds a lunch as a third pick.
     - A dance lasts as long as a kitchen stay (6 to 15 s, decision 19). If the status changes, the dancer runs back to the desk.
     - A walker opens the door of its own room and the door of its target room, and no other door. This changes decision 20 for the kitchen door: a party walker does not open it.
     - The dance floor tiles, the disco ball, the light beams, and the speakers move only while at least one worker dances. The speakers pulse on a beat. The speaker boxes also pulse a little (3%), because in a party room with a north door the speaker fronts face away from the camera.
     - The disco colors are magenta, violet, and white only, so no light reads as a status. The room has no three.js light source, because such a light shines through walls.
     - A dancer keeps its arms below the shoulders, because a raised hand means `blocked` and a raised paper means `done`. A dancer gets no mug.
-    - The user chose to wait with more decor for big rooms (a grid of props, wall props, and rugs on the walk lanes). The user looks at the big rooms again after the party room.
+    - The user chose to wait with more decor for big rooms (a grid of props, wall props, and rugs on the walk lanes). Decision 25 added the props and the wall props. The user then rejected flat runners on the walk lanes (decision 25).
+25. More decor in big rooms, in the user's words: "The bigger rooms feel empty due to empty space, fill them up with decor but don't make it feel repetetive". This is the decor that decision 24 kept for later.
+    - A fill pass (`furnish()` in `decor.js`) runs after the fixed props of each workspace room, the kitchen, the party room, and the lobby. The meeting room gets no fill.
+    - The fill gives one floor prop for each 7 m² of free floor over 30 m². So a small room stays as it was. In the demo, only the party room, the kitchen, and the lobby get more props.
+    - Each room kind has a pool. The office pool has 27 kinds. Wall props: a piano, an aquarium, filing cabinets, a credenza, lockers, a snack machine, an arcade cabinet, a bike, and the old lounge, cooler, printer, and whiteboard. Floor groups: a reading nook, a sofa corner, a long shared table, a chess table, a high table with stools, a ping-pong table, a foosball table, two room dividers, a tree, a coat rack, a flip chart, bean bags, a plant, and the old cafe table. The party room also gets a bar and a drum kit, and the lobby gets a magazine table.
+    - Against repetition: a room gets each kind at most once, and a plant or a bean bag at most twice. A room takes at most 80% of the floor kinds of its pool, so two big rooms get different mixes. The old fill (a cafe table and a lounge in turns) is gone.
+    - The room id seeds the pick, the spots, and the turns. So each build gives the same props, and no prop jumps.
+    - An earlier version also put flat runners on the walk lanes and sent each prop to the spot farthest from the other props. The user rejected both, in the user's words: "Hmm it's only filled at the side and now there is a weird brown border on the ground. I was thinking more of random fill up in the room itself rather then just at the border". Both are gone.
+    - The fill now stands in the open floor between and around the pods, in a seeded random order. Floor props come first. A floor spot is at least 1.2 from each room edge, and a floor prop keeps 0.6 from each edge. Each spot has a random jitter, so the props do not stand in lines. A prop with a front turns it to the room middle.
+    - Then a strip round puts thin props (a planter, a low shelf, a bench, a coat rack, a tree, a bean bag, a plant) on a finer grid, at least 0.6 from each room edge, so they spread over the whole room. Each of these kinds can come twice in a room.
+    - Last, at most 3 wall props from the pool stand on the north or the west wall, because the camera sees these walls. They do not use the budget. The corner plants and the fixed props stay where they were.
+    - A gap of 0.3 stays around each prop. No prop stands on a walk lane, the door area, a pod, the dance floor, or the speaker floor.
+    - The walk lanes under a short pod next to a tall pod got narrower, so props fit there too (the main session chose this). Before, one walk rect as wide as the pod ran from the pod down to the row lane. Now each desk of the last row gets a lane 0.6 wide below it. The routes did not change.
+    - The props use the colors of the palette. No prop glows.
+26. A garden terrace against big rooms, in the user's words: "Maybe it's also an option to make like en L shaped office or so? To counter the big rooms. There isn't a hard requirement to keep the rectangle shaped office". Before, each row stretched its rooms to the width of the widest row, so a room with one pod could get about 30 wide. The user chose two answers: "Garden terrace" and "Width only".
+    - "Garden terrace": a short row stops stretching its rooms. Its spare width becomes a garden terrace, behind glass walls, so the camera sees in. A terrace in a middle row is a closed courtyard.
+    - "Width only": the rooms keep their own width, but they still share the row depth.
+    - The rule: each row except the party row with a spare width of 4 or more gets a terrace. The main session chose the 4. A row with less spare width stretches its rooms as before. The party room keeps its rule (decision 24).
+    - The terrace is at the east end of its row, from the last room to the cross corridor, with the row depth. The doors, the corridors, the routes, the kitchen, the party room, and the lobby keep their rules.
+    - A terrace is a garden, not a room. It has no door, no sign, no desks, and nobody walks there. It has grass, a wood deck, garden trees, bushes, benches, loungers, tables with a parasol, planters, and a pond in a big terrace. The fill pass of decision 25 adds more props to a big terrace. The props use plain colors, and nothing glows.
+    - A glass wall stands on each edge between a terrace and a room or a corridor. Two terraces back to back share their edge with no wall, so they make one courtyard. A terrace in the first row has a low hedge instead of the north wall. A terrace in the last row keeps the low south wall.
+27. A lunch break, in the user's words: "Make sure that agents also can sit on the table in the kitchen to eat something like a lunch break". The user chose two answers: "Straight to the table" and "Longer: 20 to 40 s".
+    - An idle worker picks one of three trips at random: a coffee at the counter, a lunch at a kitchen table, or a dance in the party room. Each has a chance of about one in three. Without a party room, the pick is a coffee or a lunch. This changes the coin of decision 24.
+    - If the pick has no free place, the worker tries the next kind. If no place is free, it keeps browsing.
+    - The worker walks straight to a free chair at a kitchen table. It does not stop at the counter first.
+    - It sits, faces the table, and eats from a plate. Now and then it lifts a hand to its mouth. The hand stays below the shoulder, because a raised hand means `blocked`.
+    - A lunch lasts 20 to 40 s. A coffee and a dance keep 6 to 15 s. If the status leaves `idle`, the worker runs back to the desk.
+    - The model places the kitchen tables and their chairs, not the decor. A chair stands only on the west or the east side of a table, so no route crosses a table.
+    - A lunch walker opens its own door and the kitchen door, like a coffee walker.
 
 ## Cut on purpose
 
@@ -140,8 +168,15 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 ## Open items and known limits
 
 - No test covers the party lights, the speakers, or the dance, because Node cannot load three.js. A browser check in the demo and in the live office covered them.
-- The rooms in the party row do not get wider, so they do not get the extra props of a wide room. In the demo, "docs" is 7.8 wide, not 19.5.
-- A big room can still have empty floor under short pods next to a tall pod. The pods of one row share the depth of the tallest pod, and the walk lanes take that floor. The decor for this waits (decision 24).
+- The rooms in the party row and in a terrace row do not get wider, so they do not get the extra props of a wide room. In the demo, "docs" is 7.8 wide, not 19.5. The demo has no terrace: each of its other rows has less than 4 spare width.
+- Under a short pod next to a tall pod, only a lane 0.6 wide below each last-row desk is walk floor (decision 25). The props fit between these lanes. In a room with a north door, the row lane runs above the pods, and the floor under a short pod was never walk floor.
+- The fill numbers (one floor prop for each 7 m² over 30 m², at most 80% of the floor kinds, a gap of 0.3, 1.2 and 0.6 from the walls for the floor round, 0.6 for the strip round, 3 wall props) come from a placement check in Node. The user did not tune them.
+- The floor round gives a big room at most 12 props (80% of the 15 floor kinds of the office pool), the strip round at most 2 of each of 7 thin kinds, and the wall round at most 3. The spots are random, so a big room can get a dense patch next to a bare one. In a 32.4 x 7.4 test room with one pod, most floor groups stood in the west half. Since decision 26, that room keeps its width of 7.8, and a terrace of 24.6 x 7.4 fills the rest of its row.
+- In a room full of pods (two pod rows, about 30 x 13), most fill props are thin props. In the test room with 9 tabs (30.6 x 13.3), the free floor went from 31% to 37%, and the props from 6 to 24. A test room with two rows of 4 pods (29.1 x 13.3) went from 29% to 34%, and also from 6 to 24 props. The band along the corridor side is about 0.5 deep after the gap, so it stays empty. Few groups of the floor round fit between the lanes there.
+- A party room in a long, shallow row is mostly the dance floor and the strip. Only a few small props fit beside it.
+- No test covers the fill pass, because Node cannot load three.js. A scratch check in Node (`docs/decor.md` "Check placement in Node") covered 288 rooms in 33 offices. A test in `test/walk.test.mjs` covers the narrow lanes under a short pod.
+- No test covers the terrace walls, the hedge, the grass, or the garden props, because Node cannot load three.js. A scratch check in Node copied the wall rules of `build()`. In 29 offices it found one wall on each edge, and no wall between two terraces. A placement check covered the props of 31 terraces. The browser check of the terraces is still open.
+- A row with a spare width just under 4 still stretches its rooms, by less than 4 in total. The user did not tune the 4.
 - Nobody tested "Focus in herdr" (with the WezTerm raise) or the SketchyBar row click against the live herdr. The tests use fake sockets and stubs.
 - The tests cover only the bridge side of a message. One browser check against a fake herdr socket covered the page side.
 - The message field holds one line. "ok" in the panel means that herdr typed the text. It does not prove that the agent started a turn.

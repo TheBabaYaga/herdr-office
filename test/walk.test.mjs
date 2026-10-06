@@ -156,8 +156,10 @@ const PATH = [[0, 0], [0, 16]] // a route of 16 units: 10 s out at the walk spee
 const OUT = 16 / WALK
 const world = () => ({ trips: new Map(), claimed: new Map() })
 const step = (w, t, over = {}, id = 'a') => stepBreak(w.trips, w.claimed, id, { idle: true, seed: 7, spots: { kitchen: 3 }, route: () => PATH, ...over }, t)
-const PARTY = { kitchen: 3, party: 5 } // the spot counts with a party room
-const seedFor = (party) => { let s = 0; while (breakPlan(s, 0).party !== party) assert.ok(++s < 100, `no seed with the coin ${party}`); return s } // the first seed whose first trip has this coin
+const ALL = { kitchen: 3, lunch: 4, party: 5 } // the spot counts of the three kinds: counter spots, chairs, dance spots
+const KINDS = ['kitchen', 'lunch', 'party']
+const kindOf = (seed, n, kinds = KINDS) => kinds[Math.floor(breakPlan(seed, n).pick * kinds.length)] // the kind that the plan picks first
+const seedFor = (kind, kinds = KINDS) => { let s = 0; while (kindOf(s, 0, kinds) !== kind) assert.ok(++s < 100, `no seed for ${kind}`); return s } // the first seed whose first trip picks this kind
 
 test('stepBreak: a worker waits, claims a spot, walks, stays, walks back and frees the spot', () => {
   const w = world()
@@ -189,9 +191,9 @@ test('stepBreak: a second worker takes the next free spot', () => {
   assert.deepEqual([...w.claimed].sort(), [['kitchen:1', 'a'], ['kitchen:2', 'b']])
 })
 
-test('stepBreak: with no free spot in the kitchen and the party room the worker keeps browsing and tries later with the next plan', () => {
-  const w = world(), over = { spots: PARTY }
-  for (const [room, n] of Object.entries(PARTY)) for (let i = 0; i < n; i++) w.claimed.set(`${room}:${i}`, `x${i}`)
+test('stepBreak: with no free spot of any kind the worker keeps browsing and tries later with the next plan', () => {
+  const w = world(), over = { spots: ALL }
+  for (const [room, n] of Object.entries(ALL)) for (let i = 0; i < n; i++) w.claimed.set(`${room}:${i}`, `x${i}`)
   step(w, 0, over)
   const wait = breakPlan(7, 0).wait
   assert.equal(step(w, wait, over), null)
@@ -199,7 +201,7 @@ test('stepBreak: with no free spot in the kitchen and the party room the worker 
   assert.equal(w.trips.get('a').n, 1)
   const next = wait + breakPlan(7, 1).wait
   assert.equal(w.trips.get('a').next, next)
-  assert.equal(w.claimed.size, 8, 'it took no spot')
+  assert.equal(w.claimed.size, 12, 'it took no spot')
   w.claimed.delete('kitchen:0')
   assert.equal(step(w, next - 0.01, over), null, 'not before the next try')
   assert.equal(step(w, next, over).phase, 'out')
@@ -210,8 +212,8 @@ test('stepBreak: with no free spot in the kitchen and the party room the worker 
   assert.equal(step(w, next + OUT + stay + 0.1, over).phase, 'back')
 })
 
-test('stepBreak: a party coin sends the worker to a dance spot with no mug, and the end of the trip frees the spot', () => {
-  const w = world(), seed = seedFor(true), seen = [], over = { seed, spots: PARTY, route: (room, i) => (seen.push([room, i]), PATH) }
+test('stepBreak: a party pick sends the worker to a dance spot with no mug, and the end of the trip frees the spot', () => {
+  const w = world(), seed = seedFor('party'), seen = [], over = { seed, spots: ALL, route: (room, i) => (seen.push([room, i]), PATH) }
   step(w, 0, over)
   const t = w.trips.get('a').next, out = step(w, t, over), key = `party:${seed % 5}`
   assert.deepEqual([out.trip.room, out.trip.spot, seen], ['party', key, [['party', seed % 5]]], 'the claim starts at (seed + 0) % spots')
@@ -223,30 +225,50 @@ test('stepBreak: a party coin sends the worker to a dance spot with no mug, and 
   assert.equal(w.claimed.size, 0, 'the dance spot is free again')
 })
 
-test('stepBreak: a kitchen coin sends the worker to the kitchen, also with a party room', () => {
-  const w = world(), seed = seedFor(false), over = { seed, spots: PARTY }
+test('stepBreak: a lunch pick sends the worker to a chair for the lunch stay, with no mug, and the end of the trip frees the chair', () => {
+  const w = world(), seed = seedFor('lunch'), seen = [], over = { seed, spots: ALL, route: (room, i) => (seen.push([room, i]), PATH) }
+  step(w, 0, over)
+  const t = w.trips.get('a').next, out = step(w, t, over), key = `lunch:${seed % 4}`, { stay, lunch } = breakPlan(seed, 0)
+  assert.deepEqual([out.trip.room, out.trip.spot, seen], ['lunch', key, [['lunch', seed % 4]]], 'the claim starts at (seed + 0) % chairs')
+  assert.deepEqual([...w.claimed], [[key, 'a']])
+  assert.equal(out.trip.stay, lunch)
+  assert.ok(lunch > stay)
+  assert.deepEqual([step(w, t + OUT + stay + 0.1, over).phase, step(w, t + OUT + lunch - 0.1, over).phase], ['stay', 'stay'], 'the stay is the lunch')
+  assert.equal(step(w, t + OUT + lunch / 2, over).got, false, 'a lunch gets no mug')
+  assert.deepEqual([step(w, t + OUT + lunch + 0.1, over).phase, step(w, t + OUT + lunch + 0.1, over).got], ['back', false])
+  assert.equal(step(w, t + 2 * OUT + lunch, over), null, 'back at the desk')
+  assert.equal(w.claimed.size, 0, 'the chair is free again')
+})
+
+test('stepBreak: a kitchen pick sends the worker to the counter, also with chairs and a party room', () => {
+  const w = world(), seed = seedFor('kitchen'), over = { seed, spots: ALL }
   step(w, 0, over)
   const r = step(w, w.trips.get('a').next, over)
   assert.deepEqual([r.trip.room, [...w.claimed]], ['kitchen', [[`kitchen:${seed % 3}`, 'a']]])
 })
 
-test('stepBreak: a full room sends the worker to the other room', () => {
-  for (const [coin, full, other] of [[true, 'party', 'kitchen'], [false, 'kitchen', 'party']]) {
-    const w = world(), seed = seedFor(coin), over = { seed, spots: PARTY }
-    for (let i = 0; i < PARTY[full]; i++) w.claimed.set(`${full}:${i}`, `x${i}`)
+test('stepBreak: a full kind sends the worker to the next kind in the order kitchen, lunch, party', () => {
+  for (const [first, full, next] of [['kitchen', ['kitchen'], 'lunch'], ['lunch', ['lunch'], 'kitchen'], ['party', ['party'], 'kitchen'], ['party', ['party', 'kitchen'], 'lunch'], ['kitchen', ['kitchen', 'lunch'], 'party']]) {
+    const w = world(), seed = seedFor(first), over = { seed, spots: ALL }
+    for (const kind of full) for (let i = 0; i < ALL[kind]; i++) w.claimed.set(`${kind}:${i}`, `x${i}`)
     step(w, 0, over)
     const r = step(w, w.trips.get('a').next, over)
-    assert.equal(r.trip.room, other, `the ${full} is full`)
-    assert.equal(w.claimed.get(`${other}:${seed % PARTY[other]}`), 'a')
+    assert.equal(r.trip.room, next, `the pick ${first}, ${full} full`)
+    assert.equal(w.claimed.get(`${next}:${seed % ALL[next]}`), 'a')
   }
 })
 
-test('stepBreak: without a party room every trip goes to the kitchen, also with a party coin', () => {
-  for (const spots of [{ kitchen: 3, party: 0 }, { kitchen: 3 }]) {
-    const w = world(), seed = seedFor(true), over = { seed, spots }
-    step(w, 0, over)
-    const r = step(w, w.trips.get('a').next, over)
-    assert.deepEqual([r.trip.room, [...w.claimed]], ['kitchen', [[`kitchen:${seed % 3}`, 'a']]], JSON.stringify(spots))
+test('stepBreak: a kind with no spots is never picked', () => {
+  for (const [spots, kinds] of [[{ kitchen: 3, lunch: 4, party: 0 }, ['kitchen', 'lunch']], [{ kitchen: 3, lunch: 4 }, ['kitchen', 'lunch']], [{ kitchen: 3 }, ['kitchen']], [{ kitchen: 3, lunch: 0, party: 5 }, ['kitchen', 'party']]]) {
+    const seen = new Set()
+    for (let seed = 0; seed < 40; seed++) {
+      const w = world(), over = { seed, spots }
+      step(w, 0, over)
+      const r = step(w, w.trips.get('a').next, over)
+      assert.equal(r.trip.room, kindOf(seed, 0, kinds), `${JSON.stringify(spots)} seed ${seed}`)
+      seen.add(r.trip.room)
+    }
+    assert.deepEqual([...seen].sort(), kinds, JSON.stringify(spots))
   }
 })
 
@@ -304,8 +326,8 @@ test('stepBreak: the length of a trip comes from the route of the spot', () => {
 })
 
 test('endBreak frees the spot and drops the state', () => {
-  for (const [coin, room] of [[false, 'kitchen'], [true, 'party']]) {
-    const w = world(), over = { seed: seedFor(coin), spots: PARTY }
+  for (const room of KINDS) {
+    const w = world(), over = { seed: seedFor(room), spots: ALL }
     step(w, 0, over); step(w, w.trips.get('a').next, over)
     assert.deepEqual([...w.claimed.keys()].map(k => k.split(':')[0]), [room])
     endBreak(w.trips, w.claimed, 'a')
@@ -323,6 +345,9 @@ test('breakPlan is deterministic and stays in range', () => {
       const [lo, hi] = n ? [20, 60] : [5, 30]
       assert.ok(p.wait >= lo && p.wait <= hi, `seed ${seed} n ${n}: wait ${p.wait}`)
       assert.ok(p.stay >= 6 && p.stay <= 15, `seed ${seed} n ${n}: stay ${p.stay}`)
+      assert.ok(p.lunch >= 20 && p.lunch <= 40, `seed ${seed} n ${n}: lunch ${p.lunch}`)
+      assert.ok(p.pick >= 0 && p.pick < 1, `seed ${seed} n ${n}: pick ${p.pick}`)
+      assert.deepEqual(Object.keys(p), ['wait', 'stay', 'lunch', 'pick'])
       if (!n) firsts.add(p.wait.toFixed(3))
     }
   }
@@ -330,26 +355,24 @@ test('breakPlan is deterministic and stays in range', () => {
   assert.notDeepEqual(breakPlan(5, 1), breakPlan(5, 2), 'each trip has its own plan')
 })
 
-test('breakPlan: a party coin for each trip, true for about half, with the same wait and stay as before the party room', () => {
-  // The plan before the party room. INTENT.md decision 19 holds its numbers, so the coin must not move them.
+test('breakPlan: a pick for each trip gives each of 3 kinds about a third, with the same wait and stay as before the pick', () => {
+  // The plan before the party room. INTENT.md decision 19 holds its numbers, so the pick must not move them.
   const before = (seed, n) => {
     const u = (i) => { let h = Math.imul((seed ^ Math.imul(n + 1, 0x9e3779b1)) + i * 0x85ebca6b, 0xc2b2ae35); h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d); return ((h ^ (h >>> 13)) >>> 0) / 4294967296 }
     const [lo, hi] = n ? [20, 60] : [5, 30]
     return { wait: lo + u(0) * (hi - lo), stay: 6 + u(1) * 9 }
   }
   const seeds = Array.from({ length: 1000 }, (_, i) => (i * 1000003 + 11) % 1e9) // like hash(terminalId, 1e9)
-  const coins = seeds.map(seed => Array.from({ length: 10 }, (_, n) => {
+  const picks = seeds.map(seed => Array.from({ length: 10 }, (_, n) => {
     const p = breakPlan(seed, n)
-    assert.equal(typeof p.party, 'boolean')
-    assert.equal(p.party, breakPlan(seed, n).party, `seed ${seed} n ${n}: the same coin`)
     assert.deepEqual({ wait: p.wait, stay: p.stay }, before(seed, n), `seed ${seed} n ${n}`)
-    return p.party
+    return kindOf(seed, n)
   }))
-  for (let n = 0; n < 10; n++) {
-    const heads = coins.filter(c => c[n]).length
-    assert.ok(heads >= 400 && heads <= 600, `trip ${n}: ${heads} of 1000 coins are true`)
+  for (let n = 0; n < 10; n++) for (const kind of KINDS) {
+    const k = picks.filter(c => c[n] === kind).length
+    assert.ok(k >= 270 && k <= 400, `trip ${n}: ${k} of 1000 picks are ${kind}`)
   }
-  assert.ok(coins.filter(c => c.every(x => x === c[0])).length < 10, 'a worker gets both coins in 10 trips')
+  assert.ok(picks.filter(c => new Set(c).size < 3).length < 100, 'most workers get each kind in 10 trips')
 })
 
 test('along at the full length of a real route is the last point', () => {
@@ -366,7 +389,7 @@ test('along at the full length of a real route is the last point', () => {
 })
 
 // ---- routes ----
-// Not covered here: that no decor prop stands on a walk rect, and that the kitchen keeps a cafe table. decor.js imports three,
+// Not covered here: that no decor prop stands on a walk rect, and that decor.js draws the kitchen tables and chairs. decor.js imports three,
 // which Node cannot load. Check both by hand after a change to placer() or kitchen() (load decor.js with three.js in a scratch script).
 const EPS = 1e-9
 const strictIn = (p, c) => p.x > c.x + EPS && p.x < c.x + c.w - EPS && p.z > c.z + EPS && p.z < c.z + c.d - EPS
@@ -389,7 +412,8 @@ function checkRoute(name, o, d, spot, to = 'kitchen') {
   const len = pathLen(path), first = cuts[2] // the first two steps lead out of the chair: aside, then back to the lane
   assert.ok(path[1][1] === d.z + 0.4 && Math.abs(path[1][0] - d.x) >= 0.6, `${tag}: first steps aside, clear of the chair back`)
   const samples = [...new Set([...Array.from({ length: Math.floor(len / 0.1) + 1 }, (_, i) => i * 0.1), ...cuts])].sort((a, b) => a - b)
-  const spots = o.rooms.find(r => r.id === to).spots // the other workers in the target room
+  const target = o.rooms.find(r => r.id === to), spots = [...target.spots, ...(target.chairs ?? [])] // the other workers in the target room, at the counter or at a table
+  const tops = target.tables ?? [], seats = (target.chairs ?? []).filter(c => c !== spot)
   const walls = [...o.rooms, { x: 0, z: 0, w: o.bounds.w, d: o.bounds.d }]
   let prev = null
   for (const s of samples) {
@@ -434,6 +458,12 @@ function checkRoute(name, o, d, spot, to = 'kitchen') {
         for (const px of [-0.6, 0.6]) assert.ok(r.door.x + px < x0 - 0.06 || r.door.x + px > x1 + 0.06 || r.door.z < z0 - 0.18 + EPS || r.door.z > z1 + 0.18 - EPS, `${at}: the body or a hand touches a post of ${r.id}`)
       }
     }
+    // A table top is 0.9 x 0.9 round its center. A chair reaches 0.25 to each side of its point and 0.45 behind it, away from the table.
+    for (const t of tops) assert.ok(Math.abs(p.x - t.x) >= 0.75 - EPS || Math.abs(p.z - t.z) >= 0.75 - EPS, `${at}: the route line is closer than 0.3 to the table at (${t.x.toFixed(2)}, ${t.z.toFixed(2)})`)
+    for (const c of seats) {
+      const [x0, x1] = c.rot === 3 ? [c.x - 0.45, c.x + 0.25] : [c.x - 0.25, c.x + 0.45]
+      assert.ok(Math.hypot(Math.max(x0 - p.x, 0, p.x - x1), Math.max(c.z - 0.25 - p.z, 0, p.z - c.z - 0.25)) >= 0.39 - EPS, `${at}: the body touches the chair at (${c.x.toFixed(2)}, ${c.z.toFixed(2)})`)
+    }
     for (const q of spots) if (q !== spot) assert.ok(Math.hypot(p.x - q.x, p.z - q.z) >= 0.55 - EPS, `${at}: closer than 0.55 to a worker at the spot (${q.x.toFixed(2)}, ${q.z.toFixed(2)})`) // 0.39 half width of the walker and 0.15 half depth of the stander
   }
 }
@@ -450,6 +480,52 @@ test('every route runs from a seat to a kitchen spot through rooms, doors and co
   assert.ok(n > 500, `${n} routes`)
 })
 
+test('every lunch route runs from a seat to a kitchen chair, and its last leg comes from the strip', () => {
+  let n = 0
+  for (const [name, o] of offices) {
+    const kitchen = o.rooms.find(r => r.kind === 'kitchen')
+    for (const d of o.desks.filter(d => d.agent)) for (const chair of kitchen.chairs) {
+      checkRoute(name, o, d, chair)
+      assert.deepEqual(route(o, d.id, chair).slice(-2), [[chair.x, kitchen.z + 1.9], [chair.x, chair.z]], `${name}: ${d.id}: along the strip, then straight to the chair`)
+      n++
+    }
+  }
+  assert.ok(n > 1000, `${n} routes`)
+})
+
+test('the kitchen has 2 or more chairs at its tables, inside the room, off the walk rects of the other chairs, and apart', () => {
+  for (const [name, o] of offices) {
+    const k = o.rooms.find(r => r.kind === 'kitchen'), { tables, chairs, walk } = k
+    assert.ok(chairs.length >= 2, `${name}: ${chairs.length} chairs`)
+    const lanes = walk.filter(w => chairs.some(c => Math.abs(w[0] + 0.3 - c.x) < EPS && Math.abs(w[3] - c.z) < EPS)) // the lane of each chair ends at the chair
+    assert.equal(lanes.length, chairs.length, `${name}: one lane for each chair`)
+    const parts = [...tables.map(t => [t.x - 0.45, t.z - 0.45, t.x + 0.45, t.z + 0.45, null]), ...chairs.map(c => [c.x - (c.rot === 3 ? 0.45 : 0.25), c.z - 0.25, c.x + (c.rot === 3 ? 0.25 : 0.45), c.z + 0.25, c])]
+    for (const [x0, z0, x1, z1, c] of parts) {
+      assert.ok(x0 >= k.x + 0.2 - EPS && x1 <= k.x + k.w - 0.2 + EPS && z0 >= k.z + 0.2 - EPS && z1 <= k.z + k.d - 0.2 + EPS, `${name}: (${x0}, ${z0}) inside`)
+      for (const w of walk) if (!(c && Math.abs(w[0] + 0.3 - c.x) < EPS && Math.abs(w[3] - c.z) < EPS)) assert.ok(x1 <= w[0] + EPS || w[2] <= x0 + EPS || z1 <= w[1] + EPS || w[3] <= z0 + EPS, `${name}: (${x0}, ${z0}) on the walk rect ${w}`)
+    }
+    chairs.forEach((a, i) => chairs.slice(i + 1).forEach(b => assert.ok(a.table === b.table || Math.hypot(a.x - b.x, a.z - b.z) >= 0.85 - EPS, `${name}: chairs apart`)))
+  }
+})
+
+// Two rows of 4 pods, with short and tall pods in each row.
+const ROWS = [[G(2, 2), G(3, 1), G(2, 1), G(2, 2), G(3, 2), G(2, 1), G(2, 2), G(2, 1)]]
+test('under a short pod next to a tall pod, only a narrow lane below each last-row desk is a walk rect', () => {
+  let n = 0
+  for (const o of [...offices.map(([, o]) => o), buildOffice(snap(ROWS))]) {
+    for (const r of o.rooms.filter(r => r.kind === 'workspace' && r.door.side === 'south')) for (const p of r.pods) {
+      const bottom = Math.max(...r.pods.filter(q => q.z === p.z).map(q => q.z + q.d)) // the deepest pod of the row
+      if (bottom - (p.z + p.d) < 1) continue // not a short pod
+      const xs = o.desks.filter(d => d.podId === p.id && d.z + 1.1 >= p.z + p.d - 1e-9).map(d => d.x + 0.65).sort((a, b) => a - b) // the lanes of the last row, as in route()
+      const z = (p.z + p.d + bottom) / 2, free = { x: xs.length > 1 ? (xs[0] + xs[1]) / 2 : xs[0] - 1, z }
+      assert.ok(!r.walk.some(w => inRect(free, w)), `${r.id}: (${free.x.toFixed(2)}, ${z.toFixed(2)}) under the short pod ${p.id} is in a walk rect`)
+      for (const x of xs) assert.ok(r.walk.some(w => inRect({ x, z }, w)), `${r.id}: the lane at x ${x.toFixed(2)} under ${p.id} is in no walk rect`)
+      n++
+    }
+  }
+  assert.ok(n > 5, `${n} short pods`)
+})
+
 test('every route to the party room runs from a seat to a dance spot through rooms, doors and corridors', () => {
   let n = 0
   for (const [name, o] of offices) {
@@ -464,7 +540,7 @@ test('every route to the party room runs from a seat to a dance spot through roo
 test('a walker opens only its own door and the door of its target room, near the door, and none in the stay', () => {
   for (const [name, o] of offices) {
     const kitchen = o.rooms.find(r => r.kind === 'kitchen'), party = o.rooms.find(r => r.kind === 'party')
-    for (const target of [kitchen, party].filter(Boolean)) for (const d of o.desks.filter(d => d.agent)) for (const spot of target.spots) {
+    for (const target of [kitchen, party].filter(Boolean)) for (const d of o.desks.filter(d => d.agent)) for (const spot of [...target.spots, ...(target.chairs ?? [])]) { // office.js opens the kitchen for a lunch
       const path = route(o, d.id, spot, target.id), len = pathLen(path), mine = [o.rooms.find(r => r.id === d.roomId), target]
       for (let i = 0; i * 0.1 <= len; i++) {
         const p = along(path, i * 0.1), ids = opens(o, d, { x: p.x, z: p.z, phase: 'out', room: target.id }), at = `${name}: ${d.id} to ${target.id} at (${p.x.toFixed(2)}, ${p.z.toFixed(2)})`
@@ -508,14 +584,16 @@ test('the demo has two long-idle agents in different rooms: time for a trip, and
   let cut = 0
   for (const d of long) {
     const seed = hash(d.terminalId, 1e9)
-    const far = (r) => Math.max(...r.spots.map(s => pathLen(route(o, d.id, s, r.id)))) // the longest route into a room
-    const len = (k) => far(breakPlan(seed, k).party ? party : kitchen) // the coin of trip k picks the room
+    const far = (r, spots) => Math.max(...spots.map(s => pathLen(route(o, d.id, s, r.id)))) // the longest route into a room
+    const ROOM = { kitchen: [kitchen, kitchen.spots], lunch: [kitchen, kitchen.chairs], party: [party, party.spots] }
+    const len = (k) => far(...ROOM[kindOf(seed, k)]) // the pick of trip k picks the kind
+    const stay = (k) => (kindOf(seed, k) === 'lunch' ? breakPlan(seed, k).lunch : breakPlan(seed, k).stay)
     for (const [, n] of stretches(d.id).filter(([, n]) => n >= 60)) {
-      const first = breakPlan(seed, 0), need = first.wait + 2 * len(0) / WALK + first.stay
-      assert.ok(n >= need, `${d.id}: idle ${n} s, the first trip needs ${need.toFixed(1)} s`)
+      const need = breakPlan(seed, 0).wait + 2 * len(0) / WALK + stay(0)
+      assert.ok(n >= need, `${d.id}: idle ${n} s, the first trip (${kindOf(seed, 0)}) needs ${need.toFixed(1)} s`)
       // The worker waits, walks, stays and walks back, then waits for the next trip. Does the stretch end during a trip?
       for (let t = 0, k = 0; ; k++) {
-        const p = breakPlan(seed, k), start = t + p.wait, end = start + 2 * len(k) / WALK + p.stay
+        const p = breakPlan(seed, k), start = t + p.wait, end = start + 2 * len(k) / WALK + stay(k)
         if (start >= n) break
         if (end > n) { cut++; break }
         t = end

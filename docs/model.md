@@ -1,6 +1,6 @@
 # public/model.js: the office model
 
-`public/model.js` turns a herdr snapshot and the meeting list into the office plan: rooms, pods, desks, corridors, meeting seats, kitchen spots, and the party room. It also plans the idle routes, keeps the break timing, and makes the demo data. It has no imports and no DOM, so the Node tests import it. `public/office.js` imports `STATUS_RANK`, `STATUS_COLOR`, `buildOffice`, `demoSnapshot`, `demoMeetings`, `hash`, `route`, `along`, `calm`, `opens`, `stepBreak`, and `endBreak`. `public/decor.js` does not import the file, but it reads the room fields `walk`, `counter`, `table`, `seats`, `session`, `number`, `door`, `pods`, `booth`, and `floor`. The shapes of the office, a room, a desk, and most exported functions are in CLAUDE.md "Contracts between the files".
+`public/model.js` turns a herdr snapshot and the meeting list into the office plan: rooms, pods, desks, corridors, terraces, meeting seats, kitchen spots, kitchen tables and chairs, and the party room. It also plans the idle routes, keeps the break timing, and makes the demo data. It has no imports and no DOM, so the Node tests import it. `public/office.js` imports `STATUS_RANK`, `STATUS_COLOR`, `buildOffice`, `demoSnapshot`, `demoMeetings`, `hash`, `route`, `along`, `calm`, `opens`, `stepBreak`, and `endBreak`. `public/decor.js` imports only `hash`, to seed its fill pass with `room.id`. It reads the room fields `id`, `walk`, `counter`, `tables`, `chairs`, `table`, `seats`, `session`, `number`, `door`, `pods`, `booth`, and `floor`, and the terrace fields `id`, `w`, and `d`. The shapes of the office, a room, a desk, and most exported functions are in CLAUDE.md "Contracts between the files".
 
 ## When to read this doc
 
@@ -22,7 +22,7 @@ The file has no mutable state. Each `buildOffice()` call makes new objects. The 
 | `LANE` | the half width of a walk rect | `walkRects()` |
 | `WALK`, `RUN` | the walk and run speeds | `tripAt()`, `test/walk.test.mjs` |
 | `AREA`, `CYCLE`, `DEMO_*` | the demo data | `demoSnapshot()`, `demoMeetings()` |
-| `trips`, `claimed` (`office.js`) | desk id to `{ n, next, trip }`, and the spot key `'<room>:<index>'` to desk id | `stepBreak()`, `endBreak()`. `update()` clears both when `lay` changes |
+| `trips`, `claimed` (`office.js`) | desk id to `{ n, next, trip }`, and the spot key `'<kind>:<index>'` to desk id | `stepBreak()`, `endBreak()`. `update()` clears both when `lay` changes |
 | `ajar` (`office.js`) | the room ids from `opens()` in this frame | `pose()` fills it, `swing()` reads it |
 
 ## Flow
@@ -34,12 +34,12 @@ At import, no function runs. For each update, `office.js` calls `buildOffice(sna
 3. Add the meeting rooms, then the kitchen, then the lobby.
 4. Find the band plan.
 5. Add the party room to the row with the most spare width, if that width is 7 or more. Then make `rooms` again from the rows.
-6. Put each row in place: rooms, doors, pods, desks, the band corridors, then the cross corridor.
-7. Set the kitchen `counter` and `spots`, and the party `spots`, `floor`, and `booth`. Then set `walk` for each workspace room, the kitchen, and the party room (`walkRects()`).
+6. Put each row in place: rooms, doors, pods, desks, the terrace of a row with 4 or more spare width, the band corridors, then the cross corridor.
+7. Set the kitchen `counter`, `spots`, `tables`, and `chairs`, and the party `spots`, `floor`, and `booth`. Then set `walk` for each workspace room, the kitchen, and the party room (`walkRects(r, desks)`).
 8. Set the meeting `table` and `seats`, the orchestrator `away`, and `subagents`.
 9. Set `counts`, `focus`, `bounds`, and `entrance`.
 
-Each frame, `pose()` calls `breaks()` for each view with a worker. `breaks()` calls `stepBreak()` and `along()`. `stepBreak()` calls its `route(room, i)` callback only when a trip starts. `stroll()` calls `calm()`, and `pose()` calls `opens()` for each walker. A subagent view has the desk `{ status: 'working' }` with no `id`, so `stepBreak()` returns `null` for it.
+Each frame, `pose()` calls `breaks()` for each view with a worker. `breaks()` calls `stepBreak()` and `along()`. `stepBreak()` calls its `route(kind, i)` callback only when a trip starts. `stroll()` calls `calm()`, and `pose()` calls `opens()` for each walker. A subagent view has the desk `{ status: 'working' }` with no `id`, so `stepBreak()` returns `null` for it.
 
 ## Functions
 
@@ -62,10 +62,13 @@ It does not change its inputs. A status change never moves a room, a pod, or a d
 - The `podDesks` map sets the desk fields. `status` comes from the agent record in `snap.agents`, not from `pane.agent_status`. A pane with no agent record gets `'unknown'` and `agent: null`.
 - With no meetings, one meeting room has the id `meeting`, status `null`, and no `session`. `side(m)` is the chair count on one long side (4 or more), and the room gets wider with it.
 - The band plan tries each even row count. Each row holds a run of rooms in room order. The plan closest to square wins.
-- An even row is a north row with its doors in the south wall. The last row is always a south row. The rooms of a row stretch to the row depth and share the building width. The pods and desks of a room stay centered.
+- An even row is a north row with its doors in the south wall. The last row is always a south row. The rooms of a row share the row depth. The pods and desks of a room stay centered.
+- A row with 4 or more spare width (`W - sum(row, 'w')`, with a tolerance of 1e-6) keeps the width of each room. A terrace `{ id: 'terrace:<row index>', x, z, w, d }` takes the rest of the row, from the last room to `W`. Each other row stretches its rooms to `W`: each room gets the same extra width, and the last room takes the float rest. The party row has no spare width left, so it never gets a terrace.
+- A terrace is not in `rooms`, so doors, signs, routes, `opens()`, `lay`, the HUD, and the focus never see it. A terrace in the first row has `z` 0, and two terraces in back-to-back rows share an edge. `build()` in `office.js` reads both cases.
 - The party room comes after the band plan, so the plan score does not see it. It takes the spare width of its row, so the other rooms of that row get no extra width. Its `d` of 6 never makes the row deeper. A change of a room width (a meeting that starts, ends, or grows) can add, move, or remove the party room.
 - The party spots stand in two rows round the room middle, 2.0 apart, with the back row 1.0 deeper and offset by 1.0. The DJ booth stands 1.6 behind the back row. With the smallest row depth of 6, the booth back is 0.55 from the far wall.
 - The counter length depends on the kitchen door side, because a north door is in the middle of the north wall. Each current plan gives 3 spots.
+- The kitchen gets two cafe tables, `off` west and east of the room middle, 0.3 south of it. A chair stands 0.8 west (`rot` 3) and 0.8 east (`rot` 1) of each table, so the kitchen has 4 chairs. `off` is 1.3 for a north door: its door lane ends at the strip, and the east chair keeps away from the east wall, which hides a seated worker from the camera. `off` is 2.1 for a south door: its door lane runs through the middle, and a walker on it reaches 0.77 west of the middle. The back of the inner west chair then stays 0.08 west of that walker (2.02 is the least safe `off`). The rule needs a kitchen 7.1 or more wide and 4.7 or more deep. The kitchen is 8 x 7 or more.
 - The i-th meeting room pairs with `meetings[i]`. The default room gets a table and seats, but no orchestrator and no subagents.
 - The orchestrator is the first `claude` desk with `cwd === m.cwd`, a `working` one first. It gets `away` from `seats[0]`. With no match, each subagent has `deskId: null`.
 - Seat 0 is always taken. A subagent keeps its seat index from `prev.subagents` (by agent id) when that index exists and is free. Each other subagent takes the lowest free index from 1.
@@ -82,17 +85,22 @@ These helpers are not exported. Each one except `R` reads the room door or posit
 | `stepX(r)`, `stepZ(r)` | the lane past the leaf, and the depth of the sidestep |
 | `bandZ(r)` | the center line of the corridor in front of the door |
 | `laneZ(r, p)` | the lane along the pod row of `p` on the door side |
+| `asideX(d)` | `d.x + 0.65`: where a worker steps aside from its chair, past the chair back |
+| `lastRow(d, p)` | true for a desk of the last row of pod `p`: the lane behind it (`d.z + 1.1`) is at or past the pod edge |
 | `kitchenZ(k)` | the strip in front of the counter |
 | `partyZ(r)` | the strip between the party door and the dance floor, `d / 2 - 1.5` from the door wall |
 
-`walkRects(r)` returns the world rects of the free floor that the routes use: the door rects, the door lane and one rect over the strip and the spots (kitchen and party room), and the lanes round each pod (workspace room). `placer()` in `decor.js` keeps each prop off them.
+`walkRects(r, desks)` returns the world rects of the free floor that the routes use: the door rects, the door lane and one rect over the strip and the spots (kitchen and party room), a lane from the strip to each kitchen chair, and the lanes round each pod (workspace room). `placer()` in `decor.js` keeps each prop off them.
+
+In a workspace room, each pod gets the row lane, the door rects, the door lane, and the lane east of the pod. In a south-door room, each desk of the last row (`lastRow()`) also gets a lane 0.6 wide at `asideX(d)`, from the pod edge down to the row lane. Before, one rect as wide as the pod covered that floor. So the floor under a short pod next to a tall pod stays free for props, except the lane below each desk. `buildOffice()` passes all desks, and `walkRects()` takes the desks of each pod by `podId`.
 
 ### route(o, deskId, spot, to = 'kitchen')
 
 The legs follow the CLAUDE.md contract, in the order of the `pts` array. It reads only `o.desks`, `o.rooms`, and `o.corridors.at(-1)`.
 
 - `to` is the id of the target room. The kitchen and the party room use the same legs. Only the strip depth differs: `kitchenZ()` or `partyZ()`. A route to the kitchen is the same as before the party room.
-- `down`: the last desk row of a south-door room walks straight to the lane. Other desks pass the pod on its east side.
+- A lunch route is `route(o, deskId, chair, 'kitchen')`. The strip of the kitchen walk rects reaches each chair x, so the route goes along the strip to the chair x and then straight to the chair point. That last leg passes 0.8 from the table center.
+- `down`: the last desk row of a south-door room (`lastRow()`) walks straight to the lane at `asideX(d)`. Other desks pass the pod on its east side. `walkRects()` uses the same two helpers for the lane below each last-row desk, so change them in one place.
 - A room in another band than the target room goes through the cross corridor center.
 - The cleanup drops the middle of three points on one line, also when the path turns back on that line. So a new leg must not turn back on its own line.
 - Two `ponytail:` comments mark known limits: a room with two pod rows, and the slide through the chair edge.
@@ -109,17 +117,19 @@ The legs follow the CLAUDE.md contract, in the order of the `pts` array. It read
 - The 3 gives the door time to open (`SWING` in `office.js`) before a runner at `RUN` reaches the leaf, about 1.35 from the door center.
 - The phase `stay` gives `[]`, so the door of the target room closes at the counter or on the dance floor.
 
-`breakPlan(seed, n)` is deterministic. `wait`, `stay`, and the coin `party` use the value indices 0, 1, and 2, so a change of one value keeps the other values.
+`breakPlan(seed, n)` is deterministic. `wait`, `stay`, `lunch`, and `pick` use the value indices 0, 1, 3, and 6, so a change of one value keeps the other values. The index 6 gives the two long-idle demo agents a dance, a lunch, and a counter trip. The index 2 held the old party coin.
 
 CLAUDE.md gives the contracts of `along()`, `tripAt()`, and `pathLen()`.
 
 `stepBreak()` points that one read can miss:
 
-- It claims a spot and calls `route()` once, at the trip start. The coin of the plan picks the first room. A full room, or a room with no spots, sends the worker to the other room. With no free spot in either room, it waits for the next plan.
-- The spot search in a room starts at `seed % n`, with `n` the spot count of that room, so `seed` must be a non-negative integer.
+- It claims a spot and calls `route()` once, at the trip start. The kinds are `kitchen` (a counter spot), `lunch` (a kitchen chair), and `party` (a dance spot), in this order, and only the kinds with a count above 0 in `spots`. `plan.pick` picks the first kind. A full kind sends the worker to the next kind in the order. With no free spot of any kind, it waits for the next plan.
+- `trip.room` is the kind, so a lunch trip has `room: 'lunch'`. `office.js` gives `opens()` the room id `kitchen` for it.
+- A lunch trip stays `plan.lunch` (20 to 40 s). The other trips stay `plan.stay`.
+- The spot search of a kind starts at `seed % n`, with `n` the spot count of that kind, so `seed` must be a non-negative integer.
 - A rush is final: an idle status after it does not stop it. After a rush, it deletes the state.
 - At `done` it returns `null` in the same call, so a walk phase is never `done`.
-- `got` becomes true in the `stay` of a kitchen trip, so the mug stays in the hand. A party trip never gets it. `stroll()` writes `trip.rot`.
+- `got` becomes true in the `stay` of a kitchen trip, so the mug stays in the hand. A lunch trip and a party trip never get it. `stroll()` writes `trip.rot`.
 
 `endBreak(trips, claimed, id)` frees the spot of a running trip (the `claimed` key in `trip.spot`) and deletes the state.
 
@@ -148,12 +158,12 @@ A `DEMO_PANES` row is `[paneId, tabId, kind, rect, phase, name, long]`. `kind` `
 2. "the kitchen has a counter and at least 3 standing spots in front of it" asserts the ranges. Change it if the user wants another range.
 3. For more spots, raise the cap in `len` and the kitchen width together. The `['kitchen', 'lobby']` loop gives both kinds one size. The test of step 2 limits `len` to 3.2, so change it too.
 4. Keep the spot depth and `kitchenZ()` together, so a walker passes 0.55 from each spot.
-5. Node cannot load `decor.js`. Check by hand that `kitchen()` still fits the fridge and a cafe table.
+5. A longer counter or a wider strip can touch a table. `assertKitchen()` in `test/model.test.mjs` and the kitchen test in `test/walk.test.mjs` check the tables and chairs. Node cannot load `decor.js`, so check by hand that `kitchen()` still fits the fridge.
 6. Update the kitchen line in CLAUDE.md "Contracts between the files".
 
 ### New break times or new speeds
 
-1. Change the ranges in `breakPlan()`, or `WALK` and `RUN`, and the test "breakPlan is deterministic and stays in range". The coin test copies the old `wait` and `stay` formula in `before()`, so change it too.
+1. Change the ranges in `breakPlan()`, or `WALK` and `RUN`, and the test "breakPlan is deterministic and stays in range". The pick test copies the `wait` and `stay` formula in `before()`, so change it too.
 2. Run `npm test`. The long-idle demo test needs a trip that fits in an idle stretch and a trip that a status change cuts short. A longer trip needs larger `long` values.
 3. A faster `RUN` gives a door less time. Keep `(3 - 1.35) / RUN` above `SWING` (0.25 s) in `office.js`, or change the 3 in `opens()`.
 4. Update the trip times in CLAUDE.md "Contracts between the files", the comment above `DEMO_PANES`, INTENT.md "Open items and known limits", and `docs/testing.md` "Visual check in the browser".
@@ -195,6 +205,7 @@ A `DEMO_PANES` row is `[paneId, tabId, kind, rect, phase, name, long]`. `kind` `
 - The cross corridor must stay `corridors.at(-1)`. `route()`, `build()`, and `lay` read it there.
 - Meeting rooms pair with `meetings` by index. Do not sort or filter them.
 - With a party room, `rooms` comes again from `plan.rows`. The rows hold the rooms in room order, so the meeting order and the lobby place stay. A change to the band plan must keep that order.
+- The 4 of the terrace rule is also in `assertRows()` in `test/model.test.mjs`. Change both together. A terrace id holds the row index, and `terrace()` in `decor.js` seeds its fill with it.
 - `assertSpacing()` and `assertPlan()` copy `GAP_X`, `GAP_Z`, `WALL`, and `HALL`. A change of one needs a test change.
 - `normal()` in `test/model.test.mjs` copies the room widths: 7 and `2 * WALL` for a workspace, 8 and `TABLE + 2.6` for a meeting room, and 8 for the kitchen and the lobby. A change of one needs a test change.
 - The walk helpers, `calm()`, and `checkRoute()` copy the door numbers of `door()` and `OPEN`. The `opens` test uses 1.4 and 3. Change them together.
@@ -204,6 +215,6 @@ A `DEMO_PANES` row is `[paneId, tabId, kind, rect, phase, name, long]`. `kind` `
 - A status change can move `away` to another desk, because the orchestrator choice prefers a `working` desk. That changes `sig` and rebuilds the scene.
 - A desk with an agent record and no `agent` key gets `kind: null`. `sig` stores it as `'?'`.
 - A trip keeps its `path` after a new office arrives. That is why `office.js` clears `trips` when `lay` changes.
-- A `claimed` key is a string `'<room>:<index>'`. A number key never matches.
-- A new `breakPlan()` value needs the index 3 or more. The index of an old value changes its numbers, for example the coin of each trip.
+- A `claimed` key is a string `'<kind>:<index>'`, for example `'lunch:2'`. A number key never matches.
+- A new `breakPlan()` value needs a free index: 2, 4, 5, or 7 or more. The index of an old value changes its numbers, for example the pick of each trip. A new pick index changes the trips of the demo agents.
 - A new row in the middle of `DEMO_PANES` changes the terminal id, the look, and the break seed of each later row. The long-idle demo test can then fail.

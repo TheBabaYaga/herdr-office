@@ -12,10 +12,10 @@ These docs describe the code of herdhouse, with one doc for each source area. `C
 | The HUD and the panel | `docs/office.md` "HUD", "Panel". The markup is in `public/index.html` (`#hud`, `#panel`, `#chat`) | `hud()`, `el()`, `setOnline()`, `open()`, `close()`, `fill()`, `act()` |
 | The last reply and the chat window | `docs/office.md` "Panel", `docs/bridge.md` "`messagesIn(text)`", "`readMessages(projects, pane, limit = 100)`", "`GET /messages` branch" | `loadMessages()`, `renderMessages()`, `readMessages()`, `messagesIn()` |
 | Camera and picking | `docs/office.md` "Camera", "Picking" | `resize()`, `fit()`, `frame()`, `keepInView()`, the canvas `pointerdown` and `click` handlers |
-| The floor plan and the room layout | `docs/model.md` "Pods and desks", "buildOffice(snap, meetings = [], prev = null)". `docs/office.md` "Floors and walls", "Build and bake" | `buildOffice()`, `podLayout()`, `spread()`, `build()`, `inner()`, `outer()`, `stub()` |
+| The floor plan, the room layout, and the terraces | `docs/model.md` "Pods and desks", "buildOffice(snap, meetings = [], prev = null)". `docs/office.md` "Floors and walls", "Build and bake" | `buildOffice()`, `podLayout()`, `spread()`, `build()`, `inner()`, `outer()`, `stub()` |
 | Kitchen and party trips, and routes | `docs/model.md` "Walk geometry", "route(o, deskId, spot, to = 'kitchen')", "Breaks". `docs/office.md` "Idle breaks" | `route()`, `walkRects()`, `stepBreak()`, `endBreak()`, `tripAt()`, `breakPlan()`, `along()`, `breaks()`, `stroll()` |
 | Doors | `docs/office.md` "Floors and walls" (`door()`), "Idle breaks" (`swing()`), the recipe for the door leaf. `docs/model.md` "Breaks" (`opens()`). `docs/testing.md` "Change when a door opens" | `door()`, `swing()`, `opens()`, `calm()` |
-| Decor and props | `docs/decor.md` | `box()`, `placer()`, `workspaceDecor()`, `kitchen()`, `meeting()`, `lobby()`, `plant()`, `clutter()` |
+| Decor and props | `docs/decor.md` | `box()`, `placer()`, `workspaceDecor()`, `kitchen()`, `meeting()`, `lobby()`, `terrace()`, `plant()`, `clutter()` |
 | The bridge: poll, SSE, action, guards | `docs/bridge.md` "Flow", "`startBridge(options)`", "`GET /events` branch", "`GET /messages` branch", "`POST /action` branch" | `startBridge()`, `handle()`, `poll()`, `send()`, `herdrRequest()`, `socketPath()` |
 | Meetings and subagents | `docs/bridge.md` "`readMeetings(projects, cwds, now = Date.now())`", "Claude subagent helpers", "What may reach the browser". `docs/model.md` "buildOffice(snap, meetings = [], prev = null)" (the meeting rooms, the orchestrator, and the seats). `docs/office.md` "Desks, seats, and workers". `docs/decor.md` "Room decor" | `readMeetings()`, `cwdOf()`, `modelIn()`, `plainTail()`, `buildOffice()`, `attendee()`, `seatAt()`, `longTable()` |
 | The demo data | `docs/model.md` "Demo", the recipe "A new demo agent" | `demoSnapshot()`, `demoMeetings()`, `DEMO_PANES`, `DEMO_AGENTS` |
@@ -47,7 +47,7 @@ buildOffice(snapshot, meetings, office)     public/model.js, the old office is p
 update(next)
   |-- lay changed: trips.clear(), claimed.clear()
   |-- endBreak() for each desk with away or with no agent
-  |-- sig changed: build() (DECOR[r.kind](), door(), partyLights(), desk(), attendee(), bake()), frame() on the first build
+  |-- sig changed: build() (DECOR[r.kind](), door(), partyLights(), terrace(), desk(), attendee(), bake()), frame() on the first build
   '-- in place: door lights, signs, pod lamps, badges, tags, spot, hud(), fill() when the panel is open
 ```
 
@@ -106,7 +106,7 @@ bridge.mjs ------------- serves -------------> public/ (index.html with the toke
 public/index.html ------ importmap ----------> three, three/addons/ (jsDelivr, three 0.186.1)
                   ------ <script module> ----> public/office.js
 public/office.js ------- imports ------------> public/model.js, public/decor.js, three, three/addons/
-public/decor.js -------- imports ------------> three
+public/decor.js -------- imports ------------> three, public/model.js (hash)
 public/model.js -------- imports nothing
 test/bridge.test.mjs --- imports ------------> bridge.mjs
 test/model.test.mjs, test/walk.test.mjs -----> public/model.js
@@ -130,6 +130,7 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - party room: the room with the id `party` in the spare width of one row, if that width is 7 or more. It has the dance spots (`room.spots`), the dance floor (`room.floor`), and the DJ booth (`room.booth`). `party()` in `decor.js` draws it.
 - meeting room: one room for each entry of `meetings` (id `meeting:<sessionId>`), or one empty room with the id `meeting`. It has `table` and `seats`.
 - corridor: an entry of `office.corridors`, 3 wide (`HALL`). The cross corridor is `corridors.at(-1)` on the +x side.
+- terrace: a garden at the east end of a row with 4 or more spare width (not the party row), an entry of `office.terraces`: `{ id, x, z, w, d }` with the id `terrace:<row index>`. The rooms of that row keep their width. It has grass, a wood deck, and props from `terrace()` in `decor.js`, behind glass walls. It is not a room: it has no door, no sign, and no walk rects, and nobody walks there. Two terraces back to back make one courtyard.
 - band: a north row of rooms, a band corridor, and a south row of rooms. `bandZ()` gives the center line of the corridor in front of a door.
 - door: `room.door: { x, z, side }`, the gap in the corridor wall. `door()` in `office.js` draws the posts, the leaf, the light, and the sign.
 - pod: the desks of one herdr tab, an entry of `room.pods` (the id is the tab id). The pod lamp shows the tab status.
@@ -141,7 +142,7 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - subagent: a Claude Code subagent that still runs, an entry of `office.subagents`. It sits at a meeting seat and always shows `working`.
 - away: `desk.away = { roomId, x, z, rot }`, the head seat of the orchestrator. The worker sits there, and the desk shows an empty chair.
 - view: an entry of `views` in `office.js`, by room, pod, desk, or subagent id. It holds the objects that show the state of that id.
-- build signature (`sig`): the JSON of the room, pod, desk, and subagent positions, with the agent kind, `away`, `rot`, and `model`. `build()` runs only when it changes.
+- build signature (`sig`): the JSON of the room, pod, desk, and subagent positions, with the agent kind, `away`, `rot`, `model`, and the terraces. `build()` runs only when it changes.
 - live: the `Set` of objects that `bake()` does not merge, because their look changes after the build.
 - tags: the label elements that `declutter()` checks, highest priority first. `update()` fills it.
 - bake: `bake()` merges the static meshes of a build into one mesh for each material.
@@ -172,4 +173,4 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - When a change makes a doc line wrong, fix that line in the same change.
 - A new function gets an entry in its file doc.
 - A new task kind gets a row in "Which doc to read". A new term gets a line in "Glossary".
-- `INTENT.md` records what the user wants, and why. Decisions 18 to 24 each quote the words of the user for one request. Decision 19 holds the approved numbers (5 to 30, 6 to 15, 20 to 60). So a change of a number in a decision, after the user approves it, updates that decision. A new request that sets behavior gets a new numbered decision with the words of the user.
+- `INTENT.md` records what the user wants, and why. Decisions 18 to 26 each quote the words of the user for one request. Decision 19 holds the approved numbers (5 to 30, 6 to 15, 20 to 60). So a change of a number in a decision, after the user approves it, updates that decision. A new request that sets behavior gets a new numbered decision with the words of the user.
