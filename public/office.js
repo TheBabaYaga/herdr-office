@@ -654,6 +654,7 @@ let selected = null, target = null // target: the pane the focus button focuses
 function open(id) {
   selected = id
   $('result').textContent = ''
+  $('msg').value = '' // a half-typed message never goes to another desk
   $('panel').hidden = false
   fill()
 }
@@ -666,6 +667,8 @@ function fill() {
   target = s ? o?.id : d.id
   $('focus').textContent = s ? 'Focus orchestrator' : 'Focus in herdr'
   $('focus').disabled = DEMO || !target
+  $('say').hidden = !d?.agent // only an agent desk takes a message: never a subagent or a shell
+  for (const c of $('say').elements) c.disabled = DEMO
   let rows
   if (s) {
     $('who').textContent = s.label ?? 'subagent'
@@ -683,18 +686,28 @@ function fill() {
 
 $('close').onclick = close
 addEventListener('keydown', (e) => e.key === 'Escape' && close())
-$('focus').onclick = async () => {
+// POST one action to the bridge and show the outcome. Returns true on success.
+async function act(body, done) {
   $('result').textContent = '...'
   try {
     const r = await fetch('/action', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-office-token': TOKEN },
-      body: JSON.stringify({ type: 'focus', pane_id: target }),
+      body: JSON.stringify(body),
     })
-    $('result').textContent = r.ok ? `ok: herdr focused ${target}` : `error: ${(await r.json()).error}`
+    $('result').textContent = r.ok ? done : `error: ${(await r.json()).error}`
+    return r.ok
   } catch (e) {
     $('result').textContent = `error: ${e.message}`
+    return false
   }
+}
+$('focus').onclick = () => act({ type: 'focus', pane_id: target }, `ok: herdr focused ${target}`)
+$('say').onsubmit = async (e) => {
+  e.preventDefault()
+  const text = $('msg').value
+  if (!text.trim()) return
+  if (await act({ type: 'prompt', pane_id: target, text }, `ok: sent to ${target}`) && $('msg').value === text) $('msg').value = ''
 }
 
 // Click (not drag) on a desk or a worker opens the panel. The desks are merged meshes, so test the ray against a box per desk

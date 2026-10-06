@@ -41,6 +41,8 @@
   dd { margin: 0; overflow-wrap: anywhere; }
   #close { position: absolute; top: 6px; right: 6px; }
   .warn { color: #f9e2af; font-size: 12px; }
+  #say:not([hidden]) { display: flex; gap: 6px; }
+  #msg { flex: 1; min-width: 0; background: #11111b; color: inherit; font: inherit; border: 1px solid #45475a; padding: 2px 4px; }
 </style>
 </head>
 <body>
@@ -57,6 +59,7 @@
   <dl id="fields"></dl>
   <button id="focus">Focus in herdr</button> <small id="demo" hidden>demo mode</small>
   <p class="warn">Focus marks the whole tab as seen in herdr. Done desks in that tab turn idle.</p>
+  <form id="say"><input id="msg" aria-label="Message to the agent" autocomplete="off" placeholder="message to the agent"> <button>Send</button></form>
   <p id="result"></p>
 </aside>
 <script type="module" src="office.js"></script>

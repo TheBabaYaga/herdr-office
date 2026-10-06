@@ -210,14 +210,17 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
       if (body === null) return json(res, 413, { error: 'body over 4 KB' })
       let msg = null
       try { msg = JSON.parse(body) } catch {}
-      if (msg?.type !== 'focus' || typeof msg.pane_id !== 'string' || !/^w[0-9A-Za-z]+:p[0-9A-Za-z]+$/.test(msg.pane_id)) {
-        return json(res, 400, { error: 'expected {"type":"focus","pane_id":"w<id>:p<id>"}' })
+      const say = msg?.type === 'prompt' && typeof msg.text === 'string' && /\S/.test(msg.text)
+      if ((msg?.type !== 'focus' && !say) || typeof msg.pane_id !== 'string' || !/^w[0-9A-Za-z]+:p[0-9A-Za-z]+$/.test(msg.pane_id)) {
+        return json(res, 400, { error: 'expected {"type":"focus","pane_id":"w<id>:p<id>"} or {"type":"prompt","pane_id":"w<id>:p<id>","text":"..."}' })
       }
       try {
-        await herdrRequest(sock, 'pane.focus', { pane_id: msg.pane_id })
+        if (say) await herdrRequest(sock, 'agent.prompt', { target: msg.pane_id, text: msg.text })
+        else await herdrRequest(sock, 'pane.focus', { pane_id: msg.pane_id })
       } catch (e) {
         return json(res, 502, { error: e.message })
       }
+      if (say) return json(res, 200, { ok: true }) // the user stays in the browser
       try { raise?.() } catch (e) { console.error(`herdhouse: raise: ${e.message}`) } // bring the terminal to the front, so the user sees the pane
       return json(res, 200, { ok: true })
     }

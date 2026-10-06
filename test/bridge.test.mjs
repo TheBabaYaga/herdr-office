@@ -35,6 +35,7 @@ const SNAP = {
 const answer = (req) => {
   if (req.method === 'session.snapshot') return { result: { type: 'session_snapshot', snapshot: SNAP } }
   if (req.params.pane_id === 'w9:p9') return { error: { code: 'pane_not_found', message: 'no pane w9:p9' } }
+  if (req.params.target === 'w9:p9') return { error: { code: 'agent_blocked', message: 'agent w9:p9 waits for an answer' } }
   return { result: { type: 'ok' } }
 }
 
@@ -286,6 +287,35 @@ test('POST /action: guards, then pane.focus', async () => {
     } finally {
       await b2.close()
     }
+  } finally {
+    await b.close()
+    await fake.close()
+  }
+})
+
+test('POST /action: guards, then agent.prompt', async () => {
+  const fake = await fakeHerdr()
+  const TOKEN = 'tok-123'
+  let raised = 0
+  const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, token: TOKEN, raise: () => raised++ })
+  const post = (body, headers = { 'x-office-token': TOKEN }) => request(portOf(b), 'POST', '/action', headers, body)
+  const prompt = (pane_id, text) => JSON.stringify({ type: 'prompt', pane_id, text })
+  try {
+    assert.equal((await post(prompt('w1:p1', 'hello'), { 'x-office-token': 'wrong' })).status, 403)
+    for (const [pane, text] of [['w1:p1', ''], ['w1:p1', '   '], ['w1:p1', 5], ['w1:p1', ['hello']], ['w1:p1; rm -rf', 'hello'], ['w1:t1', 'hello']]) {
+      assert.equal((await post(prompt(pane, text))).status, 400, `${pane} ${JSON.stringify(text)}`)
+    }
+    assert.equal(fake.lines.length, 0, 'no rejected request reaches herdr')
+
+    const ok = await post(prompt('w1:p1', 'hello'))
+    assert.equal(ok.status, 200)
+    assert.deepEqual(JSON.parse(ok.body), { ok: true })
+    assert.deepEqual(fake.lines, ['{"id":"office:prompt","method":"agent.prompt","params":{"target":"w1:p1","text":"hello"}}\n'])
+
+    const blocked = await post(prompt('w9:p9', 'hello'))
+    assert.equal(blocked.status, 502)
+    assert.match(JSON.parse(blocked.body).error, /agent_blocked/)
+    assert.equal(raised, 0, 'a prompt never raises WezTerm')
   } finally {
     await b.close()
     await fake.close()
