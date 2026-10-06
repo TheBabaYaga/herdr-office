@@ -28,7 +28,8 @@
 | `seen`, `nextPass` | the camera key of the last `declutter()` pass (`''` forces one), and the next forced pass | `declutter()`, `update()`, frame loop | page |
 | `spot` | the blue light over the focused desk, outside `world` | `update()` | page |
 | `rows` | desk id -> HUD list `<button>` | `hud()` | page |
-| `goal` | the point that the camera target glides to, or `null` | HUD row click. Frame loop, `keepInView()`, and pointerdown clear it | until reached |
+| `goal` | the point that the camera target glides to, or `null` | HUD row click, frame loop (from `follow`). Frame loop, `keepInView()`, and pointerdown clear it | until reached |
+| `follow`, `zoomTo`, `tracked` | the desk id of the followed walker, the zoom that the camera glides to, and the world point of the followed worker | click handler (walker hit), frame loop. `open()`, `close()`, and pointerdown clear `follow`. Pointerdown, `wheel`, and the frame loop clear `zoomTo` | until cleared |
 | `selected`, `target`, `down` | the panel id, the pane id to focus or to message, the last pointerdown | `open()`, `fill()`, pointerdown | page |
 | `timer`, `msgs`, `msgKey` | the 2000 ms refresh timer, the messages of the open claude desk, and their JSON | `open()`, `close()`, `loadMessages()`, `renderMessages()` | page |
 
@@ -140,10 +141,12 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 - `controls`: set at module start. No rotation, pan on the floor plane, zoom to the cursor.
 - `resize()` sets the frustum from `VIEW` and the window. `fit(w, d)`: the zoom that fits a floor, after `resize()`. `frame(rect)`: centers the camera on the rect at that zoom.
 - `keepInView()`: sets `controls.minZoom` to the building fit, and clamps the target near the building center (the limit grows with the zoom). A clamp clears `goal`.
+- Follow: while `follow` is set, the frame loop sets `goal` to the world position of that worker each frame, on a trip and after it sits down. The follow ends when the view is gone or has no worker.
+- Zoom glide: while `zoomTo` is set, the frame loop moves `camera.zoom` 0.15 of the way to it each frame. It clears `zoomTo` within 0.01.
 
 ### Panel
 
-- `open(id)`: sets `selected`, clears `#result`, `#chatResult`, and both inputs, closes `#chat`, clears the timer and the messages, shows `#panel`, and calls `fill()`. For a claude desk (not in the demo) it calls `loadMessages()` at once and starts one `setInterval` of 2000 ms, also for a desk that is not claude (`loadMessages()` then returns at once). `close()` clears the timer, closes `#chat`, and hides the panel. The `#msg` clear stops a half-typed message from going to another desk.
+- `open(id)`: sets `selected`, clears `follow`, `#result`, `#chatResult`, and both inputs, closes `#chat`, clears the timer and the messages, shows `#panel`, and calls `fill()`. For a claude desk (not in the demo) it calls `loadMessages()` at once and starts one `setInterval` of 2000 ms, also for a desk that is not claude (`loadMessages()` then returns at once). `close()` clears `follow` and the timer, closes `#chat`, and hides the panel. The `#msg` clear stops a half-typed message from going to another desk.
 - `fill()`: finds the desk or subagent with the id `selected`, else it calls `close()`. For a subagent, `target` is its orchestrator desk id. The button is disabled when `DEMO` is set or `target` is empty. It shows the `#say` form only for a desk with an agent, and disables both forms when `DEMO` is set. It shows `#last` only for a desk whose agent kind is `claude`, and closes `#chat` when `#last` turns hidden. In the demo, `#lastText` says "no messages in the demo". It never changes the input values, never fetches, and never renders the log, because it runs on each update. It writes the local `rows` object as `dt` and `dd` through `el()`.
 - `act(body, done, out = $('result'))`: `POST /action` with `body` and the header `x-office-token: TOKEN`. `out` shows `done` on success, else the error. It returns `r.ok`.
 - The focus button handler: `act({ type: 'focus', pane_id: target }, ...)`.
@@ -157,8 +160,9 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 ### Picking
 
-- The pointerdown handler stores `down` and clears `goal`.
-- The click handler ignores a drag over 4 px. It casts a ray against one box for each desk, each away head seat, and each subagent seat, and opens the nearest hit. The boxes come from the model, because `bake()` merged the desk meshes. A worker on a trip has no box, and a new clickable object needs its own box.
+- The pointerdown handler stores `down` and clears `goal`, `follow`, and `zoomTo`. A `wheel` event clears `zoomTo`, so the zoom glide never fights the user's zoom.
+- The click handler ignores a drag over 4 px. It casts a ray against one box for each desk, each away head seat, each subagent seat, and each worker on a trip, and opens the nearest hit. The desk and seat boxes come from the model, because `bake()` merged the desk meshes. The box of a worker on a trip is at the world position of its group. The handler reads it only when `stand` is visible, and does not call `breaks()`. A new clickable object needs its own box.
+- A walker box has a sixth element, `true`. When the nearest hit is a walker box, the handler sets `follow` and `zoomTo` (1.5 times the zoom, at most `controls.maxZoom`) after `open()`, because `open()` clears `follow`.
 
 ### Frame loop and data source
 
@@ -182,9 +186,9 @@ Two agents in one region need a split by function.
 | declutter | `declutter()`, `tags`, `seen`, `nextPass` | update, frame loop |
 | update | `update()`, `family()`, `office`, `sig`, `laid` | all regions |
 | hud | `hud()`, `el()`, `rows`, `setOnline()`, `who()`, `plural()` | fill, camera (`goal`), `index.html` |
-| fill | `open()`, `close()`, `fill()`, `act()`, `loadMessages()`, `renderMessages()`, `timer`, `msgs`, `msgKey`, the focus button, `#say`, `#chatOpen`, `#chatClose`, and `#reply` handlers | hud, picking, `index.html` |
-| camera | `fit()`, `frame()`, `keepInView()`, `resize()`, `VIEW`, `OFFSET`, `controls`, the `goal` glide | hud, update, picking |
-| picking | the pointerdown and click handlers | fill, desk (seat geometry) |
+| fill | `open()`, `close()`, `fill()`, `act()`, `loadMessages()`, `renderMessages()`, `timer`, `msgs`, `msgKey`, the focus button, `#say`, `#chatOpen`, `#chatClose`, and `#reply` handlers | hud, picking, camera (`follow`), `index.html` |
+| camera | `fit()`, `frame()`, `keepInView()`, `resize()`, `VIEW`, `OFFSET`, `controls`, the `goal` glide, `follow`, `zoomTo`, `tracked`, the zoom glide | hud, update, picking, fill |
+| picking | the pointerdown, wheel, and click handlers | fill, desk (seat geometry), camera (`follow`, `zoomTo`) |
 
 Give a change to `label()`, `fresh()`, `shared()`, a shared constant, or the import lines to one agent only. A new decor function changes the `./decor.js` import and `DECOR`, so it goes to the build agent.
 

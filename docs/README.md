@@ -54,7 +54,7 @@ update(next)
 Each frame, `renderer.setAnimationLoop()` runs these calls in this order:
 
 ```text
-goal glide -> controls.update() -> keepInView() -> label font size
+follow -> goal glide -> zoom glide -> controls.update() -> keepInView() -> label font size
   -> moving = false, ajar.clear()
   -> pose(v, t) for each view with a desk
        breaks() -> stepBreak(), along()     where a worker on a trip is
@@ -68,8 +68,9 @@ goal glide -> controls.update() -> keepInView() -> label font size
 The click path:
 
 ```text
-click on a desk or a seat (not a drag), or a HUD row
+click on a desk, a seat, or a worker on a trip (not a drag), or a HUD row
   -> open(id) -> fill()           target = the pane id, or the orchestrator desk of a subagent
+  -> a worker on a trip only      follow = id, zoomTo = 1.5 times the zoom
   -> "Focus in herdr" button      act(): fetch POST /action, header x-office-token, body { type: 'focus', pane_id }
   -> bridge.mjs handle()          Host check, token check, body check
   -> herdrRequest(sock, 'pane.focus', { pane_id })

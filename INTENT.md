@@ -34,7 +34,7 @@ The office watches. It has two writes to herdr: a focus and a message. A click o
 - The HUD is the box at the top left. It counts each status and lists the agents by rank, then by the newest state change.
 - The building also has a kitchen, a lobby with the reception and the entrance, plants, and desk clutter.
 - A drag moves the view. The mouse wheel zooms to the mouse pointer. Labels declutter: a label that covers a more important one hides.
-- A click on a desk, a worker, or a HUD row opens the side panel. The panel shows kind, name, status, room, tab, cwd, title, and pane.
+- A click on a desk, a worker, or a HUD row opens the side panel. The panel shows kind, name, status, room, tab, cwd, title, and pane. A click on a worker on a trip also zooms in and follows that worker (decision 23).
 - The panel of an agent desk has a message field. Enter or "Send" sends the text to that agent. A subagent and a shell desk have no message field.
 - The panel of a claude desk shows the last reply of the agent. "Show all" opens a chat window in the middle of the screen with the conversation history and a field to answer. Esc or the x closes the window (decision 22).
 - `?demo` shows a simulated session with four workspaces ("api", "web", "docs", "infra") and one meeting. The focus button and the message field are off in the demo.
@@ -95,6 +95,12 @@ The user made these decisions between 2026-10-03 and 2026-10-06.
     - The bridge finds the transcript from the session id that herdr reports for the pane (`agent_session`). A pane without one gets the newest transcript of its cwd.
     - "When I focus on him" became a click on the desk: the panel opens and shows the last reply. The "Show all" button always shows, because the window also holds the history.
     - Messages from other agents (teammates, subagent reports, other Claude sessions) show as "subagent · <name>" with their own color, in the user's words: "Can we properly format these and make it clear those are subagents? cause it seems to be a teammate". The chat shows only the text of each message. A bare idle notice without text does not show.
+23. A click on a worker on a trip opens its panel and follows it, in the user's words: "I want to be able to also focus on an agent that's running around, now it only works when you click the desk" and "can you also make it so that the camera zooms in a bit and starts following the agent".
+    - Only a click on a worker on a trip starts the follow. A click on a desk, a seat, or a HUD row does not.
+    - The camera zooms to 1.5 times the zoom, at most the max zoom. The camera stays on the worker after it sits down.
+    - A pointerdown on the canvas (a drag or a click on the floor), a click on any desk or HUD row, and the x or Esc of the panel end the follow. A click on another walker follows that walker.
+    - A pointerdown or a mouse wheel on the canvas ends the zoom glide, so the glide never fights the user's zoom.
+    - The follow ends when the agent exits.
 
 ## Cut on purpose
 
@@ -142,7 +148,6 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 - A worker stands up inside its chair and slides 0.65 to the side through the chair edge. This takes about 0.4 s at the start and at the end of a trip. The chair does not move.
 - Near a door the arms of a walker hang still, and the mug hand stays low.
 - A desk can stand within 3 of its own door. The door then opens when the worker stands up, and closes after the worker sits down. In the test floor plans, 36 of 302 seats are that close.
-- A worker on a trip is not clickable. The click boxes stay at the desks. The HUD row still works.
 - In a room with two pod rows (wider than 30 units), the route of a worker can cross the lower pod row. Nothing tests that case.
 - The walk and run speeds (1.6 and 4 units a second) and the break times come from the first run in the demo. The user did not tune them. A trip in the demo takes about 100 s.
 - Section 5 of `docs/herdr-agent-model.md` lists ideas that nobody built and that the user did not decide on. Examples: worktree annex rooms, a focus marker in each pod, a per-viewer acknowledged map, the briefcase and headset badges. Ask the user before you build one.

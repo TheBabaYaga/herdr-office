@@ -628,6 +628,8 @@ function setOnline(on, note) {
 
 // ---- camera ----
 let goal = null
+let follow = null, zoomTo = null // follow: the desk id of the clicked walker, the frame loop sets goal to it. zoomTo: the zoom to glide to
+const tracked = new THREE.Vector3() // the world point of the followed worker
 // The zoom that fits a w x d floor. It spans 0.71 (w + d) across the screen and 0.41 (w + d) top to bottom in isometric view.
 const fit = (w, d) => Math.min((camera.right * 2) / (0.71 * (w + d) + 4), VIEW / (0.41 * (w + d) + 5))
 function frame({ x, z, w, d }) {
@@ -653,6 +655,7 @@ function keepInView() {
 let selected = null, target = null // target: the pane the focus button focuses
 function open(id) {
   selected = id
+  follow = null // a walker click sets it again after open()
   $('result').textContent = ''
   $('chatResult').textContent = ''
   $('msg').value = '' // a half-typed message never goes to another desk
@@ -671,6 +674,7 @@ function open(id) {
   }
 }
 const close = () => {
+  follow = null
   clearInterval(timer)
   timer = null
   $('chat').close()
@@ -787,39 +791,50 @@ $('reply').onsubmit = async (e) => {
   loadMessages()
 }
 
-// Click (not drag) on a desk or a worker opens the panel. The desks are merged meshes, so test the ray against a box per desk
-// and per meeting seat (the worker sits 0.4 behind the seat origin).
-const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), pick = new THREE.Box3(), hit = new THREE.Vector3()
+// Click (not drag) on a desk or a worker opens the panel. The desks are merged meshes, so test the ray against a box per desk,
+// per meeting seat (the worker sits 0.4 behind the seat origin), and per worker on a trip (at its body, 1.7 high at most).
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), pick = new THREE.Box3(), hit = new THREE.Vector3(), hip = new THREE.Vector3()
 let down = [0, 0]
-renderer.domElement.addEventListener('pointerdown', (e) => { down = [e.clientX, e.clientY]; goal = null })
+renderer.domElement.addEventListener('pointerdown', (e) => { down = [e.clientX, e.clientY]; goal = follow = zoomTo = null })
+renderer.domElement.addEventListener('wheel', () => { zoomTo = null }) // the glide never fights the user's zoom
 renderer.domElement.addEventListener('click', (e) => {
   if (!office || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return
   ray.setFromCamera(ndc.set((e.clientX / innerWidth) * 2 - 1, (-e.clientY / innerHeight) * 2 + 1), camera)
-  const seated = (id, s) => {
-    const x = s.x + 0.4 * Math.sin((s.rot * Math.PI) / 2), z = s.z + 0.4 * Math.cos((s.rot * Math.PI) / 2)
-    return [id, x - 0.45, z - 0.45, x + 0.45, z + 0.45]
-  }
-  let best = null, near = Infinity
-  for (const [id, x0, z0, x1, z1] of [
+  const sq = (id, x, z) => [id, x - 0.45, z - 0.45, x + 0.45, z + 0.45]
+  const seated = (id, s) => sq(id, s.x + 0.4 * Math.sin((s.rot * Math.PI) / 2), s.z + 0.4 * Math.cos((s.rot * Math.PI) / 2))
+  let best = null, near = Infinity, walker = false
+  for (const [id, x0, z0, x1, z1, walks = false] of [
     ...office.desks.map((d) => [d.id, d.x - 1, d.z - 0.8, d.x + 1, d.z + 0.9]),
     ...office.desks.filter((d) => d.away).map((d) => seated(d.id, d.away)),
     ...office.subagents.map((s) => seated(s.id, s)),
+    ...[...views].filter(([, v]) => v.worker?.stand.visible).map(([id, v]) => (v.worker.g.getWorldPosition(hip), [...sq(id, hip.x, hip.z), true])), // stroll() shows the standing legs on a trip only
   ]) {
     pick.min.set(x0, 0, z0)
     pick.max.set(x1, 1.8, z1)
     const t = ray.ray.intersectBox(pick, hit) && hit.distanceTo(ray.ray.origin)
-    if (t !== null && t < near) { near = t; best = id }
+    if (t !== null && t < near) { near = t; best = id; walker = walks }
   }
   if (best) open(best)
+  if (walker) { follow = best; zoomTo = Math.min(controls.maxZoom, camera.zoom * 1.5) } // after open(): it clears follow
 })
 
 let last = 0 // the time of the last frame
 renderer.setAnimationLoop((ms) => {
   const t = ms / 1000
+  if (follow) { // on a trip or seated again: the camera stays on the worker
+    const w = views.get(follow)?.worker
+    if (w) goal = w.g.getWorldPosition(tracked).setY(0)
+    else follow = null // the agent exited
+  }
   if (goal) {
     controls.target.lerp(goal, 0.15)
     if (controls.target.distanceTo(goal) < 0.01) goal = null
     camera.position.copy(controls.target).add(OFFSET)
+  }
+  if (zoomTo !== null) {
+    camera.zoom += (zoomTo - camera.zoom) * 0.15
+    if (Math.abs(zoomTo - camera.zoom) < 0.01) zoomTo = null
+    camera.updateProjectionMatrix()
   }
   controls.update()
   if (office) keepInView()
