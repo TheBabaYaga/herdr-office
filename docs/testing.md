@@ -1,0 +1,193 @@
+# test/*.test.mjs: tests and checks
+
+The tests use `node:test` and `node:assert/strict` only. `test/bridge.test.mjs` imports `bridge.mjs`. `test/model.test.mjs` and `test/walk.test.mjs` import `public/model.js`. `public/office.js` and `public/decor.js` import `three` through the browser importmap, so Node cannot load them, and no test covers them. No test talks to the live herdr socket or reads `~/.claude`.
+
+## When to read this doc
+
+- A new test, or a test that fails.
+- A change to a number that `checkRoute()` in `test/walk.test.mjs` copies from `public/office.js` or `public/decor.js`.
+- A change to the demo data (`DEMO_PANES`, `demoSnapshot()`, `demoMeetings()`) or to the break times.
+- A check by hand in the browser.
+
+## How to run
+
+```sh
+npm test                                                        # node --test test/*.test.mjs
+node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only the matching tests
+```
+
+- `CLAUDE.md` "Run and check" has the Node 25 glob rule and the `node --check` rule. `package.json` has no typecheck, lint, or format script.
+- A new test file must end in `.test.mjs`, or the glob does not find it.
+- `node --test` runs each file in its own process, so the `process.chdir()` in `test/bridge.test.mjs` does not change the other files. Inside one file, the tests run in source order.
+
+## Module state
+
+| State | Where | Rule |
+|---|---|---|
+| the cwd `dir` | `test/bridge.test.mjs` moves into a temp folder at load. `after()` removes it | A fake socket gets a short relative name (the 104-byte limit) |
+| `n` | `fakeHerdr()` | Counts up, so each fake gets its own `h<n>.sock` |
+| `projects` | the fake `~/.claude/projects` tree in `dir` | The `readMeetings` tests and the `/events` meetings test write into it. Give a new test its own cwd and session id |
+| `cwds`, `models` | caches in `bridge.mjs` | They live until the process ends. `modelIn()` keeps the last model of a file, also when a later tail has none |
+| `offices` | `test/walk.test.mjs` builds it from `CASES` at load | A throw in `buildOffice()` for one case fails the whole file |
+
+## test/bridge.test.mjs
+
+### Fixtures and helpers
+
+- `pub`: a fake public folder (an `index.html` with only the `office-token` meta tag, and `app.js`). Pass `publicDir: pub`, never the real `public/`.
+- `SNAP`: a working claude pane `w1:p1` (cwd `/src/a`) and a shell pane `w1:p2`.
+- `answer(req)`: the default fake reply. `SNAP` for `session.snapshot`, the error `pane_not_found` for the `pane_id` `w9:p9`, the error `agent_blocked` for the `target` `w9:p9`, else `{ type: 'ok' }`.
+- `fakeHerdr(reply = answer)`: resolves `{ sock, lines, close }`. `lines` gets each raw request line, with its `\n`. A `reply` that returns `null` never answers.
+- `request()` sends one HTTP request (a `host` key replaces the `Host` header). `sse(port)` returns `{ msgs, next, close }`, and `msgs.length === 0` after a sleep proves that nothing came. `portOf(b)` gives the port of a bridge with `port: 0`.
+- The meeting fixtures: `esc()`, `line()`, `write(file, text, ageS)` (sets the mtime `ageS` seconds back), `session()`, `said()`, `run()`, and `plain()`. To end a run, write `workflows/<runId>.json` in the session folder.
+- `readMeetings()` decides with mtimes. The newest session for a cwd wins. A plain subagent quiet for 30 s has ended, and a workflow agent quiet for 30 min has ended.
+
+### Security checks
+
+- All names and texts in the fake tree are made up. Never copy a file from the real `~/.claude` into a fixture.
+- `SECRET` is in the transcripts, the journal results, the run JSON, and the workflow scripts. The first and the third `readMeetings` tests assert that `JSON.stringify(out)` does not contain it. The `/events` meetings test compares the full message.
+- The second `readMeetings` test asserts the same for `READ_FROM_OUTSIDE`, a meta file that an agent id with `../` points to.
+- The static test checks the token in the page, `x-frame-options: DENY`, `cache-control: no-store`, no CORS header, five plain and encoded `../secret.js` paths, a `//` path, and the `Host` guard. `secret.js` is a file outside `pub`, not the `SECRET` constant.
+- `POST /action`: a wrong, short, or missing token or a bad `Host` gives 403. A bad pane id or body gives 400. A 5 KB body gives 400 or 413, so the test does not pin 413. No rejected request reaches `fake.lines` or calls `raise`.
+- `POST /action` with a prompt: a prompt with no text, or with an empty, blank, number, or array text, gives 400. A good prompt reaches the fake as exactly one `agent.prompt` line. A blocked target gives 502 with `agent_blocked`. A prompt never calls `raise`.
+- No test checks the listen address `127.0.0.1`.
+
+### Gotchas
+
+- `startBridge()` calls `raise` only when the test passes it. Only the `import.meta.main` block passes `open -a WezTerm`.
+- A static test can pass `sock: 'none.sock'`. With no SSE client, the bridge never opens it.
+- Pass a small `pollMs` and `meetMs` (the defaults are 500 ms and 2000 ms). Close `es`, `b`, and `fake` in `finally`.
+- The `/events` meetings test uses `/src/a`, the cwd of the claude agent in `SNAP`.
+
+## test/model.test.mjs
+
+### Fixtures and helpers
+
+- `rect()`, `layout()`, `pane()` (a shell pane with status `unknown`), and `agent()` build a snapshot.
+- `synthetic()`: two workspaces out of number order, with a shell pane `logs` and a 2x2 split. `big()`: 18 workspaces, 26 tabs, and 49 panes.
+- `assertPlan(o, snap, meetings = [])`: the floor-plan invariants. It calls `assertSeats()` (the table, the seats, the head seat, the side seats) and `assertSpacing()`.
+- `assertSpacing(desks)`: copies `GAP_X` (2.4) and `GAP_Z` (2.2) from `public/model.js`.
+- `meeting(sessionId, cwd, n, workflow = 'flow')`: a meeting in the bridge shape with `n` agents.
+
+### Gotchas
+
+- `constants` pins each `STATUS_COLOR` value.
+- `assertPlan()` pins the room order and the label of a room that is not a workspace. A new room kind must update both lines.
+- `demoSnapshot has the snapshot shape` and `demo ticks 0..50 ...` pin the demo counts. The second test also wants each of `working`, `blocked`, `done`, and `idle` in every tick. A change to `DEMO_PANES` can break them. Two of the 9 agents are the long-idle agents of `test/walk.test.mjs`.
+- A status change can still change `sig`, because `away` goes to the working claude desk in the session cwd. `positions do not change when only statuses change` uses no meetings and does not see this.
+- `the orchestrator desk is away` compares the full `o.subagents[0]`. A new subagent field must go into it.
+
+## test/walk.test.mjs
+
+### Fixtures and helpers
+
+- `snap(spec)`: a snapshot from a list of tabs for each workspace, and a list of pane rects for each tab. Every fourth pane is a shell, the others are idle claude agents. `G(c, r)` gives a grid, `SIX` a 6-way split.
+- `CASES` maps a name to `[snapshot, meetings]`. `close(a, b, msg)` compares floats to 1e-6.
+- `world()` and `step(w, t, over, id = 'a')`: `step()` calls `stepBreak()` with `idle: true`, `seed: 7`, `spots: 3`, and `route: () => PATH`. `over` replaces any of these.
+- `checkRoute(name, o, d, spot)`: samples a route every 0.1, plus each corner, against the walls, doors, desks, lamp posts, walk rects, the open leaf and posts, and the other kitchen spots. Its comments give each box and margin.
+
+### Gotchas
+
+- `checkRoute()` copies numbers from files that Node cannot import. A change to one of them needs the same change in `checkRoute()`:
+  - the leaf hinge, the leaf width, and the posts at 0.6 in `door()`, and `OPEN` in `public/office.js`. The leaf tip is in the comment above `doorX` in `public/model.js`.
+  - `LAMP` in `public/decor.js`.
+  - the arm swing and the mug hand from `worker()` and `stroll()` in `public/office.js`.
+- The checks are 2D boxes. The posts and the leaf are as tall as a worker, so each worker part below 2.1 must stay inside the footprint that `checkRoute()` models.
+- `checkRoute()` opens the leaf of every door within 3, also a door that `opens()` keeps closed. So no test fails on a route through a third room, but in the page that door stays closed. Such a route needs a change in `opens()`.
+- The wall loop also holds the building rect, which has no `door`. A point closer than 0.3 to the outer wall makes `inDoor()` throw a `TypeError`, not a clean message.
+- Only '3 small workspaces' has a kitchen door in the south wall. If a room width change moves it, `the cases cover both kitchen door sides` fails. Then add a case.
+- The demo test uses the seed `hash(d.terminalId, 1e9)`, as `public/office.js` does, and the route to `kitchen.spots[0]`, the longest one. It depends on the long-idle entries of `w2:p2` and `w3:p3` in `DEMO_PANES`, on `WALK`, on `breakPlan()`, and on the demo floor plan. `w2:p2` has the smallest margin, so a longer stay or a slower walk breaks it first.
+
+## Change recipes
+
+### Add a bridge test with a fake socket
+
+1. Put the test in `test/bridge.test.mjs`, below the helpers.
+2. Make the fake with `await fakeHerdr(reply)`. Leave `reply` out for `answer`.
+3. Start the bridge with `sock: fake.sock`, `port: 0`, `publicDir: pub`, and a small `pollMs`. Pass `raise: () => raised++` for a focus test.
+4. Send with `request(portOf(b), ...)` or `sse(portOf(b))`. Assert on the reply and on `fake.lines`.
+5. Close `es`, `b`, and `fake` in `finally`.
+
+- Always pass `sock` to `startBridge()` and `herdrRequest()`, and `env` and `home` to `socketPath()`. herdr sets `HERDR_SOCKET_PATH` in each pane, so a default gives the live socket. Never send a mutating request to the live socket.
+- A new test file copies the temp folder setup: `mkdtempSync()`, `process.chdir()`, and `after()` with `rmSync()`.
+- A new bridge guard goes into `CLAUDE.md` "Safety rules" and `docs/bridge.md`.
+
+### Add a test for a new meeting field
+
+1. Take the field from metadata only: a journal event, a `meta.json`, a folder listing, or a `claude-*` model id from a tail.
+2. Add the field to the fixture: an event in `run()`, a `metas` entry, or the `meta` of `plain()`.
+3. If the code reads a new file, put `SECRET` into the parts of that file that must not leave.
+4. Add the field to the expected objects of the three `readMeetings` tests and of `GET /events: adds the meetings...`.
+5. Keep the check `assert.ok(!JSON.stringify(out).includes(SECRET))`. Use a new cwd and session id.
+
+- If `buildOffice()` copies the field into `subagents`, update `meeting()`, the expected `o.subagents[0]` in `test/model.test.mjs`, and `demoMeetings()`.
+- If the field changes the 3D look of a subagent, add it to `sig` in `update()`. No test finds a missing `sig` field.
+- Update the `readMeetings` contract in `CLAUDE.md` "Contracts between the files", and `docs/bridge.md`.
+
+### Add a floor-plan case
+
+- In `test/model.test.mjs`, build a snapshot and call `assertPlan(buildOffice(s, ms), s, ms)`.
+- A pane in `synthetic()` that is not in `layouts` goes to a row at the pod end.
+- In `test/walk.test.mjs`, add an entry to `CASES`. The kitchen, door side, route, and `opens()` tests then run on it.
+- Keep both kitchen door sides in `CASES`. Each agent desk adds one route for each kitchen spot to the slowest test, so prefer a small case.
+
+### Add a route check
+
+1. For a check at each point, add the assertion in the `for (const s of samples)` loop of `checkRoute()`. Use `at` in the message.
+2. For a check of the whole route, assert on `path` before the loop.
+3. If the check needs a size from `public/office.js` or `public/decor.js`, copy the number. Add a comment that names the source.
+4. If `route()` changes, update its contract in `CLAUDE.md` "Contracts between the files", the comments above `route()`, and `docs/model.md`.
+5. A new route point in a room must lie in a pod or a `walk` rect. Extend `walkRects()`. `placer()` then keeps props off the new rect, and no test checks that.
+
+### Add a break test
+
+1. Start with `const w = world()`. Call `step(w, t, over, id)` for each frame time `t`.
+2. Read the times from `breakPlan(7, n)` or `w.trips.get('a').next`. Do not pin a `breakPlan()` value. Only `breakPlan is deterministic and stays in range` holds the ranges.
+3. With `seed: 7` and `spots: 3`, a worker takes the first free spot in the order 1, 2, 0.
+4. Assert on the return value (`null` at the desk, else `{ s, phase, got, trip }`), `w.trips`, and `w.claimed`.
+
+- For a timing change in `tripAt()`, build a trip `{ len, start, stay, rush }` and compare `s` with `close()`.
+- For a change of the demo idle times or of `WALK`, run the demo test and update the long-idle entries in `DEMO_PANES` if it fails.
+- A change of the break behavior updates `INTENT.md` decision 19 and "Open items and known limits". A change of a break function shape or number updates its contract in `CLAUDE.md`.
+
+### Change when a door opens
+
+1. Change `opens()` in `public/model.js`. The `opens()` test wants an open door at 1.4 or less and a closed door at 3 or more. Change those numbers if the radius moves.
+2. `checkRoute()` treats each door within 3 as open. If the radius grows past 3, grow that loop too.
+3. A change to `OPEN` or `SWING` in `public/office.js` needs the same change in `checkRoute()` (the angle) or in the comment above `opens()` (the time).
+4. Update `INTENT.md` decision 20, the `opens()` contract in `CLAUDE.md` "Contracts between the files", and the door line in `CLAUDE.md` "Scene conventions".
+
+## What no test covers
+
+- `public/office.js` and `public/decor.js`. After a change to `placer()` or `kitchen()`, load `decor.js` with three.js in a scratch script. Check that no prop stands on a walk rect and that the kitchen keeps its cafe table.
+- The sha384 `integrity` values in `public/index.html`. A wrong hash fails only in the browser.
+- The `if (import.meta.main)` block of `bridge.mjs`, and the focus with the WezTerm raise.
+- The message field in the page: the `#say` hide rule, the demo lock, and the `#msg` clear. Use a fake herdr socket for a browser check (see "Visual check in the browser").
+- A room with two pod rows (wider than `MAX_ROW`). A route can cross the lower row.
+- Two workers on trips can overlap in a corridor. No test checks that a door is open before a walker gets to it.
+
+## Visual check in the browser
+
+1. Start a check bridge in the background: `PORT=4848 npm start`.
+2. Open `http://127.0.0.1:4848/?demo`. The demo page opens no `/events` stream, and the focus button and the message field are disabled.
+3. For a kitchen trip, watch `w2:p2` in the "web" room. It sits again about 100 s after load.
+4. For a rush, watch `w3:p3` in the "docs" room. It turns `working` at tick 30, during its first trip. A rush in the demo always shows `working`, never `blocked` or `done`.
+5. Stop the check bridge:
+   1. Get the PID with `lsof -nP -tiTCP:4848 -sTCP:LISTEN`. Do not use `$!`, because it can give the PID of a wrapper shell.
+   2. Kill that PID.
+   3. Run the `lsof` command again to make sure that the port is free.
+
+- Without `?demo`, the bridge polls the live herdr. Never click "Focus in herdr" or "Focus orchestrator" there, because the click marks the tab as seen. Never send a message there, because herdr types it into a live agent.
+- To check a write path without the live herdr, use a fake herdr socket:
+  1. Write a small fake in a scratch folder. It answers `session.snapshot` with a snapshot that has an agent pane, and each other request with `{ type: 'ok' }`. It logs each request.
+  2. Start the fake with its cwd in that folder, on a short relative socket name such as `h.sock`. macOS caps a socket path at 104 bytes.
+  3. Start the check bridge from the same folder: `PORT=4848 HERDR_SOCKET_PATH=h.sock node <repo>/bridge.mjs`.
+  4. Use the page without `?demo`, and read the fake log. Then stop the bridge and the fake.
+- For a pod lamp that changes from `working` to `blocked`, watch the "tests" pod (`w2:t2`) at ticks 3 to 5 of each 12-tick cycle. The demo never shows a meeting start or end. See `docs/model.md` "Demo".
+- A page eval cannot read the state of `public/office.js`, because it exports nothing and sets no `window` property. It can read `.sign` and `.badge` in `#labels`: the text, the `--c` color, and `style.visibility`. Check the lamps, doors, and screens with a screenshot.
+- `CLAUDE.md` "Visual checks" gives the headless Chrome method. With `--remote-debugging-pipe`, Chrome reads CDP on fd 3 and writes on fd 4. Each JSON message ends with a NUL byte.
+- A zoom on the canvas (`keepInView()` sets `minZoom` each frame):
+
+```js
+document.querySelector('canvas').dispatchEvent(new WheelEvent('wheel', { deltaY: -500, clientX: 600, clientY: 400, bubbles: true }))
+```

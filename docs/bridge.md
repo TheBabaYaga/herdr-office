@@ -1,0 +1,168 @@
+# bridge.mjs: the herdr bridge
+
+`bridge.mjs` is the local HTTP server of herdhouse. It polls the herdr socket, reads Claude Code subagent metadata from `~/.claude/projects`, and streams both to the page over SSE. It also serves `public/` and sends two writes to herdr: `pane.focus` and `agent.prompt`. For the herdr wire protocol, read `docs/herdr-agent-model.md` section 3.
+
+## When to read this doc
+
+- A change to a herdr request, the poll, the SSE stream, a guard, or the start (port, socket path, WezTerm raise).
+- A new field in `meetings`, a new `POST /action` type, or a new static file type.
+- A failed test in `test/bridge.test.mjs`. Also read `docs/testing.md`.
+
+## Module state
+
+| Name | Holds | Written by |
+|---|---|---|
+| `cwds`, `models` | transcript path to its first `"cwd"`, and to its last `claude-*` id | `cwdOf()`, `modelIn()`, hits only |
+| `clients` | the open `/events` responses | `/events` branch, `res` `close`, `close()` |
+| `last` | the last SSE payload, or `null` | `send()`, the end of `poll()` |
+| `polling`, `meetings`, `readAt` | the loop flag, the last `readMeetings()` result, and its time | `poll()` |
+
+`cwds` and `models` live for the process, with no eviction. The rest live inside `startBridge()`.
+
+## Flow
+
+At start, the `import.meta.main` block awaits `startBridge()` with `socketPath()`, `Number(PORT) || 4747`, `public/`, `~/.claude/projects`, and a `raise` that runs `execFile('open', ['-a', 'WezTerm'])` with no shell. `PORT=0` gives 4747, not a free port. Each start makes a new token. The bridge sends no `session.snapshot` request before the first `/events` client.
+
+`handle()`, for each HTTP request:
+
+1. A `Host` other than `127.0.0.1:<port>` or `localhost:<port>` gets 403.
+2. `POST /action` goes to the action branch, `GET /events` to the SSE branch, and each other `GET` to the static branch. The rest gets 404.
+3. A throw goes to `.catch(() => res.destroy())`, so the client gets no status line.
+
+`poll()`, for each cycle:
+
+1. `herdrRequest(sock, 'session.snapshot')`.
+2. If `claudeDir` is set and `meetMs` passed since `readAt`: set `readAt`, and call `readMeetings()` with `foreground_cwd || cwd` of each `snapshot.agents` entry with `agent === 'claude'`. A rejection keeps the old `meetings`.
+3. `send({ online: true, snapshot, meetings })`. A throw in steps 1 to 3 sends `{ online: false, snapshot: null, error }`.
+4. `sleep(pollMs)`. The loop runs while `clients.size > 0`, then resets `polling`, `last`, and `readAt`.
+
+## Functions
+
+### Static branch of `handle()`
+
+- It joins `decodeURIComponent(pathname)` to `publicDir`. It blocks an extension that is not in `TYPES`, and a path outside `publicDir + path.sep`. Each error gives 404.
+- `new URL()` removes `..` and `%2e%2e`. An encoded slash stays encoded until the decode, so only the `startsWith` guard blocks `/..%2f`.
+- An HTML file gets the token in place of `__OFFICE_TOKEN__`. A 200 reply sets `cache-control: no-store` and `x-frame-options: DENY`.
+
+### `socketPath(env = process.env, home = os.homedir())`
+
+It returns `HERDR_SOCKET_PATH`, else the `HERDR_SESSION` socket, else the default socket. herdr sets `HERDR_SOCKET_PATH` in each pane, so in a pane it gives the live socket. A test must always pass `sock` (CLAUDE.md "Safety rules").
+
+### `herdrRequest(sock, method, params = {}, timeoutMs = 3000)`
+
+- It opens one connection, writes one line `{ id, method, params }`, and resolves `result` of the first reply line.
+- It rejects on a herdr `error` (`<code>: <message>`), a parse error, the timeout, a close before a full line, or a socket error.
+
+### Claude subagent helpers
+
+- `ls(d)` gives `[]` and `readJson(f)` gives `{}` on any error. `chunk(file, from)` reads 32 KB at an offset and throws on an error.
+- `cwdOf(file)`: the first `"cwd"` in the first 32 KB, else in the first 256 KB. It caches a hit in `cwds`.
+- `modelIn(file, tail)`: the last `claude-*` model id in `tail`, cached in `models`, or `null`.
+- `plainTail(file, now)`: the last 32 KB of a plain subagent transcript. It gives `null` when the path is not a regular file or is 30 s quiet, or its last line has an `end_turn` or `stop_sequence` stop reason.
+
+### `readMeetings(projects, cwds, now = Date.now())`
+
+For each unique cwd, inside a `try`/`catch` that drops only that cwd:
+
+1. Folder: `projects/<cwd with each non-alphanumeric character as '-'>`.
+2. Session: the newest `.jsonl` regular file whose `cwdOf()` equals the cwd exactly. The `stat()` check skips a FIFO, because `open()` on a FIFO never returns.
+3. Workflow agents, for each `subagents/workflows/<runId>/` of the session. An agent still runs when all of these are true:
+   - `workflows/<runId>.json`, the end marker of the run, does not exist.
+   - The journal has a `started` event for its key, and no later `result` or `failed` event.
+   - `agentId` matches `^[\w-]+$`, because the id goes into a file path.
+   - Its transcript does not exist, or changed in the last 30 min.
+4. Plain subagents: each `subagents/agent-<id>.meta.json` whose `plainTail()` gives a tail. A plain subagent with no transcript never counts.
+5. It adds `{ sessionId, cwd, agents }` when `agents` is not empty. Workflow agents come first.
+
+### `startBridge(options)`
+
+The options are `sock`, `port` (on `127.0.0.1`), `publicDir`, `pollMs` (500), `token` (`crypto.randomUUID()`), `claudeDir` (`null` gives `meetings: []`), `meetMs` (2000, the shortest time between two meeting reads), and `raise` (runs after a successful `pane.focus`).
+
+It returns `{ url, token, close }`. `close()` clears `clients` and closes the server. A cycle that runs then finishes, and the loop stops.
+
+### `send(msg)`
+
+It writes `data: <JSON>\n\n` to each client when the string differs from `last`. It destroys a client with more than 1 MB unread. That `EventSource` connects again, and `es.onerror` in `public/office.js` reloads the page when the stream opens again.
+
+### `GET /events` branch
+
+It replies 200 `text/event-stream` with `cache-control: no-store`, and adds `res` to `clients`. It writes `last` at once when it is set, and starts `poll()` when `polling` is `false`.
+
+### `POST /action` branch
+
+1. Token check, before the body read: the same byte length and `crypto.timingSafeEqual()`. Else 403.
+2. `readBody()` keeps at most 4096 bytes. A larger body gives 413.
+3. The body must be `{ type: 'focus', pane_id }` or `{ type: 'prompt', pane_id, text }`. `pane_id` must match `^w[0-9A-Za-z]+:p[0-9A-Za-z]+$`. `text` must be a string with at least one non-space character (the local `say`). Else 400.
+4. A focus calls `herdrRequest(sock, 'pane.focus', { pane_id })`. A prompt calls `herdrRequest(sock, 'agent.prompt', { target: pane_id, text })`. A rejection gives 502 with its message. herdr rejects a prompt to a blocked agent with `agent_blocked`.
+5. A prompt returns 200 `{ ok: true }` here. It does not call `raise`.
+6. `raise?.()` inside a `try`/`catch`, with no `await`. A throw logs and does not change the reply.
+7. 200 `{ ok: true }`.
+
+A rejected request sends nothing to herdr. The page callers are `$('focus').onclick` and `$('say').onsubmit` in `public/office.js`. Both post through `act()`.
+
+## What may reach the browser
+
+| Field | Source |
+|---|---|
+| HTML `__OFFICE_TOKEN__` | the bridge `token` |
+| `snapshot` | `session.snapshot` with no filter: live labels, cwds, and titles |
+| `meetings[].sessionId`, `cwd` | the transcript name, and the herdr `foreground_cwd` or `cwd` |
+| `agents[].agentId` | the journal `started` event, or the `<id>` in a plain meta file name |
+| `agents[].label` | journal `label`, else meta `description` |
+| `agents[].phase` | journal `phase`, else meta `workflowPhase` |
+| `agents[].model` | meta `model` (it can be an alias such as `sonnet`), else `modelIn()` |
+| `agents[].workflow`, `runId` | `<name>` of `workflows/scripts/<name>-<runId>.js`, and the run folder name |
+| `error` (offline) | the `Error.message` of the failed cycle. It can hold the socket path. The page does not show it. |
+| `POST /action` reply | `{ ok: true }` or `{ error }`, shown with `textContent`. A 502 `error` is the `herdrRequest()` message, so it can also hold the socket path. |
+
+A plain subagent has `phase`, `workflow`, and `runId` set to `null`. No transcript text goes to the browser: `cwdOf()` gives a cwd only, and `modelIn()` gives a `claude-*` id only. The `plainTail()` text goes only into `modelIn()`. Never copy page output into a repo file. The rules for a new field are in CLAUDE.md "Safety rules".
+
+## Change recipes
+
+Add a field to a meeting agent:
+
+1. `readMeetings()`: add it to both `agents.push()` calls, from metadata only (journal, meta file, file name, `stat()` time).
+2. `public/model.js`: add it to `subagents.push()` in `buildOffice()` and to `demoMeetings()`.
+3. `public/office.js`: show it with `textContent` in `fill()` or the badge in `update()`. A 3D change also goes into `sig`.
+4. Tests: the expected objects in the `readMeetings:` tests and the `/events` meetings test (keep the `SECRET` check). In `test/model.test.mjs`: `meeting()`, and the `deepEqual` on `o.subagents[0]` in `the orchestrator desk is away: its worker takes the head seat`.
+5. Docs: CLAUDE.md "Contracts between the files" and "What may reach the browser".
+
+Read a new file under `~/.claude`:
+
+1. Read only. Check with `stat()` that the path is a regular file before `chunk()` or `readFile()`.
+2. Check a journal or meta value with `^[\w-]+$` before a path uses it.
+3. Update the comment above `ls` and CLAUDE.md "Safety rules".
+4. Add a test that writes `SECRET` into the file and checks that the output does not hold it.
+
+Add an action type:
+
+1. Ask the user first. INTENT.md decision 2 allows only a focus.
+2. Extend the validation and its 400 text. Keep the token check before the body read.
+3. Get the params from `herdr api schema --json`. Add the page caller next to `$('focus').onclick`.
+4. Test the exact line that the fake gets, and that a rejected input sends nothing. Never send the new method to the live socket.
+5. Docs: CLAUDE.md "Contracts between the files" and a new INTENT.md decision.
+
+Add a herdr read to the poll: check the method with `herdr api schema --json` (read-only). Call `herdrRequest()` inside the `try` of `poll()`, so a failure sends the offline message. Extend the fake `answer()` in `test/bridge.test.mjs`, never the live socket. Then follow "Add a field to the SSE message".
+
+Change the poll or meeting rate: change the default in `startBridge()`. The polling tests pass their own values. Update the `startBridge(options)` line above, and each bridge-rate line that `grep -rn '500 ms\|2000 ms' docs *.md` finds. The 500 ms in `docs/herdr-agent-model.md` section 2 is a herdr rate, so keep it.
+
+Serve a new file type: add it to `TYPES`. Write a sample into `pub` in `test/bridge.test.mjs`, and check its `content-type` in `GET / injects the token, static files serve, traversal is blocked`.
+
+Add a field to the SSE message:
+
+1. Add it to the `send()` calls in `poll()`.
+2. Read it in `es.onmessage` in `public/office.js`.
+3. Update the `deepEqual` checks in the two `GET /events` tests.
+4. Docs: CLAUDE.md "Contracts between the files" and "What may reach the browser".
+
+## Pitfalls
+
+- Inside `readMeetings()`, the parameter `cwds` hides the module cache `cwds`.
+- The tests in a file share the caches, so a test that rewrites a transcript at the same path gets the old cwd. Give a new test its own transcript path (`docs/testing.md`).
+- The bridge (`snapshot.agents`) and `buildOffice()` (`snapshot.panes`) compare cwds as exact strings. Change both sides together.
+- `family()` and `attendee()` in `public/office.js` call `model?.match()`. `readMeetings()` has no type check, so a `model` that is not a string throws there.
+- With `claudeDir` set, a snapshot with no `agents` array throws in each cycle that reads meetings. The page then shows offline about every `meetMs`.
+- `send()` compares the full JSON, so a timestamp field sends a message every `pollMs`. It drops a slow client only on a changed message.
+- Only the Host check guards `GET /events` and the static files. A `json()` reply has no `cache-control` and no `x-frame-options`. A new HTML route must set both.
+- `raise` must be synchronous, or catch its own errors. In Node 25, an unhandled rejection ends the process.
+- The traversal guard checks the path string only. `readFile()` follows a symlink inside `public/`.

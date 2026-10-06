@@ -1,0 +1,164 @@
+# herdhouse docs
+
+These docs describe the code of herdhouse, with one doc for each source area. `CLAUDE.md` holds the contracts between the files and the safety rules, and `INTENT.md` holds the decisions of the user and the cut features.
+
+## Which doc to read
+
+| Task | Doc and section | Main functions |
+|---|---|---|
+| The 3D look of a worker or a desk | `docs/office.md` "View shapes" (the worker parts, heights, and facing), "Desks, seats, and workers", "Screens", "pose()" | `worker()`, `shirt()`, `desk()`, `seatAt()`, `attendee()`, `pose()`, `typing()`, `browse()` |
+| Status ranks, colors, and the roll-up | `docs/model.md` "Status", `docs/office.md` "Pitfalls" (a new status) | `rollup()`, `STATUS_RANK`, `STATUS_COLOR`, `COLOR`, `ARM` |
+| Labels and decluttering | `docs/office.md` "declutter()", "update()", the recipe "A new label" | `label()`, `declutter()`, `update()` (`tags`) |
+| The HUD and the panel | `docs/office.md` "HUD", "Panel". The markup is in `public/index.html` (`#hud`, `#panel`) | `hud()`, `el()`, `setOnline()`, `open()`, `close()`, `fill()`, `act()` |
+| Camera and picking | `docs/office.md` "Camera", "Picking" | `resize()`, `fit()`, `frame()`, `keepInView()`, the canvas `pointerdown` and `click` handlers |
+| The floor plan and the room layout | `docs/model.md` "Pods and desks", "buildOffice(snap, meetings = [], prev = null)". `docs/office.md` "Floors and walls", "Build and bake" | `buildOffice()`, `podLayout()`, `spread()`, `build()`, `inner()`, `outer()`, `stub()` |
+| Kitchen trips and routes | `docs/model.md` "Walk geometry", "route(o, deskId, spot)", "Breaks". `docs/office.md` "Idle breaks" | `route()`, `walkRects()`, `stepBreak()`, `endBreak()`, `tripAt()`, `breakPlan()`, `along()`, `breaks()`, `stroll()` |
+| Doors | `docs/office.md` "Floors and walls" (`door()`), "Idle breaks" (`swing()`), the recipe for the door leaf. `docs/model.md` "Breaks" (`opens()`). `docs/testing.md` "Change when a door opens" | `door()`, `swing()`, `opens()`, `calm()` |
+| Decor and props | `docs/decor.md` | `box()`, `placer()`, `workspaceDecor()`, `kitchen()`, `meeting()`, `lobby()`, `plant()`, `clutter()` |
+| The bridge: poll, SSE, action, guards | `docs/bridge.md` "Flow", "`startBridge(options)`", "`GET /events` branch", "`POST /action` branch" | `startBridge()`, `handle()`, `poll()`, `send()`, `herdrRequest()`, `socketPath()` |
+| Meetings and subagents | `docs/bridge.md` "`readMeetings(projects, cwds, now = Date.now())`", "Claude subagent helpers", "What may reach the browser". `docs/model.md` "buildOffice(snap, meetings = [], prev = null)" (the meeting rooms, the orchestrator, and the seats). `docs/office.md` "Desks, seats, and workers". `docs/decor.md` "Room decor" | `readMeetings()`, `cwdOf()`, `modelIn()`, `plainTail()`, `buildOffice()`, `attendee()`, `seatAt()`, `longTable()` |
+| The demo data | `docs/model.md` "Demo", the recipe "A new demo agent" | `demoSnapshot()`, `demoMeetings()`, `DEMO_PANES`, `DEMO_AGENTS` |
+| Tests | `docs/testing.md` | `fakeHerdr()`, `sse()`, `synthetic()`, `assertPlan()`, `assertSeats()`, `checkRoute()` |
+| Visual checks | `docs/testing.md` "Visual check in the browser", `CLAUDE.md` "Visual checks" | `demoSnapshot()`, `breakPlan()`, `keepInView()` |
+| The herdr protocol | `docs/herdr-agent-model.md` section 3, `docs/bridge.md` "`herdrRequest(sock, method, params = {}, timeoutMs = 3000)`", `CLAUDE.md` "herdr facts the code depends on" | `herdrRequest()`, `socketPath()` |
+| A split of `office.js` work between agents | `docs/office.md` "Regions for parallel agents" | the region functions in that table |
+
+## Data flow
+
+```text
+herdr server (unix socket)
+  |  session.snapshot: one request each cycle, then a 500 ms sleep (pollMs)
+  v
+bridge.mjs poll()            only while an /events client is connected
+  |  readMeetings(): inside a cycle, when 2000 ms (meetMs) passed since the last read
+  |  send(): writes only when the JSON changes
+  v
+GET /events (SSE)            { online: true, snapshot, meetings }
+  |                          or { online: false, snapshot: null, error }
+  v
+public/office.js             EventSource('/events')
+                             or ?demo: setInterval each 1000 ms with demoSnapshot(tick), demoMeetings(tick)
+  |
+  v
+buildOffice(snapshot, meetings, office)     public/model.js, the old office is prev
+  |
+  v
+update(next)
+  |-- lay changed: trips.clear(), claimed.clear()
+  |-- endBreak() for each desk with away or with no agent
+  |-- sig changed: build() (DECOR[r.kind](), door(), desk(), attendee(), bake()), frame() on the first build
+  '-- in place: door lights, signs, pod lamps, badges, tags, spot, hud(), fill() when the panel is open
+```
+
+Each frame, `renderer.setAnimationLoop()` runs these calls in this order:
+
+```text
+goal glide -> controls.update() -> keepInView() -> label font size
+  -> moving = false, ajar.clear()
+  -> pose(v, t) for each view with a desk
+       breaks() -> stepBreak(), along()     where a worker on a trip is
+       typing() or browse()                 the screen
+       stroll(), opens() -> ajar            the walk, and the doors to open
+  -> swing(t - last)
+  -> seen = '' while a worker walks, at most 4 times a second
+  -> renderer.render() -> labels.render() -> declutter()
+```
+
+The click path:
+
+```text
+click on a desk or a seat (not a drag), or a HUD row
+  -> open(id) -> fill()           target = the pane id, or the orchestrator desk of a subagent
+  -> "Focus in herdr" button      act(): fetch POST /action, header x-office-token, body { type: 'focus', pane_id }
+  -> bridge.mjs handle()          Host check, token check, body check
+  -> herdrRequest(sock, 'pane.focus', { pane_id })
+  -> raise(): open -a WezTerm     a failure does not change the reply
+  -> 200 { ok: true }             #result shows "ok: herdr focused <id>"
+
+the message field (agent desks only), Enter or "Send"
+  -> act(): fetch POST /action    body { type: 'prompt', pane_id, text }
+  -> bridge.mjs handle()          Host check, token check, body check
+  -> herdrRequest(sock, 'agent.prompt', { target: pane_id, text })
+                                  herdr types the text and presses Enter, or rejects a blocked agent
+  -> 200 { ok: true }             no raise. #result shows "ok: sent to <id>", and #msg clears
+```
+
+- `GET /` serves `public/index.html`, and the bridge puts the token into the `office-token` meta tag.
+- The demo page opens no `/events` stream, so the bridge does not poll herdr. The focus button and the message field are disabled in the demo.
+- `readMeetings()` gets the cwds of the claude agents in the snapshot. No transcript text goes to the browser.
+- An offline message keeps the old scene, and `setOnline()` dims it.
+- The first open after an `EventSource` error reloads the page, so the page gets the new token of a restarted bridge.
+- A status change calls `build()` only when it moves `away` to another desk (`docs/model.md` "Pitfalls"). Else `update()` and `pose()` set the new look in place.
+
+## Module map
+
+```text
+bridge.mjs ------------- serves -------------> public/ (index.html with the token, office.js, model.js, decor.js)
+public/index.html ------ importmap ----------> three, three/addons/ (jsDelivr, three 0.186.1)
+                  ------ <script module> ----> public/office.js
+public/office.js ------- imports ------------> public/model.js, public/decor.js, three, three/addons/
+public/decor.js -------- imports ------------> three
+public/model.js -------- imports nothing
+test/bridge.test.mjs --- imports ------------> bridge.mjs
+test/model.test.mjs, test/walk.test.mjs -----> public/model.js
+```
+
+- `bridge.mjs`: the HTTP server, the herdr socket client, and the meeting reader. Doc: `docs/bridge.md`.
+- `public/index.html`: the importmap, the CSS, the HUD and panel markup, and the `office-token` meta tag. Doc: `docs/office.md` "HUD" and "Panel".
+- `public/model.js`: the pure model: the floor plan, the routes, the break timing, the door rule, and the demo data. Doc: `docs/model.md`.
+- `public/office.js`: the scene, the workers, the doors, the labels, the HUD, the panel, the camera, the click, and the data source. Doc: `docs/office.md`.
+- `public/decor.js`: `box()` and its material cache, the props, the room decor, and the desk clutter. Doc: `docs/decor.md`.
+- `test/*.test.mjs`: the bridge, model, and route tests. Doc: `docs/testing.md`.
+- Node cannot resolve the bare `three` import, so no test imports `office.js` or `decor.js`.
+
+## Glossary
+
+- building: the whole office for one herdr session. `office.bounds` holds its size, and `office.entrance` is the entrance in the south outer wall.
+- room: an entry of `office.rooms`, with `kind` `workspace`, `meeting`, `kitchen`, or `lobby`.
+- workspace room: the room of one herdr workspace (`kind: 'workspace'`, the id is the workspace id). The rooms follow the workspace `number`.
+- kitchen: the room with the counter (`room.counter`) and the standing spots (`room.spots`). `kitchen()` in `decor.js` draws it.
+- lobby: the last room (`rooms.at(-1)`), with the reception and the entrance. `lobby()` in `decor.js` draws it.
+- meeting room: one room for each entry of `meetings` (id `meeting:<sessionId>`), or one empty room with the id `meeting`. It has `table` and `seats`.
+- corridor: an entry of `office.corridors`, 3 wide (`HALL`). The cross corridor is `corridors.at(-1)` on the +x side.
+- band: a north row of rooms, a band corridor, and a south row of rooms. `bandZ()` gives the center line of the corridor in front of a door.
+- door: `room.door: { x, z, side }`, the gap in the corridor wall. `door()` in `office.js` draws the posts, the leaf, the light, and the sign.
+- pod: the desks of one herdr tab, an entry of `room.pods` (the id is the tab id). The pod lamp shows the tab status.
+- desk: one herdr pane, an entry of `office.desks` (the id is the pane id). `desk()` in `office.js` draws it.
+- seat: a meeting chair position in `room.seats` (`{ x, z, rot }`), with the head seat at `seats[0]`. The worker seat at a desk is `(d.x, d.z + 0.4)`.
+- worker: the figure of an agent, from `worker()` in `office.js`. It sits at a desk or at a meeting seat.
+- shell desk: a desk with `agent: null`. It has no worker, and its screen is dark (`SHELL`).
+- orchestrator: the claude desk with the same cwd as a meeting session. It gets `away`, and its subagents have its id as `deskId`.
+- subagent: a Claude Code subagent that still runs, an entry of `office.subagents`. It sits at a meeting seat and always shows `working`.
+- away: `desk.away = { roomId, x, z, rot }`, the head seat of the orchestrator. The worker sits there, and the desk shows an empty chair.
+- view: an entry of `views` in `office.js`, by room, pod, desk, or subagent id. It holds the objects that show the state of that id.
+- build signature (`sig`): the JSON of the room, pod, desk, and subagent positions, with the agent kind, `away`, `rot`, and `model`. `build()` runs only when it changes.
+- live: the `Set` of objects that `bake()` does not merge, because their look changes after the build.
+- tags: the label elements that `declutter()` checks, highest priority first. `update()` fills it.
+- bake: `bake()` merges the static meshes of a build into one mesh for each material.
+- route: the path `[[x, z], ...]` from the worker seat to a kitchen spot, from `route()` in `model.js`.
+- lane: a strip of floor that a route follows: the lane behind the desk row, the row lane (`laneZ()`), and the door lane (`stepX()`). A walk rect reaches `LANE` (0.3) to each side of a route line.
+- spot: a standing place in front of the kitchen counter, an entry of `room.spots`. One worker holds a spot at a time.
+- trip: one walk to a kitchen spot and back, `trips.get(deskId).trip`. Its phases are `out`, `stay`, `back`, `rush`, and `done` (`tripAt()`).
+- rush: the run back at `RUN` (4) when the status leaves `idle` during a trip. `trip.rush` holds the start time of the run.
+- claimed: the `Map` from a kitchen spot index to the desk id that holds the spot. `stepBreak()` and `endBreak()` change it.
+- lay: the JSON of the route inputs in `update()`. A change clears `trips` and `claimed`, so every trip ends.
+- browse: the idle screen at the desk, a fake web page or a video, from `browse()`.
+- ajar: the `Set` of room ids whose door a walker opens in this frame. `pose()` fills it from `opens()`, and `swing()` reads it.
+- hinge: the group in the room view that holds the door leaf and the knob. `swing()` sets `hinge.rotation.y`, and `doors` keeps the angle.
+- status: the agent state: `blocked`, `done`, `working`, `idle`, or `unknown`, with the ranks 4 to 0 in `STATUS_RANK`.
+- roll-up: the highest-ranked status of a tab or a workspace. The model uses the herdr `agent_status`, and calls `rollup()` only when herdr sends none.
+- focus: the herdr focus in `office.focus` (`workspaceId`, `tabId`, `paneId`) and `desk.focused`. The blue `spot` light marks the focused desk, and "Focus in herdr" sends `pane.focus`.
+- message: the text that the panel field (`#say`, `#msg`) sends to an agent. The page posts it as `type: 'prompt'`, and the bridge sends it as `agent.prompt`.
+
+## docs/herdr-agent-model.md
+
+- Sections 1 to 3 still help: the herdr hierarchy, the statuses, the `seen` flag, the roll-up, the state detection, and the socket protocol.
+- Sections 4 (orchestration concepts), 7 (prior art), and 8 (open questions) are background. The code does not use the `herdr agent` CLI.
+- Sections 5 and 6 are the early design. The table "What the office shows" in `INTENT.md` and `bridge.mjs` replace them.
+
+## Keep the docs true
+
+- When a change makes a doc line wrong, fix that line in the same change.
+- A new function gets an entry in its file doc.
+- A new task kind gets a row in "Which doc to read". A new term gets a line in "Glossary".
+- `INTENT.md` records what the user wants, and why. Decisions 18 to 20 each quote the words of the user for one request. Decision 19 holds the approved numbers (5 to 30, 6 to 15, 20 to 60). So a change of a number in a decision, after the user approves it, updates that decision. A new request that sets behavior gets a new numbered decision with the words of the user.

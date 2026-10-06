@@ -6,7 +6,7 @@ This file records what the user wants from herdhouse, and why. The code does not
 
 The user runs coding agents in herdr, a terminal multiplexer. The user wants to see those agents work in a real office, in 3D, in the browser. The office uses the herdr concepts: a workspace is a room, a pane is a desk, and an agent is a worker at that desk. One look tells the user which agent works, which agent waits for the user, and which agent finished.
 
-The office watches. It never prompts an agent, and it never answers a blocked question. Its only write to herdr is a focus. A click on "Focus in herdr" moves the herdr focus to that pane and brings WezTerm to the front.
+The office watches. It has two writes to herdr: a focus and a message. A click on "Focus in herdr" moves the herdr focus to that pane and brings WezTerm to the front. The message field in the panel sends a line of text to the agent (decision 21). herdr refuses a message to a blocked agent, so the office never answers a blocked question.
 
 `docs/herdr-agent-model.md` has the analysis of herdr. Its section 5 is the first design of the mapping. The table below shows the mapping in the code. Where the two differ, this file wins.
 
@@ -35,7 +35,8 @@ The office watches. It never prompts an agent, and it never answers a blocked qu
 - The building also has a kitchen, a lobby with the reception and the entrance, plants, and desk clutter.
 - A drag moves the view. The mouse wheel zooms to the mouse pointer. Labels declutter: a label that covers a more important one hides.
 - A click on a desk, a worker, or a HUD row opens the side panel. The panel shows kind, name, status, room, tab, cwd, title, and pane.
-- `?demo` shows a simulated session with four workspaces ("api", "web", "docs", "infra") and one meeting. The focus button is off in the demo.
+- The panel of an agent desk has a message field. Enter or "Send" sends the text to that agent. A subagent and a shell desk have no message field.
+- `?demo` shows a simulated session with four workspaces ("api", "web", "docs", "infra") and one meeting. The focus button and the message field are off in the demo.
 
 ### Meetings
 
@@ -49,10 +50,10 @@ The office watches. It never prompts an agent, and it never answers a blocked qu
 
 ## Decisions
 
-The user made these decisions between 2026-10-03 and 2026-10-05.
+The user made these decisions between 2026-10-03 and 2026-10-06.
 
 1. The goal, in the user's words: "Analyze how herdr works with the agents ... build a 3D office (can be in threejs) that uses the same concepts where I can see my agents working in a real office." The analysis is in `docs/herdr-agent-model.md`.
-2. Watch, plus a click to focus. A desk click opens a panel, and "Focus in herdr" sends `pane.focus`. The office never prompts agents and never answers blocked questions.
+2. Watch, plus a click to focus. A desk click opens a panel, and "Focus in herdr" sends `pane.focus`. The office never prompts agents and never answers blocked questions. Decision 21 changed the first part: the office now sends messages. It still never answers a blocked question.
 3. Every pane gets a desk. A shell pane is an empty desk.
 4. An isometric voxel or pixel style.
 5. A `?demo` switch with simulated agents.
@@ -82,6 +83,11 @@ The user made these decisions between 2026-10-03 and 2026-10-05.
     - A walker that passes another door in a corridor does not open it.
     - At the counter the kitchen door closes. It opens again when the worker walks back.
     - The doors of the meeting room and the lobby stay closed, because nobody walks there.
+21. A message field in the panel, in the user's words: "When I click on an agent I want to be able to send a message via a text field. I know it's against our intent, it's just as a test". The user tested it on a branch, saw it work, and merged it into `main`.
+    - Only the panel of an agent desk has the field. A subagent and a shell desk have none.
+    - The bridge sends the text with `agent.prompt`. herdr types the text and presses Enter.
+    - herdr refuses a message to a blocked agent with `agent_blocked`, and the panel shows the error. So the office still never answers a blocked question.
+    - A message does not bring WezTerm to the front.
 
 ## Cut on purpose
 
@@ -111,6 +117,8 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 ## Open items and known limits
 
 - Nobody tested "Focus in herdr" (with the WezTerm raise) or the SketchyBar row click against the live herdr. The tests use fake sockets and stubs.
+- The tests cover only the bridge side of a message. One browser check against a fake herdr socket covered the page side.
+- The message field holds one line. "ok" in the panel means that herdr typed the text. It does not prove that the agent started a turn.
 - The HUD box can cover labels in the top-left corner.
 - A Claude session maps to a herdr pane by cwd. The bridge takes one session per cwd: the newest transcript. A second session in the same cwd gets no meeting room.
 - If two claude panes share that cwd, the office takes the working one as the orchestrator.

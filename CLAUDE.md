@@ -6,6 +6,9 @@ Read these files for more context:
 
 - `INTENT.md`: why the project exists, the decisions of the user, the features that the user cut, and the open items.
 - `docs/herdr-agent-model.md`: how herdr models agents, statuses, and the socket protocol. Its section 6 is an early design. Where it differs from the code (event subscription, the `herdr` CLI for actions), the code and `INTENT.md` are correct.
+- `docs/README.md`: the index of the docs: which doc to read for a task, the data flow, and a glossary.
+
+Read the doc for the area that a task touches before you read the code. When a change makes a doc line wrong, fix that line in the same change.
 
 ## How the main session works here
 
@@ -73,6 +76,7 @@ Contracts between the files:
 - `GET /events` is SSE. A message is `{ online: true, snapshot, meetings }`, or `{ online: false, snapshot: null, error }` when the herdr request fails.
 - The bridge sends a message only when its JSON changes. While a client is connected, it polls `session.snapshot` every 500 ms and reads meetings every 2000 ms.
 - `POST /action` takes the body `{"type":"focus","pane_id":"w<id>:p<id>"}` and the header `x-office-token`. It sends `pane.focus` to herdr and returns 200 `{ ok: true }`.
+- `POST /action` also takes `{"type":"prompt","pane_id":"w<id>:p<id>","text":"..."}`, where `text` has at least one non-space character. It sends `agent.prompt` with `{ target: pane_id, text }` to herdr and returns 200 `{ ok: true }`. A prompt does not bring WezTerm to the front. The panel of an agent desk sends it from the message field (`#say`).
 - After a successful `pane.focus`, the bridge brings WezTerm to the front with `open -a WezTerm`. `startBridge()` runs this only through its `raise` option. The tests pass a stub. A failed `open` does not change the reply.
 - Each start of the bridge makes a new token. The page reloads when its `/events` stream reconnects, so it gets the new token.
 - `POST /action` errors: a bad token or `Host` gives 403, a body over 4 KB gives 413, other bad input gives 400, and a herdr error gives 502.
@@ -116,6 +120,7 @@ Contracts between the files:
 - `done` is the herdr state `Idle` with `seen == false`: the agent finished, and nobody saw the pane after that. The first idle state of a new agent is `idle`, not `done`.
 - `unknown` is a plain shell, an unknown program, a new agent in its first 3 s, or a released agent.
 - `pane.focus` marks the whole tab as seen, so each `done` desk in that tab turns `idle`. The panel shows this warning.
+- `agent.prompt` types the text and presses Enter. It refuses a blocked agent with `agent_blocked` and sends nothing. The office relies on this, so a message never answers a blocked question.
 
 ## Safety rules
 
@@ -123,6 +128,7 @@ Contracts between the files:
 - Always pass `sock` to `startBridge()` and `herdrRequest()` in a test. herdr sets `HERDR_SOCKET_PATH` in each pane, so `socketPath()` gives the live socket.
 - macOS limits a unix socket path to 104 bytes. `test/bridge.test.mjs` changes its cwd to a temp folder and uses short relative names (`h1.sock`). Use the same method for a new fake socket.
 - During a check in live mode, never click "Focus in herdr" or "Focus orchestrator". The click switches herdr to that pane and marks the tab as seen. Use `?demo`, where the button is disabled.
+- During a check in live mode, never send a message from the panel. herdr types it into a live agent of the user. Use `?demo`, where the field is disabled, or a fake herdr socket (`docs/testing.md` "Visual check in the browser").
 - Never run bare `herdr`, because it opens the interactive client. Use read-only commands only, for example `herdr agent list` or `herdr api schema --json`.
 - Treat `~/.claude` as read-only. The tests use a fake projects tree in their temp folder.
 - Meetings carry metadata only. The bridge reads folder listings, `meta.json` files, and `journal.jsonl`.
