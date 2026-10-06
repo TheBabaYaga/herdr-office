@@ -22,7 +22,7 @@ The office watches. It has two writes to herdr: a focus and a message. A click o
 | `working` | The worker types | Strong yellow `#ffd43b`. The screen glows and shows text that types and scrolls. |
 | `blocked` | The worker raises a hand | Red `#fa5252`. A red beacon pulses over the head. |
 | `done` | The worker raises a paper | Teal `#94e2d5`. |
-| `idle` | The worker reclines and browses. Now and then it walks to the kitchen. | Green `#a6e3a1`. The screen shows a fake web page or a video on a green background. See decision 19. |
+| `idle` | The worker reclines and browses. Now and then it walks to the kitchen or dances in the party room. | Green `#a6e3a1`. The screen shows a fake web page or a video on a green background. See decision 19. |
 | `unknown` | The worker is semi-transparent | Grey `#6c7086`. |
 | Focus (`focused_pane_id`) | A blue spotlight on the desk | The first view frames the room of the focused workspace. |
 | Roll-up | Door light, pod lamp, HUD | Rank: blocked > done > working > idle > unknown. |
@@ -32,7 +32,7 @@ The office watches. It has two writes to herdr: a focus and a message. A click o
 - Each agent desk has a keyboard and a mouse. The worker badge shows the agent name (or else the display name, or else the kind) and the pane ID, for example `claude · w1:p1`.
 - Only 3D objects use the strong yellow. The HUD, the badges and the door signs keep the herdr theme yellow.
 - The HUD is the box at the top left. It counts each status and lists the agents by rank, then by the newest state change.
-- The building also has a kitchen, a lobby with the reception and the entrance, plants, and desk clutter.
+- The building also has a kitchen, a lobby with the reception and the entrance, plants, and desk clutter. A row with enough spare width also gets a party room (decision 24).
 - A drag moves the view. The mouse wheel zooms to the mouse pointer. Labels declutter: a label that covers a more important one hides.
 - A click on a desk, a worker, or a HUD row opens the side panel. The panel shows kind, name, status, room, tab, cwd, title, and pane. A click on a worker on a trip also zooms in and follows that worker (decision 23).
 - The panel of an agent desk has a message field. Enter or "Send" sends the text to that agent. A subagent and a shell desk have no message field.
@@ -101,6 +101,16 @@ The user made these decisions between 2026-10-03 and 2026-10-06.
     - A pointerdown on the canvas (a drag or a click on the floor), a click on any desk or HUD row, and the x or Esc of the panel end the follow. A click on another walker follows that walker.
     - A pointerdown or a mouse wheel on the canvas ends the zoom glide, so the glide never fights the user's zoom.
     - The follow ends when the agent exits.
+24. A party room, in the user's words: "Maybe as a fun factor, if there is enough room we could create a party room with disco lights where idle agent are dancing and partying". The request came from "The big offices feel kind of empty". For the speakers: "make the speakers like a breathing effect so it seems they're playing music".
+    - The party room fills the spare width of the row with the most spare width, if that width is 7 or more. The other rooms in that row keep their normal width. Without such a row, the office has no party room.
+    - The party room is the last room of its row. In the row of the lobby, it comes just before the lobby.
+    - An idle worker picks the kitchen or the party room at random for each trip. If the pick has no free spot, the worker goes to the other room. If both rooms are full, it keeps browsing.
+    - A dance lasts as long as a kitchen stay (6 to 15 s, decision 19). If the status changes, the dancer runs back to the desk.
+    - A walker opens the door of its own room and the door of its target room, and no other door. This changes decision 20 for the kitchen door: a party walker does not open it.
+    - The dance floor tiles, the disco ball, the light beams, and the speakers move only while at least one worker dances. The speakers pulse on a beat. The speaker boxes also pulse a little (3%), because in a party room with a north door the speaker fronts face away from the camera.
+    - The disco colors are magenta, violet, and white only, so no light reads as a status. The room has no three.js light source, because such a light shines through walls.
+    - A dancer keeps its arms below the shoulders, because a raised hand means `blocked` and a raised paper means `done`. A dancer gets no mug.
+    - The user chose to wait with more decor for big rooms (a grid of props, wall props, and rugs on the walk lanes). The user looks at the big rooms again after the party room.
 
 ## Cut on purpose
 
@@ -129,6 +139,9 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 
 ## Open items and known limits
 
+- No test covers the party lights, the speakers, or the dance, because Node cannot load three.js. A browser check in the demo and in the live office covered them.
+- The rooms in the party row do not get wider, so they do not get the extra props of a wide room. In the demo, "docs" is 7.8 wide, not 19.5.
+- A big room can still have empty floor under short pods next to a tall pod. The pods of one row share the depth of the tallest pod, and the walk lanes take that floor. The decor for this waits (decision 24).
 - Nobody tested "Focus in herdr" (with the WezTerm raise) or the SketchyBar row click against the live herdr. The tests use fake sockets and stubs.
 - The tests cover only the bridge side of a message. One browser check against a fake herdr socket covered the page side.
 - The message field holds one line. "ok" in the panel means that herdr typed the text. It does not prove that the agent started a turn.
@@ -142,12 +155,12 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 - The bridge does not find a worktree folder whose transcript starts in another cwd.
 - In the demo, a subagent badge on the south side can cover the laptop logo of the head seat.
 - The badge-overlap check after the last revert of the orchestrator badge did not run.
-- A change of the route inputs ends every idle trip. The workers sit at their desks again. The route inputs are the size, the position, and the door of a workspace room or the kitchen, the pods of these rooms, the cross corridor, and the position, room, and pod of a desk. A meeting start or end ends no trip while the floor plan stays the same. A meeting room that gets wider (9 or more subagents in the demo plan) and a second meeting at the same time move the rooms, so they end every trip. A desk that gets `away` loses its trip, because its worker moves to the meeting room. A desk that loses its agent also loses its trip, because no worker is left.
+- A change of the route inputs ends every idle trip. The workers sit at their desks again. The route inputs are the size, the position, and the door of a workspace room, the kitchen, or the party room, the pods of these rooms, the cross corridor, and the position, room, and pod of a desk. A meeting start or end ends no trip while the floor plan stays the same. A meeting room that gets wider (9 or more subagents in the demo plan) and a second meeting at the same time move the rooms, so they end every trip. A desk that gets `away` loses its trip, because its worker moves to the meeting room. A desk that loses its agent also loses its trip, because no worker is left.
 - The first wait counts from the time the page first sees the idle state. A page reload starts it again.
 - Two workers can overlap in a corridor.
 - A worker stands up inside its chair and slides 0.65 to the side through the chair edge. This takes about 0.4 s at the start and at the end of a trip. The chair does not move.
 - Near a door the arms of a walker hang still, and the mug hand stays low.
 - A desk can stand within 3 of its own door. The door then opens when the worker stands up, and closes after the worker sits down. In the test floor plans, 36 of 302 seats are that close.
 - In a room with two pod rows (wider than 30 units), the route of a worker can cross the lower pod row. Nothing tests that case.
-- The walk and run speeds (1.6 and 4 units a second) and the break times come from the first run in the demo. The user did not tune them. A trip in the demo takes about 100 s.
+- The walk and run speeds (1.6 and 4 units a second) and the break times come from the first run in the demo. The user did not tune them. A kitchen trip in the demo takes about 100 s. The first party trip of `w2:p2` takes about 33 s.
 - Section 5 of `docs/herdr-agent-model.md` lists ideas that nobody built and that the user did not decide on. Examples: worktree annex rooms, a focus marker in each pod, a per-viewer acknowledged map, the briefcase and headset badges. Ask the user before you build one.

@@ -13,7 +13,7 @@ These docs describe the code of herdhouse, with one doc for each source area. `C
 | The last reply and the chat window | `docs/office.md` "Panel", `docs/bridge.md` "`messagesIn(text)`", "`readMessages(projects, pane, limit = 100)`", "`GET /messages` branch" | `loadMessages()`, `renderMessages()`, `readMessages()`, `messagesIn()` |
 | Camera and picking | `docs/office.md` "Camera", "Picking" | `resize()`, `fit()`, `frame()`, `keepInView()`, the canvas `pointerdown` and `click` handlers |
 | The floor plan and the room layout | `docs/model.md` "Pods and desks", "buildOffice(snap, meetings = [], prev = null)". `docs/office.md` "Floors and walls", "Build and bake" | `buildOffice()`, `podLayout()`, `spread()`, `build()`, `inner()`, `outer()`, `stub()` |
-| Kitchen trips and routes | `docs/model.md` "Walk geometry", "route(o, deskId, spot)", "Breaks". `docs/office.md` "Idle breaks" | `route()`, `walkRects()`, `stepBreak()`, `endBreak()`, `tripAt()`, `breakPlan()`, `along()`, `breaks()`, `stroll()` |
+| Kitchen and party trips, and routes | `docs/model.md` "Walk geometry", "route(o, deskId, spot, to = 'kitchen')", "Breaks". `docs/office.md` "Idle breaks" | `route()`, `walkRects()`, `stepBreak()`, `endBreak()`, `tripAt()`, `breakPlan()`, `along()`, `breaks()`, `stroll()` |
 | Doors | `docs/office.md` "Floors and walls" (`door()`), "Idle breaks" (`swing()`), the recipe for the door leaf. `docs/model.md` "Breaks" (`opens()`). `docs/testing.md` "Change when a door opens" | `door()`, `swing()`, `opens()`, `calm()` |
 | Decor and props | `docs/decor.md` | `box()`, `placer()`, `workspaceDecor()`, `kitchen()`, `meeting()`, `lobby()`, `plant()`, `clutter()` |
 | The bridge: poll, SSE, action, guards | `docs/bridge.md` "Flow", "`startBridge(options)`", "`GET /events` branch", "`GET /messages` branch", "`POST /action` branch" | `startBridge()`, `handle()`, `poll()`, `send()`, `herdrRequest()`, `socketPath()` |
@@ -47,7 +47,7 @@ buildOffice(snapshot, meetings, office)     public/model.js, the old office is p
 update(next)
   |-- lay changed: trips.clear(), claimed.clear()
   |-- endBreak() for each desk with away or with no agent
-  |-- sig changed: build() (DECOR[r.kind](), door(), desk(), attendee(), bake()), frame() on the first build
+  |-- sig changed: build() (DECOR[r.kind](), door(), partyLights(), desk(), attendee(), bake()), frame() on the first build
   '-- in place: door lights, signs, pod lamps, badges, tags, spot, hud(), fill() when the panel is open
 ```
 
@@ -55,11 +55,12 @@ Each frame, `renderer.setAnimationLoop()` runs these calls in this order:
 
 ```text
 follow -> goal glide -> zoom glide -> controls.update() -> keepInView() -> label font size
-  -> moving = false, ajar.clear()
+  -> moving = false, dancing = false, ajar.clear()
   -> pose(v, t) for each view with a desk
-       breaks() -> stepBreak(), along()     where a worker on a trip is
+       breaks() -> stepBreak(), along()     where a worker on a trip is, and its target room
        typing() or browse()                 the screen
-       stroll(), opens() -> ajar            the walk, and the doors to open
+       stroll(), opens() -> ajar            the walk or the dance (sets dancing), and the doors to open: its own room and its target room
+  -> disco(t)                               the party room parts, on only while a worker dances
   -> swing(t - last)
   -> seen = '' while a worker walks, at most 4 times a second
   -> renderer.render() -> labels.render() -> declutter()
@@ -122,10 +123,11 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 ## Glossary
 
 - building: the whole office for one herdr session. `office.bounds` holds its size, and `office.entrance` is the entrance in the south outer wall.
-- room: an entry of `office.rooms`, with `kind` `workspace`, `meeting`, `kitchen`, or `lobby`.
+- room: an entry of `office.rooms`, with `kind` `workspace`, `meeting`, `kitchen`, `party`, or `lobby`.
 - workspace room: the room of one herdr workspace (`kind: 'workspace'`, the id is the workspace id). The rooms follow the workspace `number`.
 - kitchen: the room with the counter (`room.counter`) and the standing spots (`room.spots`). `kitchen()` in `decor.js` draws it.
 - lobby: the last room (`rooms.at(-1)`), with the reception and the entrance. `lobby()` in `decor.js` draws it.
+- party room: the room with the id `party` in the spare width of one row, if that width is 7 or more. It has the dance spots (`room.spots`), the dance floor (`room.floor`), and the DJ booth (`room.booth`). `party()` in `decor.js` draws it.
 - meeting room: one room for each entry of `meetings` (id `meeting:<sessionId>`), or one empty room with the id `meeting`. It has `table` and `seats`.
 - corridor: an entry of `office.corridors`, 3 wide (`HALL`). The cross corridor is `corridors.at(-1)` on the +x side.
 - band: a north row of rooms, a band corridor, and a south row of rooms. `bandZ()` gives the center line of the corridor in front of a door.
@@ -143,12 +145,13 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - live: the `Set` of objects that `bake()` does not merge, because their look changes after the build.
 - tags: the label elements that `declutter()` checks, highest priority first. `update()` fills it.
 - bake: `bake()` merges the static meshes of a build into one mesh for each material.
-- route: the path `[[x, z], ...]` from the worker seat to a kitchen spot, from `route()` in `model.js`.
+- route: the path `[[x, z], ...]` from the worker seat to a spot in the kitchen or the party room, from `route()` in `model.js`.
 - lane: a strip of floor that a route follows: the lane behind the desk row, the row lane (`laneZ()`), and the door lane (`stepX()`). A walk rect reaches `LANE` (0.3) to each side of a route line.
-- spot: a standing place in front of the kitchen counter, an entry of `room.spots`. One worker holds a spot at a time.
-- trip: one walk to a kitchen spot and back, `trips.get(deskId).trip`. Its phases are `out`, `stay`, `back`, `rush`, and `done` (`tripAt()`).
+- spot: a standing place at the end of a trip, an entry of `room.spots`: in front of the kitchen counter, or a dance spot in the party room. One worker holds a spot at a time (`claimed`).
+- dance spot: a standing place on the dance floor of the party room, an entry of `room.spots` of that room. The spots stand in a front row and a back row, 2.0 apart in a row.
+- trip: one walk to a spot in the kitchen or the party room and back, `trips.get(deskId).trip`. `trip.room` is `kitchen` or `party`, and the coin of `breakPlan()` picks it. Its phases are `out`, `stay`, `back`, `rush`, and `done` (`tripAt()`).
 - rush: the run back at `RUN` (4) when the status leaves `idle` during a trip. `trip.rush` holds the start time of the run.
-- claimed: the `Map` from a kitchen spot index to the desk id that holds the spot. `stepBreak()` and `endBreak()` change it.
+- claimed: the `Map` from a spot key `'<room>:<index>'` (for example `'kitchen:0'` or `'party:3'`) to the desk id that holds the spot. `stepBreak()` and `endBreak()` change it.
 - lay: the JSON of the route inputs in `update()`. A change clears `trips` and `claimed`, so every trip ends.
 - browse: the idle screen at the desk, a fake web page or a video, from `browse()`.
 - ajar: the `Set` of room ids whose door a walker opens in this frame. `pose()` fills it from `opens()`, and `swing()` reads it.
@@ -169,4 +172,4 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - When a change makes a doc line wrong, fix that line in the same change.
 - A new function gets an entry in its file doc.
 - A new task kind gets a row in "Which doc to read". A new term gets a line in "Glossary".
-- `INTENT.md` records what the user wants, and why. Decisions 18 to 20 each quote the words of the user for one request. Decision 19 holds the approved numbers (5 to 30, 6 to 15, 20 to 60). So a change of a number in a decision, after the user approves it, updates that decision. A new request that sets behavior gets a new numbered decision with the words of the user.
+- `INTENT.md` records what the user wants, and why. Decisions 18 to 24 each quote the words of the user for one request. Decision 19 holds the approved numbers (5 to 30, 6 to 15, 20 to 60). So a change of a number in a decision, after the user approves it, updates that decision. A new request that sets behavior gets a new numbered decision with the words of the user.

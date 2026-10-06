@@ -66,6 +66,45 @@ test('the cases cover both kitchen door sides', () => {
   assert.deepEqual([...new Set(offices.map(([, o]) => o.rooms.find(r => r.kind === 'kitchen').door.side))].sort(), ['north', 'south'])
 })
 
+test('the party room has dance spots in two rows, a dance floor and a DJ booth, all inside the room', () => {
+  const sides = []
+  for (const [name, o] of offices) {
+    const r = o.rooms.find(r => r.kind === 'party')
+    if (!r) continue
+    sides.push(r.door.side)
+    const s = r.door.side === 'south' ? 1 : -1, wall = s > 0 ? r.z + r.d : r.z, far = s > 0 ? r.z : r.z + r.d // the door wall and the far wall
+    const deep = (z) => Math.abs(z - wall), inRoom = (x, z) => x > r.x && x < r.x + r.w && z > r.z && z < r.z + r.d
+    const nf = Math.floor((r.w - 3) / 2) + 1, front = r.spots.slice(0, nf), back = r.spots.slice(nf)
+    assert.equal(back.length, nf - 1, `${name}: one back spot less than the front row`)
+    for (const p of r.spots) assert.ok(inRoom(p.x, p.z), `${name}: spot (${p.x}, ${p.z}) inside`)
+    for (const row of [front, back]) row.forEach((p, i) => {
+      assert.equal(p.z, row[0].z, `${name}: a row of spots is straight`)
+      if (i) close(p.x - row[i - 1].x, 2, `${name}: spots in a row are 2.0 apart`)
+    })
+    close(deep(back[0].z) - deep(front[0].z), 1, `${name}: the back row is 1.0 deeper`)
+    back.forEach((p, i) => { close(p.x - front[i].x, 1, `${name}: back spot ${i}`); close(front[i + 1].x - p.x, 1, `${name}: back spot ${i}`) })
+
+    const [x0, z0, x1, z1] = r.floor, strip = s > 0 ? z1 : z0 // the floor reaches from the strip to 1.0 behind the back row
+    assert.ok(x0 < x1 && z0 < z1 && inRoom(x0, z0) && inRoom(x1, z1), `${name}: the floor is inside`)
+    close(x0, front[0].x - 1, `${name}: the floor west edge`)
+    close(x1, front.at(-1).x + 1, `${name}: the floor east edge`)
+    close(deep(strip), deep(front[0].z) - 1, `${name}: the strip is 1.0 in front of the front row`)
+    close(Math.abs(z1 - z0), deep(back[0].z) + 1 - deep(strip), `${name}: the floor depth`)
+    for (const v of [x1 - x0, z1 - z0]) close(v, Math.round(v), `${name}: whole floor tiles`)
+    assert.ok(deep(strip) >= 1.4, `${name}: the strip is ${deep(strip)} from the door wall`)
+
+    const b = r.booth
+    assert.deepEqual([b.x, b.rot], [r.x + r.w / 2, s > 0 ? 0 : 2], `${name}: the booth is centered and faces the door`)
+    assert.ok(inRoom(b.x - 0.8, b.z - 0.35) && inRoom(b.x + 0.8, b.z + 0.35), `${name}: the booth is inside`)
+    assert.ok(Math.abs(b.z - s * 0.35 - far) >= 0.5, `${name}: the booth back is 0.5 or more from the far wall`)
+    assert.ok(deep(b.z) - 0.35 >= deep(back[0].z) + 1, `${name}: the booth is off the floor`)
+
+    assert.ok(r.walk.length && r.walk.every(w => w[0] <= w[2] && w[1] <= w[3] && w[0] >= r.x && w[1] >= r.z && w[2] <= r.x + r.w && w[3] <= r.z + r.d), `${name}: walk rects of the party room are inside it`)
+    for (const p of r.spots) assert.ok(r.walk.some(w => p.x >= w[0] && p.x <= w[2] && p.z >= w[1] && p.z <= w[3]), `${name}: spot (${p.x}, ${p.z}) on a walk rect`)
+  }
+  assert.deepEqual([...new Set(sides)].sort(), ['north', 'south'], 'the cases cover both party door sides')
+})
+
 const close = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${msg}: ${a} is not ${b}`)
 
 test('along gives the point and the direction at a distance on a polyline', () => {
@@ -116,7 +155,9 @@ test('pathLen is the length of a polyline', () => {
 const PATH = [[0, 0], [0, 16]] // a route of 16 units: 10 s out at the walk speed
 const OUT = 16 / WALK
 const world = () => ({ trips: new Map(), claimed: new Map() })
-const step = (w, t, over = {}, id = 'a') => stepBreak(w.trips, w.claimed, id, { idle: true, seed: 7, spots: 3, route: () => PATH, ...over }, t)
+const step = (w, t, over = {}, id = 'a') => stepBreak(w.trips, w.claimed, id, { idle: true, seed: 7, spots: { kitchen: 3 }, route: () => PATH, ...over }, t)
+const PARTY = { kitchen: 3, party: 5 } // the spot counts with a party room
+const seedFor = (party) => { let s = 0; while (breakPlan(s, 0).party !== party) assert.ok(++s < 100, `no seed with the coin ${party}`); return s } // the first seed whose first trip has this coin
 
 test('stepBreak: a worker waits, claims a spot, walks, stays, walks back and frees the spot', () => {
   const w = world()
@@ -128,7 +169,8 @@ test('stepBreak: a worker waits, claims a spot, walks, stays, walks back and fre
   const out = step(w, wait)
   assert.equal(out.phase, 'out')
   assert.equal(out.got, false)
-  assert.deepEqual([...w.claimed], [[1, 'a']], 'the claim starts at (seed + 0) % spots')
+  assert.deepEqual([...w.claimed], [['kitchen:1', 'a']], 'the claim starts at (seed + 0) % spots')
+  assert.deepEqual([out.trip.room, out.trip.spot], ['kitchen', 'kitchen:1'])
   assert.equal(step(w, wait + OUT / 2).phase, 'out')
   const at = step(w, wait + OUT + stay / 2)
   assert.deepEqual([at.phase, at.got, at.s], ['stay', true, 16])
@@ -144,28 +186,68 @@ test('stepBreak: a second worker takes the next free spot', () => {
   step(w, 0); step(w, 0, {}, 'b')
   const t = Math.max(w.trips.get('a').next, w.trips.get('b').next)
   step(w, t); step(w, t, {}, 'b')
-  assert.deepEqual([...w.claimed].sort(), [[1, 'a'], [2, 'b']])
+  assert.deepEqual([...w.claimed].sort(), [['kitchen:1', 'a'], ['kitchen:2', 'b']])
 })
 
-test('stepBreak: with no free spot the worker keeps browsing and tries later with the next plan', () => {
-  const w = world()
-  for (let i = 0; i < 3; i++) w.claimed.set(i, `x${i}`)
-  step(w, 0)
+test('stepBreak: with no free spot in the kitchen and the party room the worker keeps browsing and tries later with the next plan', () => {
+  const w = world(), over = { spots: PARTY }
+  for (const [room, n] of Object.entries(PARTY)) for (let i = 0; i < n; i++) w.claimed.set(`${room}:${i}`, `x${i}`)
+  step(w, 0, over)
   const wait = breakPlan(7, 0).wait
-  assert.equal(step(w, wait), null)
+  assert.equal(step(w, wait, over), null)
   assert.equal(w.trips.get('a').trip, null)
   assert.equal(w.trips.get('a').n, 1)
   const next = wait + breakPlan(7, 1).wait
   assert.equal(w.trips.get('a').next, next)
-  assert.equal(w.claimed.size, 3, 'it took no spot')
-  w.claimed.delete(0)
-  assert.equal(step(w, next - 0.01), null, 'not before the next try')
-  assert.equal(step(w, next).phase, 'out')
-  assert.deepEqual([...w.claimed].find(([, id]) => id === 'a'), [0, 'a'], 'it takes the one free spot')
+  assert.equal(w.claimed.size, 8, 'it took no spot')
+  w.claimed.delete('kitchen:0')
+  assert.equal(step(w, next - 0.01, over), null, 'not before the next try')
+  assert.equal(step(w, next, over).phase, 'out')
+  assert.deepEqual([...w.claimed].find(([, id]) => id === 'a'), ['kitchen:0', 'a'], 'it takes the one free spot')
   const stay = breakPlan(7, 1).stay
-  assert.equal(step(w, next + OUT + 0.1).phase, 'stay')
-  assert.equal(step(w, next + OUT + stay - 0.1).phase, 'stay', 'the stay comes from plan 1')
-  assert.equal(step(w, next + OUT + stay + 0.1).phase, 'back')
+  assert.equal(step(w, next + OUT + 0.1, over).phase, 'stay')
+  assert.equal(step(w, next + OUT + stay - 0.1, over).phase, 'stay', 'the stay comes from plan 1')
+  assert.equal(step(w, next + OUT + stay + 0.1, over).phase, 'back')
+})
+
+test('stepBreak: a party coin sends the worker to a dance spot with no mug, and the end of the trip frees the spot', () => {
+  const w = world(), seed = seedFor(true), seen = [], over = { seed, spots: PARTY, route: (room, i) => (seen.push([room, i]), PATH) }
+  step(w, 0, over)
+  const t = w.trips.get('a').next, out = step(w, t, over), key = `party:${seed % 5}`
+  assert.deepEqual([out.trip.room, out.trip.spot, seen], ['party', key, [['party', seed % 5]]], 'the claim starts at (seed + 0) % spots')
+  assert.deepEqual([...w.claimed], [[key, 'a']])
+  const stay = breakPlan(seed, 0).stay, at = step(w, t + OUT + stay / 2, over)
+  assert.deepEqual([at.phase, at.got], ['stay', false], 'a dancer gets no mug')
+  assert.equal(step(w, t + OUT + stay + 1, over).got, false)
+  assert.equal(step(w, t + 2 * OUT + stay, over), null, 'back at the desk')
+  assert.equal(w.claimed.size, 0, 'the dance spot is free again')
+})
+
+test('stepBreak: a kitchen coin sends the worker to the kitchen, also with a party room', () => {
+  const w = world(), seed = seedFor(false), over = { seed, spots: PARTY }
+  step(w, 0, over)
+  const r = step(w, w.trips.get('a').next, over)
+  assert.deepEqual([r.trip.room, [...w.claimed]], ['kitchen', [[`kitchen:${seed % 3}`, 'a']]])
+})
+
+test('stepBreak: a full room sends the worker to the other room', () => {
+  for (const [coin, full, other] of [[true, 'party', 'kitchen'], [false, 'kitchen', 'party']]) {
+    const w = world(), seed = seedFor(coin), over = { seed, spots: PARTY }
+    for (let i = 0; i < PARTY[full]; i++) w.claimed.set(`${full}:${i}`, `x${i}`)
+    step(w, 0, over)
+    const r = step(w, w.trips.get('a').next, over)
+    assert.equal(r.trip.room, other, `the ${full} is full`)
+    assert.equal(w.claimed.get(`${other}:${seed % PARTY[other]}`), 'a')
+  }
+})
+
+test('stepBreak: without a party room every trip goes to the kitchen, also with a party coin', () => {
+  for (const spots of [{ kitchen: 3, party: 0 }, { kitchen: 3 }]) {
+    const w = world(), seed = seedFor(true), over = { seed, spots }
+    step(w, 0, over)
+    const r = step(w, w.trips.get('a').next, over)
+    assert.deepEqual([r.trip.room, [...w.claimed]], ['kitchen', [[`kitchen:${seed % 3}`, 'a']]], JSON.stringify(spots))
+  }
 })
 
 test('stepBreak: a rush starts once and keeps its start time', () => {
@@ -215,19 +297,21 @@ test('stepBreak: the length of a trip comes from the route of the spot', () => {
   const w = world()
   step(w, 0)
   const t = w.trips.get('a').next, seen = []
-  const r = step(w, t, { route: (i) => (seen.push(i), PATH) })
-  assert.deepEqual(seen, [1])
+  const r = step(w, t, { route: (room, i) => (seen.push([room, i]), PATH) })
+  assert.deepEqual(seen, [['kitchen', 1]])
   assert.equal(r.trip.len, pathLen(PATH))
   assert.equal(r.trip.path, PATH)
 })
 
 test('endBreak frees the spot and drops the state', () => {
-  const w = world()
-  step(w, 0); step(w, w.trips.get('a').next)
-  assert.equal(w.claimed.size, 1)
-  endBreak(w.trips, w.claimed, 'a')
-  assert.deepEqual([w.claimed.size, w.trips.size], [0, 0])
-  endBreak(w.trips, w.claimed, 'a') // a desk without a state is fine
+  for (const [coin, room] of [[false, 'kitchen'], [true, 'party']]) {
+    const w = world(), over = { seed: seedFor(coin), spots: PARTY }
+    step(w, 0, over); step(w, w.trips.get('a').next, over)
+    assert.deepEqual([...w.claimed.keys()].map(k => k.split(':')[0]), [room])
+    endBreak(w.trips, w.claimed, 'a')
+    assert.deepEqual([w.claimed.size, w.trips.size], [0, 0], room)
+    endBreak(w.trips, w.claimed, 'a') // a desk without a state is fine
+  }
 })
 
 test('breakPlan is deterministic and stays in range', () => {
@@ -244,6 +328,28 @@ test('breakPlan is deterministic and stays in range', () => {
   }
   assert.ok(firsts.size > 150, 'the seeds spread the first trips')
   assert.notDeepEqual(breakPlan(5, 1), breakPlan(5, 2), 'each trip has its own plan')
+})
+
+test('breakPlan: a party coin for each trip, true for about half, with the same wait and stay as before the party room', () => {
+  // The plan before the party room. INTENT.md decision 19 holds its numbers, so the coin must not move them.
+  const before = (seed, n) => {
+    const u = (i) => { let h = Math.imul((seed ^ Math.imul(n + 1, 0x9e3779b1)) + i * 0x85ebca6b, 0xc2b2ae35); h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d); return ((h ^ (h >>> 13)) >>> 0) / 4294967296 }
+    const [lo, hi] = n ? [20, 60] : [5, 30]
+    return { wait: lo + u(0) * (hi - lo), stay: 6 + u(1) * 9 }
+  }
+  const seeds = Array.from({ length: 1000 }, (_, i) => (i * 1000003 + 11) % 1e9) // like hash(terminalId, 1e9)
+  const coins = seeds.map(seed => Array.from({ length: 10 }, (_, n) => {
+    const p = breakPlan(seed, n)
+    assert.equal(typeof p.party, 'boolean')
+    assert.equal(p.party, breakPlan(seed, n).party, `seed ${seed} n ${n}: the same coin`)
+    assert.deepEqual({ wait: p.wait, stay: p.stay }, before(seed, n), `seed ${seed} n ${n}`)
+    return p.party
+  }))
+  for (let n = 0; n < 10; n++) {
+    const heads = coins.filter(c => c[n]).length
+    assert.ok(heads >= 400 && heads <= 600, `trip ${n}: ${heads} of 1000 coins are true`)
+  }
+  assert.ok(coins.filter(c => c.every(x => x === c[0])).length < 10, 'a worker gets both coins in 10 trips')
 })
 
 test('along at the full length of a real route is the last point', () => {
@@ -273,8 +379,9 @@ const edge = (p, c) => {
 }
 const inDoor = (p, r) => Math.abs(p.x - r.door.x) <= 0.6 + EPS && Math.abs(p.z - r.door.z) <= 0.3 + EPS
 
-function checkRoute(name, o, d, spot) {
-  const path = route(o, d.id, spot), tag = `${name}: ${d.id} to (${spot.x.toFixed(2)}, ${spot.z.toFixed(2)})`
+// to: the id of the target room, 'kitchen' or 'party'.
+function checkRoute(name, o, d, spot, to = 'kitchen') {
+  const path = route(o, d.id, spot, to), tag = `${name}: ${d.id} to ${to} (${spot.x.toFixed(2)}, ${spot.z.toFixed(2)})`
   assert.deepEqual(path[0], [d.x, d.z + 0.4], `${tag}: starts at the seat`)
   assert.deepEqual(path.at(-1), [spot.x, spot.z], `${tag}: ends at the spot`)
   path.slice(1).forEach(([x, z], i) => assert.ok(x === path[i][0] || z === path[i][1], `${tag}: segment ${i} is axis-aligned`))
@@ -282,7 +389,7 @@ function checkRoute(name, o, d, spot) {
   const len = pathLen(path), first = cuts[2] // the first two steps lead out of the chair: aside, then back to the lane
   assert.ok(path[1][1] === d.z + 0.4 && Math.abs(path[1][0] - d.x) >= 0.6, `${tag}: first steps aside, clear of the chair back`)
   const samples = [...new Set([...Array.from({ length: Math.floor(len / 0.1) + 1 }, (_, i) => i * 0.1), ...cuts])].sort((a, b) => a - b)
-  const kitchenSpots = o.rooms.find(r => r.kind === 'kitchen').spots
+  const spots = o.rooms.find(r => r.id === to).spots // the other workers in the target room
   const walls = [...o.rooms, { x: 0, z: 0, w: o.bounds.w, d: o.bounds.d }]
   let prev = null
   for (const s of samples) {
@@ -327,7 +434,7 @@ function checkRoute(name, o, d, spot) {
         for (const px of [-0.6, 0.6]) assert.ok(r.door.x + px < x0 - 0.06 || r.door.x + px > x1 + 0.06 || r.door.z < z0 - 0.18 + EPS || r.door.z > z1 + 0.18 - EPS, `${at}: the body or a hand touches a post of ${r.id}`)
       }
     }
-    for (const q of kitchenSpots) if (q !== spot) assert.ok(Math.hypot(p.x - q.x, p.z - q.z) >= 0.55 - EPS, `${at}: closer than 0.55 to a worker at the spot (${q.x.toFixed(2)}, ${q.z.toFixed(2)})`) // 0.39 half width of the walker and 0.15 half depth of the stander
+    for (const q of spots) if (q !== spot) assert.ok(Math.hypot(p.x - q.x, p.z - q.z) >= 0.55 - EPS, `${at}: closer than 0.55 to a worker at the spot (${q.x.toFixed(2)}, ${q.z.toFixed(2)})`) // 0.39 half width of the walker and 0.15 half depth of the stander
   }
 }
 
@@ -343,14 +450,24 @@ test('every route runs from a seat to a kitchen spot through rooms, doors and co
   assert.ok(n > 500, `${n} routes`)
 })
 
-// A seat can stand within 3 of its own door. That door then opens when the worker stands up.
-test('a walker opens only its own door and the kitchen door, near the door, and none at the counter', () => {
+test('every route to the party room runs from a seat to a dance spot through rooms, doors and corridors', () => {
+  let n = 0
   for (const [name, o] of offices) {
-    const kitchen = o.rooms.find(r => r.kind === 'kitchen')
-    for (const d of o.desks.filter(d => d.agent)) for (const spot of kitchen.spots) {
-      const path = route(o, d.id, spot), len = pathLen(path), mine = [o.rooms.find(r => r.id === d.roomId), kitchen]
+    const party = o.rooms.find(r => r.kind === 'party')
+    if (!party) continue
+    for (const d of o.desks.filter(d => d.agent)) for (const spot of party.spots) { checkRoute(name, o, d, spot, 'party'); n++ }
+  }
+  assert.ok(n > 1500, `${n} routes`)
+})
+
+// A seat can stand within 3 of its own door. That door then opens when the worker stands up.
+test('a walker opens only its own door and the door of its target room, near the door, and none in the stay', () => {
+  for (const [name, o] of offices) {
+    const kitchen = o.rooms.find(r => r.kind === 'kitchen'), party = o.rooms.find(r => r.kind === 'party')
+    for (const target of [kitchen, party].filter(Boolean)) for (const d of o.desks.filter(d => d.agent)) for (const spot of target.spots) {
+      const path = route(o, d.id, spot, target.id), len = pathLen(path), mine = [o.rooms.find(r => r.id === d.roomId), target]
       for (let i = 0; i * 0.1 <= len; i++) {
-        const p = along(path, i * 0.1), ids = opens(o, d, { x: p.x, z: p.z, phase: 'out' }), at = `${name}: ${d.id} at (${p.x.toFixed(2)}, ${p.z.toFixed(2)})`
+        const p = along(path, i * 0.1), ids = opens(o, d, { x: p.x, z: p.z, phase: 'out', room: target.id }), at = `${name}: ${d.id} to ${target.id} at (${p.x.toFixed(2)}, ${p.z.toFixed(2)})`
         assert.ok(ids.every(id => mine.some(r => r.id === id)), `${at}: opens ${ids}`)
         for (const r of mine) {
           const dd = Math.hypot(p.x - r.door.x, p.z - r.door.z)
@@ -358,14 +475,22 @@ test('a walker opens only its own door and the kitchen door, near the door, and 
           if (dd >= 3) assert.ok(!ids.includes(r.id), `${at}: opens the door of ${r.id} from ${dd.toFixed(2)}`)
         }
       }
-      assert.deepEqual(opens(o, d, { x: spot.x, z: spot.z, phase: 'stay' }), [], `${name}: ${d.id}: at the counter`)
+      assert.deepEqual(opens(o, d, { x: spot.x, z: spot.z, phase: 'stay', room: target.id }), [], `${name}: ${d.id}: in the stay in ${target.id}`)
+    }
+    if (!party) continue
+    const d = o.desks.find(d => d.agent) // a walker to one room keeps the door of the other room closed, also at its center
+    for (const phase of ['out', 'back', 'rush']) {
+      assert.ok(!opens(o, d, { ...kitchen.door, phase, room: 'party' }).includes('kitchen'), `${name}: a party walker opens the kitchen door`)
+      assert.ok(!opens(o, d, { ...party.door, phase, room: 'kitchen' }).includes('party'), `${name}: a kitchen walker opens the party door`)
     }
   }
 })
 
 // ---- the demo ----
-test('the demo has two long-idle agents in different rooms: time for a kitchen trip, and a trip that a status change cuts short', () => {
-  const N = 700, ticks = Array.from({ length: N }, (_, t) => demoSnapshot(t)), o = buildOffice(ticks[0], demoMeetings(0)), kitchen = o.rooms.find(r => r.kind === 'kitchen')
+test('the demo has two long-idle agents in different rooms: time for a trip, and a trip that a status change cuts short', () => {
+  const N = 700, ticks = Array.from({ length: N }, (_, t) => demoSnapshot(t)), o = buildOffice(ticks[0], demoMeetings(0))
+  const kitchen = o.rooms.find(r => r.kind === 'kitchen'), party = o.rooms.find(r => r.kind === 'party')
+  assert.ok(party, 'the demo has a party room')
   // Idle stretches [start, length] that begin and end inside the window. A change from done to idle starts one too.
   const stretches = (id) => {
     const st = ticks.map(s => s.agents.find(a => a.pane_id === id)?.agent_status), out = []
@@ -382,14 +507,15 @@ test('the demo has two long-idle agents in different rooms: time for a kitchen t
   assert.ok(Math.max(...starts) - Math.min(...starts) >= 30, `the idle stretches start apart: ${starts}`)
   let cut = 0
   for (const d of long) {
-    const len = pathLen(route(o, d.id, kitchen.spots[0]))
     const seed = hash(d.terminalId, 1e9)
+    const far = (r) => Math.max(...r.spots.map(s => pathLen(route(o, d.id, s, r.id)))) // the longest route into a room
+    const len = (k) => far(breakPlan(seed, k).party ? party : kitchen) // the coin of trip k picks the room
     for (const [, n] of stretches(d.id).filter(([, n]) => n >= 60)) {
-      const first = breakPlan(seed, 0), need = first.wait + 2 * len / WALK + first.stay
+      const first = breakPlan(seed, 0), need = first.wait + 2 * len(0) / WALK + first.stay
       assert.ok(n >= need, `${d.id}: idle ${n} s, the first trip needs ${need.toFixed(1)} s`)
       // The worker waits, walks, stays and walks back, then waits for the next trip. Does the stretch end during a trip?
       for (let t = 0, k = 0; ; k++) {
-        const p = breakPlan(seed, k), start = t + p.wait, end = start + 2 * len / WALK + p.stay
+        const p = breakPlan(seed, k), start = t + p.wait, end = start + 2 * len(k) / WALK + p.stay
         if (start >= n) break
         if (end > n) { cut++; break }
         t = end

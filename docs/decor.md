@@ -30,7 +30,7 @@ No state lives for a build or a frame. A decor call reads only its room, and its
 office.js build()  (only when sig changes)
   plant() at each corridor corner        world coords, no placer()
   each room: DECOR[r.kind](g, r)         g at (r.x, 0, r.z)
-             then inner walls, door(r), the lamp posts at p + LAMP
+             then inner walls, door(r), partyLights(r) for the party room, the lamp posts at p + LAMP
   desk(d): deskChair, clutter(g, hash(d.id, 1e6))
   bake()                                 merges meshes by material: no decor object is in live
 ```
@@ -64,7 +64,7 @@ Wall props (`printer`, `board(w)`, `tv`, `fridge`, `cooler`, `sofa`, `counter(L)
 Returns `put(make, x, z, rot)`, which returns `true` when the prop fits. Rects are `[x0, z0, x1, z1]` in room-local coords. The taken rects:
 
 1. the 2 x 2 area inside the door,
-2. each `keep` rect (only `lobby()` passes one, for the entrance),
+2. each `keep` rect (`lobby()` passes one for the entrance, and `party()` passes two for the speakers and the dance floor),
 3. each `room.walk` rect,
 4. each pod grown by 0.3, and its lamp post.
 
@@ -72,12 +72,13 @@ Returns `put(make, x, z, rot)`, which returns `true` when the prop fits. Rects a
 
 ### Room decor
 
-Each function gets `(g, room)` with `g` at the room corner. The candidates are in the code. `room.walk`, `counter`, `table`, `seats`, and `pods` are in world coords, so subtract `room.x` and `room.z`.
+Each function gets `(g, room)` with `g` at the room corner. The candidates are in the code. `room.walk`, `counter`, `table`, `seats`, `pods`, `booth`, and `floor` are in world coords, so subtract `room.x` and `room.z`.
 
 - `workspaceDecor()`: rugs (direct `box()` calls), a bookshelf, a board or a printer by `room.number`, lounges and cafes, plants.
 - `kitchen()`: the counter, the fridge, the cooler, cafe tables with a fallback that keeps one, a plant.
 - `meeting()`: `longTable(room)`, a board and a TV on the north wall, plants. `longTable()` ignores `x`, `z`, and `rot`. It reads `room.table`, `room.seats`, and `room.session`.
 - `lobby()`: the reception facing the entrance, `waiting` (`logo()` and a lounge) on the west wall, plants.
+- `party()`: the DJ booth at `room.booth` (a direct call, two turntables and a mixer on a dark desk), then a lounge on a side wall beside the dance floor if it fits, then plants. It keeps two rects free: the speaker floor (1.8 to each side of the booth center, 0.45 to the front and the back) and `room.floor`. `office.js` builds the speakers and the lights there, because they move. The lounge goes first, because a corner plant can block it.
 
 ### Desk clutter
 
@@ -122,13 +123,14 @@ Each function gets `(g, room)` with `g` at the room corner. The candidates are i
 
 ### Check placement in Node
 
-Do this after a change to `placer()` or `kitchen()` (the "routes" comment in `test/walk.test.mjs` asks for it). Work in the scratchpad only.
+Do this after a change to `placer()`, `kitchen()`, or `party()` (the "routes" comment in `test/walk.test.mjs` asks for it). Work in the scratchpad only.
 
 1. Download `three.module.js` and `three.core.js` of three 0.186.1 from jsDelivr into one folder.
 2. Copy `public/decor.js`, point `from 'three'` at the local file, and log each `put()` result.
 3. Build offices from the demo and from `snap()` and `CASES` in `test/walk.test.mjs`.
 4. Call the decor function of each room on a group at `(r.x, 0, r.z)`.
 5. Check that each one-try prop fits, that the kitchen has a `cafe`, and that no box above y 0.05 (the rugs) overlaps a walk rect.
+6. For a party room, check that the booth is inside the room and off `room.floor`, and that no placed prop overlaps `room.floor` or the speaker floor.
 
 ## Pitfalls
 
@@ -141,8 +143,9 @@ Do this after a change to `placer()` or `kitchen()` (the "routes" comment in `te
 - Keep the `!(a >= m ...)` form in `placer()`. With no fridge, the cooler x is `NaN`, and only this form rejects it.
 - Do not shrink the door rect. It also keeps the open door leaf (`door()`, `swing()`) clear.
 - The lobby keep rect copies the entrance x (`w / 2`) from `model.js`. Move both together.
+- The speaker keep rect in `party()` (1.8 to each side of the booth center, 0.45 deep) holds the speakers of `office.js`. A wider speaker or booth needs a wider rect. The booth itself is a direct call, so only this rect keeps props off it.
 - `room.number` is not in `sig`. The rug and the extra prop change only at the next rebuild.
 - Keep east-end clutter off the mouse of an agent desk (`desk()` in `office.js`).
 - `GLYPH` has only h, e, r, and d. Another letter makes `logo()` throw.
-- Do not add a prop that glows or has a status color (the comment above `printer`).
+- Do not add a prop that glows or has a status color (the comment above `printer`). The one exception is the party room parts in `office.js` (`partyLights()`). They glow, in magenta, violet, and white only.
 - A wrong look shows only in the browser (`docs/testing.md` "Visual check in the browser").

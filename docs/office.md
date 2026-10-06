@@ -20,9 +20,9 @@
 | `sig`, `laid` | the build signature and the last `lay` (route inputs), as JSON | `update()` | page |
 | `views` | id -> view (see "View shapes") | the build and screen functions, `pose()`, `update()` (`v.desk`) | one build |
 | `world`, `live` | the group of one build, and the objects that `bake()` does not merge | `build()` and the build functions | one build |
-| `trips`, `claimed` | desk id -> `{ n, next, trip }`, and kitchen spot index -> desk id | `stepBreak()`, `endBreak()`, `update()` (clears on a `lay` change), `stroll()` (`trip.rot`) | page |
+| `trips`, `claimed` | desk id -> `{ n, next, trip }`, and the spot key `'<room>:<index>'` (kitchen or party) -> desk id | `stepBreak()`, `endBreak()`, `update()` (clears on a `lay` change), `stroll()` (`trip.rot`) | page |
 | `doors` | room id -> the door angle now | `swing()` | page. A rebuild keeps it |
-| `ajar`, `moving` | the room ids whose door a walker opens, and whether a worker walked, in this frame | frame loop resets, `pose()` sets | one frame |
+| `ajar`, `moving`, `dancing` | the room ids whose door a walker opens, whether a worker walked, and whether a worker danced, in this frame | frame loop resets, `pose()` sets (`dancing` through `stroll()`) | one frame |
 | `last` | the time of the last frame in seconds, 0 at first | frame loop | page |
 | `tags` | the label elements, highest priority first | `update()` | one update |
 | `seen`, `nextPass` | the camera key of the last `declutter()` pass (`''` forces one), and the next forced pass | `declutter()`, `update()`, frame loop | page |
@@ -39,7 +39,7 @@
 
 `views` holds four kinds of view in one map. The frame loop calls `pose()` only for a view with a `desk` field.
 
-- Room view, from `door(r)`: `light`, `sign` (the `div.sign`), and `hinge` (the group of the leaf and the knob). `light` and `hinge` are in `live`.
+- Room view, from `door(r)`: `light`, `sign` (the `div.sign`), and `hinge` (the group of the leaf and the knob). `light` and `hinge` are in `live`. The party room view also has `tiles` (the 3 tile materials), `ball` (in `live`), `beams` (a group in `ball`), `speakers` (2 groups, in `live`), and `cones` (`[group, pulses a second]`), from `partyLights(r)`.
 - Pod view, from `build()`: `lamp`, in `live`.
 - Desk view, from `desk(d)`: `desk` (`update()` replaces it each update), `screen` (the monitor, or the head seat laptop when `d.away` is set), `halo` and `logo` (from the head seat only, but `pose()` makes a desk halo on the first typing frame), `phase`, `seed` (for the breaks and the browse picture), and `worker` (`null` for a shell pane).
 - Subagent view, from `attendee(s)`: `desk` is a fixed `{ status: 'working' }` that `update()` never replaces. It has `screen`, `halo`, `logo` (`false` for `rot` 0 or 1), `phase`, and `worker`, and no `seed`.
@@ -53,7 +53,7 @@ The face of a worker is on local -z. At a desk the camera sees its back and its 
 
 At start, the module makes the renderers, the scene, the camera, and the handlers, then starts the frame loop. The data source block at the end of the file makes the first `update()`.
 
-The update path, the frame order, and the click path are in `docs/README.md` "Data flow". `update()` is the only caller of `build()`. The frame loop is the only caller of `pose()`, `swing()`, `keepInView()`, and `declutter()`.
+The update path, the frame order, and the click path are in `docs/README.md` "Data flow". `update()` is the only caller of `build()`. The frame loop is the only caller of `pose()`, `disco()`, `swing()`, `keepInView()`, and `declutter()`.
 
 ## Functions
 
@@ -79,9 +79,9 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 - `build(office)`: runs only when `sig` changes. Order:
   1. Dispose `v.tex` of each view, each geometry with `userData.merged`, and each material without `userData.shared` (with its `map`). Remove each label element from the DOM.
   2. Make a new `world`, and clear `views` and `live`.
-  3. The corridors, then each room: the floor, `DECOR[r.kind](g, r)` in a group at the room corner, the inner walls (each wall once), `door(r)`, and the pod lamps.
+  3. The corridors, then each room: the floor, `DECOR[r.kind](g, r)` in a group at the room corner, the inner walls (each wall once), `door(r)`, `partyLights(r)` for the party room, and the pod lamps.
   4. The outer walls, then `desk()` for each desk and `attendee()` for each subagent.
-  5. `bake()`, the sun, and the shadow flags.
+  5. `bake()`, the sun, and the shadow flags. A material with `depthWrite` false (the glass, a light beam, a halo) casts no shadow.
 - `bake()`: skips each object in `live` with its subtree. It merges the meshes of each material with 2 or more meshes into one mesh, and marks its geometry `userData.merged`.
 
 ### Desks, seats, and workers
@@ -99,10 +99,19 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 ### Idle breaks
 
-- `breaks(v, t)`: calls `stepBreak()` and `along()`. It returns where the worker is on its trip, or `null` at the desk (always for a subagent).
-- `stroll(w, d, a, t)`: poses a worker on a trip, as `CLAUDE.md` "Scene conventions" describes. The arm swing and the mug hand use `calm()` of the nearest door.
+- `breaks(v, t)`: calls `stepBreak()` with the spot counts of the kitchen and the party room (0 without one) and a route to a spot of either room, then `along()`. It returns where the worker is on its trip, with `room` (the target room id), or `null` at the desk (always for a subagent). `pose()` passes this result to `opens()`.
+- `stroll(w, d, a, t)`: poses a worker on a trip, as `CLAUDE.md` "Scene conventions" describes. The arm swing and the mug hand use `calm()` of the nearest door. In the stay of a party trip, it adds the dance and sets `dancing`.
 - `swing(dt)`: turns each door toward `OPEN` when `ajar` has its room id, else toward 0, at a speed set by `SWING`. It writes `doors` and `hinge.rotation.y`.
-- `opens()` in `model.js` gives the doors that one walker opens. See `docs/model.md` "Breaks".
+- `opens()` in `model.js` gives the doors that one walker opens: its own room door and the door of its target room. See `docs/model.md` "Breaks".
+
+### Party room
+
+- `partyLights(r)`: builds the moving parts of the party room from `room.floor` and `room.booth`, and adds them to the room view. Parts:
+  - A tile 0.96 x 0.03 x 0.96 on each 1 x 1 cell of `room.floor`. The tiles share 3 own Lambert materials on the diagonals. `bake()` merges them.
+  - The disco ball at y 2.2 over the middle of the floor, on a rod up to `H`, with 3 beams (one in each color) that hit the floor 1.35 from its axis. The beams are transparent, with `depthWrite` false and `renderOrder` 2, so they draw after the glass.
+  - Two speakers 1.3 to each side of the booth center, turned like the booth (`booth.rot`). Each one has a woofer and a tweeter on its front.
+- `disco(t)`: runs once a frame after the `pose()` loop, and does nothing without a party room. While `dancing` is true, it sets the tile `emissive` colors from `DISCO` (the pattern moves twice a second), shows the beams, and turns the ball. It also scales the speakers (3%) and the cones (15%) with `kick()`. Else the tiles are dark, the beams hide, the ball keeps its angle, and each scale is 1.
+- `kick(t, f)`: one pulse at `f` pulses a second. It goes up in a tenth of a pulse and falls back slowly. A woofer pulses at `BEAT` (2), a tweeter at twice `BEAT`, and the speaker box at `BEAT`. The box pulses because the cones of a south-row room face away from the camera.
 
 ### pose()
 
@@ -182,6 +191,7 @@ Two agents in one region need a split by function.
 | screens | `screenCtx()`, `typing()`, `browse()`, `rnd()`, `glow`, `haloGeo`, `IDLE`, `INK`, `PIC` | pose, build |
 | breaks | `breaks()`, `stroll()`, `trips`, `claimed` | update, pose, `model.js`, `test/walk.test.mjs` |
 | doors | `swing()`, `doors`, `ajar`, `OPEN`, `SWING` | build (`door()`), pose, frame loop, `model.js`, `test/walk.test.mjs` |
+| party | `partyLights()`, `disco()`, `kick()`, `DISCO`, `BEAT`, `dancing` | build (the call after `door(r)`), breaks (`stroll()` sets `dancing`), frame loop, `decor.js` `party()` (the speaker rect) |
 | pose | `pose()`, `ARM`, `moving` | screens, breaks, doors, frame loop |
 | declutter | `declutter()`, `tags`, `seen`, `nextPass` | update, frame loop |
 | update | `update()`, `family()`, `office`, `sig`, `laid` | all regions |
@@ -240,7 +250,7 @@ A new room kind on the 3D side:
 1. `buildOffice()` makes the room with `door` and `pods` (`[]` is valid).
 2. `decor.js`: export a decor function `(g, room)` in room-local coordinates, with props from `placer()`.
 3. `office.js`: import it and add it to `DECOR`, or `build()` throws. Add a `ROOM_FLOOR` entry, or the room gets carpet. `door()`, `swing()`, and `update()` need no change, and a room with `status: null` gets the `C.wood` light and sign.
-4. Routes use only the workspace rooms, the corridors, and the kitchen. For a walk through the new room, change `route()`, `lay`, and `opens()`.
+4. Routes use only the workspace rooms, the corridors, the kitchen, and the party room. For a walk to the new room, change `route()`, `stepBreak()`, `breaks()`, and `lay`. `opens()` already opens the door of the target room. See the recipe "A new room kind" in `docs/model.md`.
 5. Add the `kind` to `CLAUDE.md` "Contracts between the files", and update `assertPlan()` and the room id checks in `test/model.test.mjs`.
 
 A new color that changes in place:
@@ -273,6 +283,7 @@ A change to the door leaf, the open angle, or the door speed:
 - A worker part from `box(g, ..., '#hex')` gets the cached material. `mats` makes it transparent, so every box with that color fades for `unknown`.
 - A worker part below world y 2.1 (the door height) must stay inside the `checkRoute()` footprint. A part above it passes through the lintel, as the beacon does on a blocked run back.
 - `swing()` reads `hinge` for each room, so a room without `door()` makes it throw each frame. It must run after the `pose()` loop, or it sees an empty `ajar` and closes each door.
+- `disco()` must run after the `pose()` loop, or it always sees `dancing` false and the party room stays dark.
 - Keep `SWING` under about 0.4 s. A runner at `RUN` 4 needs about 0.41 s from 3 (where `opens()` starts) to the door lane at about 1.35. No test checks this timing.
 - `test/walk.test.mjs` copies numbers from this file: the door posts at 0.6, the leaf tip, the arm length 0.5, the 0.7 swing, the mug size and offset, and `0.1 + 1.1 * calm`. Change them together.
 - Text from outside the page goes into the DOM through `textContent` only (`el()`, `update()`, `hud()`, `fill()`). Never use `innerHTML`.

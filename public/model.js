@@ -63,13 +63,15 @@ const bandZ = (r) => r.door.z + sgn(r) * (HALL / 2) // the center line of the co
 const laneZ = (r, p) => (sgn(r) > 0 ? Math.min(Math.max(...r.pods.filter(q => q.z === p.z).map(q => q.z + q.d)) + 0.4, r.door.z - 1.4) : Math.max(p.z - 0.5, r.door.z + 1.4))
 
 const kitchenZ = (k) => k.z + 1.9 // the strip in front of the counter. The spots stand 1.35 from the north wall. A walker (0.39 wide) passes 0.55 south of them, clear of a stander (0.15 deep). It is also clear of the leaf of a north door (0.96 deep).
+// The strip between the door and the dance floor: d / 2 - 1.5 from the door wall, so 1.5 or more. The front row of dance spots is 1.0 behind it.
+const partyZ = (r) => r.z + r.d / 2 + sgn(r) * 1.5
 
 function walkRects(r) {
   const x = doorX(r), y = stepX(r), j = stepZ(r)
   const door = [R(x - LANE, r.door.z, x + LANE, j), R(Math.min(x, y) - LANE, j - LANE, Math.max(x, y) + LANE, j + LANE)] // through the door, the sidestep
-  if (r.kind === 'kitchen') { // the door lane, then the strip in front of the counter
-    const z = kitchenZ(r), xs = [y, ...r.spots.map(p => p.x)], sz = r.spots[0].z
-    return [...door, R(Math.min(...xs) - LANE, sz - LANE, Math.max(...xs) + LANE, z + LANE), R(y - LANE, j, y + LANE, z)] // the strip and the spots
+  if (r.kind === 'kitchen' || r.kind === 'party') { // the door lane, then the strip in front of the counter or the dance floor
+    const z = r.kind === 'kitchen' ? kitchenZ(r) : partyZ(r), xs = [y, ...r.spots.map(p => p.x)], zs = [z, ...r.spots.map(p => p.z)]
+    return [...door, R(Math.min(...xs) - LANE, Math.min(...zs) - LANE, Math.max(...xs) + LANE, Math.max(...zs) + LANE), R(y - LANE, j, y + LANE, z)] // the strip and the spots
   }
   const x0 = Math.min(y - LANE, ...r.pods.map(p => p.x)), x1 = Math.max(y + LANE, ...r.pods.map(p => p.x + p.w + 0.7))
   return r.pods.flatMap(p => {
@@ -83,15 +85,15 @@ function walkRects(r) {
   })
 }
 
-// The way from the seat of a desk to a kitchen spot: [[x, z], ...] with axis-aligned segments. Out of the chair to the side,
-// then to the lane behind the desk row, around the pod on its east side (the lamp post stands on the west side), along the pod
-// row to the door lane, through the door on the free side of the leaf, along the corridor centers (a band corridor joins
-// the others through the cross corridor), then in front of the counter.
+// The way from the seat of a desk to a spot in the room `to` (the kitchen or the party room): [[x, z], ...] with axis-aligned
+// segments. Out of the chair to the side, then to the lane behind the desk row, around the pod on its east side (the lamp post
+// stands on the west side), along the pod row to the door lane, through the door on the free side of the leaf, along the corridor
+// centers (a band corridor joins the others through the cross corridor), then along the strip in front of the counter or the dance floor.
 // ponytail: a room with two pod rows (wider than MAX_ROW) may get a route across the lower pod row. It has no lane between the rows.
-export function route(o, deskId, spot) {
-  const d = o.desks.find(k => k.id === deskId), r = o.rooms.find(k => k.id === d.roomId), k = o.rooms.find(k => k.kind === 'kitchen')
+export function route(o, deskId, spot, to = 'kitchen') {
+  const d = o.desks.find(k => k.id === deskId), r = o.rooms.find(k => k.id === d.roomId), k = o.rooms.find(k => k.id === to)
   const p = r.pods.find(q => q.id === d.podId), z = laneZ(r, p), lane = d.z + 1.1, e = p.x + p.w + 0.4, x = doorX(r), y = stepX(r)
-  const kz = bandZ(k), zr = Math.abs(bandZ(r) - kz) < 1e-6 ? kz : bandZ(r), X = o.corridors.at(-1), c = X.x + X.w / 2, kx = doorX(k), sz = kitchenZ(k)
+  const kz = bandZ(k), zr = Math.abs(bandZ(r) - kz) < 1e-6 ? kz : bandZ(r), X = o.corridors.at(-1), c = X.x + X.w / 2, kx = doorX(k), sz = k.kind === 'party' ? partyZ(k) : kitchenZ(k)
   const down = sgn(r) > 0 && lane >= p.z + p.d - 1e-9 // the last desk row of a south door room walks straight down
   // ponytail: the worker stands up inside the chair and slides 0.65 aside through its edge (about 0.4 s at the start and at the end).
   // A clean exit needs a chair that moves, or a first step on the +z side of it.
@@ -185,6 +187,14 @@ export function buildOffice(snap, meetings = [], prev = null) {
     const score = Math.max((w + HALL) / d, d / (w + HALL))
     if (!plan || score < plan.score) plan = { score, rows, w }
   }
+  // The party room fills the spare width of the row with the most spare width (the first on a tie), if that width is 7 or more.
+  // It is the last room of its row, or the room just before the lobby. The other rooms of its row then keep their width.
+  const spare = plan.rows.map(row => plan.w - sum(row, 'w')), best = spare.indexOf(Math.max(...spare))
+  if (spare[best] >= 7) {
+    const row = plan.rows[best]
+    row.splice(row.at(-1).kind === 'lobby' ? -1 : row.length, 0, { id: 'party', kind: 'party', label: 'Party', number: null, status: null, x: 0, z: 0, w: spare[best], d: 6, door: null, pods: [] }) // d 6: the row sets the depth
+    rooms.splice(0, rooms.length, ...plan.rows.flat()) // the rows keep the room order, so the lobby stays the last room
+  }
 
   // Rooms in a row touch and stretch to the building width and the row depth. Rows of two bands sit back to back.
   // A door sits in the middle of the wall to the corridor. Pods and desks stay centered in the room.
@@ -213,7 +223,18 @@ export function buildOffice(snap, meetings = [], prev = null) {
   const n = Math.floor((len - 0.8) / 0.85) + 1
   kit.counter = { x: kit.x + 0.2 + len / 2, z: kit.z + 0.2, len }
   kit.spots = Array.from({ length: n }, (_, i) => ({ x: kit.x + 0.6 + (i * (len - 0.8)) / (n - 1), z: kit.z + 1.35 }))
-  for (const r of rooms) if (r.kind === 'workspace' || r === kit) r.walk = walkRects(r) // decor.js keeps props off them
+  // The party room: a front row of dance spots 2.0 apart, 0.5 to the door side of the room middle, then a back row 1.0 deeper with
+  // each spot between two front spots. The dance floor reaches from the strip to 1.0 behind the back row, in whole 1 x 1 tiles.
+  // The DJ booth stands behind the floor, and its front faces the dancers and the door.
+  const party = rooms.find(r => r.kind === 'party')
+  if (party) {
+    const s = sgn(party), cx = party.x + party.w / 2, zm = party.z + party.d / 2, zb = zm - s * 0.5, nf = Math.floor((party.w - 3) / 2) + 1
+    const line = (k, z) => Array.from({ length: k }, (_, i) => ({ x: cx + (i - (k - 1) / 2) * 2, z }))
+    party.spots = [...line(nf, zm + s * 0.5), ...line(nf - 1, zb)]
+    party.floor = R(party.spots[0].x - 1, partyZ(party), party.spots[nf - 1].x + 1, zb - s)
+    party.booth = { x: cx, z: zb - s * 1.6, rot: s > 0 ? 0 : 2 }
+  }
+  for (const r of rooms) if (r.kind === 'workspace' || r === kit || r === party) r.walk = walkRects(r) // decor.js keeps props off them
 
   // Meeting tables: centered, a chair at the head (the -x end: a back wall, so the orchestrator faces the camera) and
   // along both long sides. A seat is the origin of a desk-like group: it faces -z before rot quarter turns, the table
@@ -259,14 +280,15 @@ export const WALK = 1.6, RUN = 4 // world units a second
 // How free the arms of a walker are, from the distance to the nearest door center: 0 up to 1.4, 1 from 2.0. An open leaf reaches 0.96
 // into the room, so near a door the arms hang and the mug hand stays low (stroll() in office.js).
 export const calm = (dd) => Math.min(1, Math.max(0, (dd - 1.4) / 0.6))
-// The ids of the rooms whose door the walker of desk d opens, at a = { x, z, phase }: its own room and the kitchen, within 3 of the
-// door center. A runner needs about 0.4 s from 3 to the sweep of the leaf (the door lane, about 1.35 from the center), so the
-// door has time to open. Another door in a corridor stays closed. At the counter (stay) the kitchen door closes.
+// The ids of the rooms whose door the walker of desk d opens, at a = { x, z, phase, room }: its own room and its target room a.room,
+// within 3 of the door center. A runner needs about 0.4 s from 3 to the sweep of the leaf (the door lane, about 1.35 from the center),
+// so the door has time to open. Another door in a corridor stays closed. In the stay the door of the target room closes.
 export const opens = (o, d, a) => a.phase === 'stay' ? [] :
-  o.rooms.filter((r) => (r.id === d.roomId || r.kind === 'kitchen') && Math.hypot(a.x - r.door.x, a.z - r.door.z) < 3).map((r) => r.id)
+  o.rooms.filter((r) => (r.id === d.roomId || r.id === a.room) && Math.hypot(a.x - r.door.x, a.z - r.door.z) < 3).map((r) => r.id)
 export const hash = (s, m = 360) => [...(s ?? '')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % m, 0)
 
-// The browse wait before trip n and the stay in the kitchen, in seconds, for one idle stretch. The first trip comes sooner.
+// The browse wait before trip n and the stay, in seconds, for one idle stretch. The first trip comes sooner.
+// party: the coin that picks the party room first for trip n. Each value has its own index i, so the coin keeps wait and stay.
 export function breakPlan(seed, n) {
   const u = (i) => { // a mixed number in [0, 1) for each plan value i
     let h = Math.imul((seed ^ Math.imul(n + 1, 0x9e3779b1)) + i * 0x85ebca6b, 0xc2b2ae35)
@@ -274,7 +296,7 @@ export function breakPlan(seed, n) {
     return ((h ^ (h >>> 13)) >>> 0) / 4294967296
   }
   const [lo, hi] = n ? [20, 60] : [5, 30]
-  return { wait: lo + u(0) * (hi - lo), stay: 6 + u(1) * 9 }
+  return { wait: lo + u(0) * (hi - lo), stay: 6 + u(1) * 9, party: u(2) < 0.5 }
 }
 
 // The point at distance s on a polyline (s is clamped) and the unit direction of its segment.
@@ -305,9 +327,9 @@ export function tripAt({ len, start, stay, rush }, t) {
 export const pathLen = (path) => path.slice(1).reduce((s, q, i) => s + Math.hypot(q[0] - path[i][0], q[1] - path[i][1]), 0)
 
 // The trip bookkeeping of one worker, once a frame. trips: desk id -> { n, next, trip }, n is the next trip, next is when it starts
-// and trip is the one that runs now. claimed: kitchen spot index -> desk id, so two workers never stand on one spot.
-// idle: the worker may take a break. spots: how many kitchen spots. route(i): the path to spot i.
-// Returns { s, phase, got, trip } for a worker on a trip, or null for a worker at the desk.
+// and trip is the one that runs now. claimed: '<room>:<spot index>' -> desk id, so two workers never stand on one spot.
+// idle: the worker may take a break. spots: the spot count of each room, { kitchen, party }. route(room, i): the path to spot i of room.
+// Returns { s, phase, got, trip } for a worker on a trip, or null for a worker at the desk. trip.room is 'kitchen' or 'party'.
 export function stepBreak(trips, claimed, id, { idle, seed, spots, route }, t) {
   let b = trips.get(id)
   if (!b) {
@@ -317,11 +339,15 @@ export function stepBreak(trips, claimed, id, { idle, seed, spots, route }, t) {
   if (!b.trip) {
     if (!idle) return trips.delete(id), null
     if (t < b.next) return null
-    const free = Array.from({ length: spots }, (_, i) => (i + seed) % spots).find((i) => !claimed.has(i)) // from a start that differs for each worker
-    if (free === undefined) { b.next = t + breakPlan(seed, ++b.n).wait; return null } // no free spot: keep browsing
-    claimed.set(free, id)
-    const path = route(free)
-    b.trip = { len: pathLen(path), start: t, stay: breakPlan(seed, b.n).stay, path, spot: free, got: false }
+    const free = (room) => { // a free spot of the room, from a start that differs for each worker
+      const n = spots[room] ?? 0, i = Array.from({ length: n }, (_, j) => (j + seed) % n).find((j) => !claimed.has(`${room}:${j}`))
+      return i === undefined ? null : [room, i]
+    }
+    const plan = breakPlan(seed, b.n), pick = plan.party ? free('party') ?? free('kitchen') : free('kitchen') ?? free('party') // the coin picks the room, a full room sends the worker to the other one
+    if (!pick) { b.next = t + breakPlan(seed, ++b.n).wait; return null } // no free spot: keep browsing
+    const [room, i] = pick, path = route(room, i)
+    claimed.set(`${room}:${i}`, id)
+    b.trip = { len: pathLen(path), start: t, stay: plan.stay, path, room, spot: `${room}:${i}`, got: false }
   }
   const trip = b.trip
   if (!idle && trip.rush == null) trip.rush = t // the status changed: run back
@@ -333,11 +359,11 @@ export function stepBreak(trips, claimed, id, { idle, seed, spots, route }, t) {
     else trips.delete(id) // after a rush the next idle stretch starts fresh
     return null
   }
-  if (phase === 'stay') trip.got = true
+  if (phase === 'stay' && trip.room === 'kitchen') trip.got = true // the mug. A dancer gets none
   return { s, phase, got: trip.got, trip }
 }
 
-// A worker leaves the idle breaks for good (it moves to a meeting seat): drop its state and free its spot.
+// A worker leaves the idle breaks for good (it moves to a meeting seat): drop its state and free its spot (the claimed key in trip.spot).
 export function endBreak(trips, claimed, id) {
   const spot = trips.get(id)?.trip?.spot
   if (spot !== undefined) claimed.delete(spot)
@@ -354,8 +380,8 @@ const DEMO_TABS = { 'w1:t1': 'server', 'w2:t1': 'app', 'w2:t2': 'tests', 'w3:t1'
 // Outside the focused tab w1:t1, phases 0, 3, 6 and 9 sit one cycle step apart, so every tick shows all four CYCLE statuses.
 // The focused tab never shows done. Its phases give the idle agent while w4:p1 is still unknown.
 // A long-idle agent ([idle ticks, start tick in its cycle]) ignores the phase: it idles for a long time, so it goes on kitchen
-// trips. Then it works 20 s, waits for the user 15 s and finishes 15 s. The two idle times differ, so one trip finishes and a
-// status change cuts the other short. The routes in the demo are 56 to 68 units long: a full trip takes about 100 s.
+// and party trips. Then it works 20 s, waits for the user 15 s and finishes 15 s. The two idle times differ, so one trip finishes and a
+// status change cuts the other short. Their kitchen routes are 55 to 76 units long: a full kitchen trip takes about 100 s. A party trip is shorter.
 const DEMO_PANES = [
   ['w1:p1', 'w1:t1', 'claude', [0, 0, 100, 30], 1, 'lead'],
   ['w1:p2', 'w1:t1', 'codex', [100, 0, 100, 30], 5],

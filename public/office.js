@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, hash, route, along, calm, opens, stepBreak, endBreak } from './model.js'
-import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
+import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, party, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
 
 const $ = (id) => document.getElementById(id)
 const DEMO = new URLSearchParams(location.search).has('demo')
@@ -163,8 +163,8 @@ scene.add(spot, spot.target)
 let world = null
 const views = new Map() // room, pod and desk id -> the objects that show its state
 const live = new Set() // objects whose look changes in place: never merged
-const DECOR = { workspace: workspaceDecor, kitchen, meeting, lobby }
-const ROOM_FLOOR = { meeting: [FLOOR.planks, '#b98b5e'], kitchen: [FLOOR.checker, '#ffffff'], lobby: [FLOOR.stone, '#eee7dc'] }
+const DECOR = { workspace: workspaceDecor, kitchen, meeting, lobby, party }
+const ROOM_FLOOR = { meeting: [FLOOR.planks, '#b98b5e'], kitchen: [FLOOR.checker, '#ffffff'], lobby: [FLOOR.stone, '#eee7dc'], party: [FLOOR.carpet, '#3f3a4a'] }
 
 function build(office) {
   if (world) {
@@ -206,6 +206,7 @@ function build(office) {
     if (r.door.side === 'south') inner('x', r.z + r.d, r.x, r.x + r.w, [[r.door.x, DOOR]])
     if (Math.abs(r.x + r.w - W) < 1e-6) inner('z', W, r.z, r.z + r.d, [])
     door(r)
+    if (r.kind === 'party') partyLights(r)
     for (const p of r.pods) {
       const lx = p.x + LAMP[0], lz = p.z + LAMP[1]
       box(world, [0.12, 2, 0.12], [lx, 0, lz], C.post)
@@ -233,7 +234,7 @@ function build(office) {
   sun.target.position.set(BW / 2, 0, BD / 2)
   sun.position.set(-4, 10, 5).setLength(2 * R).add(sun.target.position)
   Object.assign(sun.shadow.camera, { left: -R, right: R, top: R, bottom: -R, near: 1, far: 4 * R }).updateProjectionMatrix()
-  world.traverse((o) => { if (o.isMesh) { o.castShadow = o.material !== GLASS && o.material !== SKY; o.receiveShadow = true } })
+  world.traverse((o) => { if (o.isMesh) { o.castShadow = o.material !== GLASS && o.material !== SKY && o.material.depthWrite; o.receiveShadow = true } }) // depthWrite false: a light beam or a halo, no shadow
 }
 
 // Merge every static box into one mesh per material: tens of draw calls instead of thousands.
@@ -448,19 +449,19 @@ function browse(v, t) {
   v.tex.needsUpdate = true // the texture uploads again, also when it came from a typing screen
 }
 
-// ---- idle breaks: after a wait, an idle worker walks to the kitchen counter and back ----
+// ---- idle breaks: after a wait, an idle worker walks to the kitchen counter or the party room and back ----
 // The clock is t of the animation loop. A trip lives in trips by desk id, so it survives a rebuild for a new subagent.
 // ponytail: a change of the route inputs (`lay`) clears every trip: the workers sit at their desks again. Tracking a trip across a new layout needs a new route.
 const trips = new Map() // desk id -> { n: the next trip, next: when it starts, trip: the one that runs now }
-const claimed = new Map() // kitchen spot index -> desk id: two workers never stand on one spot
-// Where the worker of this view is now: { x, z, dx, dz, s, phase, got, trip }, or null at the desk. stepBreak() in model.js keeps the state.
+const claimed = new Map() // '<room>:<spot index>' (room: kitchen or party) -> desk id: two workers never stand on one spot
+// Where the worker of this view is now: { x, z, dx, dz, s, phase, got, trip, room }, or null at the desk. stepBreak() in model.js keeps the state.
 function breaks(v, t) {
-  const d = v.desk, k = office.rooms.find((r) => r.kind === 'kitchen')
-  const a = stepBreak(trips, claimed, d.id, { idle: d.status === 'idle' && !d.away, seed: v.seed, spots: k.spots.length, route: (i) => route(office, d.id, k.spots[i]) }, t)
-  return a && { ...along(a.trip.path, a.s), ...a }
+  const d = v.desk, room = (id) => office.rooms.find((r) => r.id === id), spots = { kitchen: room('kitchen').spots.length, party: room('party')?.spots.length ?? 0 }
+  const a = stepBreak(trips, claimed, d.id, { idle: d.status === 'idle' && !d.away, seed: v.seed, spots, route: (to, i) => route(office, d.id, room(to).spots[i], to) }, t)
+  return a && { ...along(a.trip.path, a.s), ...a, room: a.trip.room }
 }
 
-// ---- doors: closed. A walker opens its own door and the kitchen door (opens() in model.js), and the door closes after it. ----
+// ---- doors: closed. A walker opens its own door and the door of its target room (opens() in model.js), and the door closes after it. ----
 // The angle lives by room id, outside views: a rebuild for a new subagent keeps a door open while a worker stands in it.
 const OPEN = -1.1, SWING = 0.25 // the open angle (into the room), and the seconds from closed to open: open before a runner gets to the leaf
 const doors = new Map() // room id -> the door angle now
@@ -478,9 +479,11 @@ const TAU = Math.PI * 2
 // A worker on a trip stands and walks. The legs swing with the distance, the arms swing the other way. After the
 // kitchen the right hand holds the mug. It faces the way it moves, and the counter during the stay.
 // Near a door (see calm() in model.js) the arms hang and the mug hand stays low, so no hand goes through the open leaf or a post.
+// In the party room the stay is a dance: the worker faces the booth with a sway, at its own tempo and phase.
 function stroll(w, d, a, t) {
-  const g = w.g, back = a.phase === 'back' || a.phase === 'rush', stay = a.phase === 'stay'
-  const to = stay ? 0 : Math.atan2(a.dx * (back ? 1 : -1), a.dz * (back ? 1 : -1)), tr = a.trip
+  const g = w.g, back = a.phase === 'back' || a.phase === 'rush', stay = a.phase === 'stay', tr = a.trip
+  const dance = stay && tr.room === 'party', h = hash(d.id, 1e6), b = t * Math.PI * (1.6 + (h % 100) / 125) + h, beat = Math.sin(b) // 1.6 to 2.4 steps a second: a step is half a turn of b
+  const to = dance ? (office.rooms.find((r) => r.id === tr.room).booth.z < a.z ? 0 : Math.PI) + 0.35 * Math.sin(b / 2) : stay ? 0 : Math.atan2(a.dx * (back ? 1 : -1), a.dz * (back ? 1 : -1))
   const sw = stay ? 0 : 0.7 * Math.sin(a.s * 5), c = calm(Math.min(...office.rooms.map((r) => Math.hypot(a.x - r.door.x, a.z - r.door.z))))
   const hand = stay ? 1.2 + 0.1 * Math.sin(t * 2) : 0.1 + 1.1 * c // the angle of the mug arm
   tr.rot = tr.rot == null ? to : tr.rot + (to - tr.rot - Math.round((to - tr.rot) / TAU) * TAU) * 0.25 // the heading lives on the trip: a rebuild makes a new group
@@ -494,6 +497,74 @@ function stroll(w, d, a, t) {
   w.legs[1].rotation.x = -sw
   w.arms[0].rotation.x = -sw * c
   w.arms[1].rotation.x = a.got ? hand : sw * c
+  if (!dance) return
+  dancing = true // hop from foot to foot, sway the hips, pump the arms in turn. An arm stays at 1.5 or less: a hand over the shoulder means blocked.
+  g.rotation.z = 0.08 * beat
+  g.position.y = 0.5 + 0.08 * Math.abs(beat)
+  w.legs[0].rotation.x = 0.4 * Math.max(0, beat)
+  w.legs[1].rotation.x = 0.4 * Math.max(0, -beat)
+  w.arms[0].rotation.x = 0.9 - 0.55 * beat
+  w.arms[1].rotation.x = 0.9 + 0.55 * beat
+}
+
+// ---- the party room: the parts that move. They show only while a worker dances (disco()). ----
+// No three.js light: it shines through the walls into the next room. Magenta, violet and white only, so no light reads as a status.
+const DISCO = ['#e040fb', '#8b5cf6', '#ffffff'].map((c) => new THREE.Color(c)), BEAT = 2 // BEAT: the speaker beats a second
+let dancing = false // a worker dances this frame. pose() sets it, disco() reads it.
+function partyLights(r) {
+  const [x0, z0, x1, z1] = r.floor, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, { booth } = r
+  // The dance floor: 3 own materials on the diagonals, dark like the carpet when off. bake() merges the tiles by material:
+  // a color change on a merged mesh still shows, so the tiles need no place in live.
+  const tiles = DISCO.map(() => fresh('#2f2b38', THREE.MeshLambertMaterial))
+  for (let i = 0; i < Math.round(x1 - x0); i++) for (let j = 0; j < Math.round(z1 - z0); j++) box(world, [0.96, 0.03, 0.96], [x0 + i + 0.5, 0, z0 + j + 0.5], tiles[(i + j) % 3])
+  // The disco ball on a rod: a voxel ball of a cube and three slabs. The beams turn with it and hit the floor 1.35 from its axis.
+  box(world, [0.03, H - 2.45, 0.03], [cx, 2.45, cz], '#55545c')
+  const ball = new THREE.Group(), beams = new THREE.Group(), TILT = 0.55, L = 2.2 / Math.cos(TILT)
+  ball.position.set(cx, 2.2, cz)
+  ball.add(beams)
+  world.add(ball)
+  box(ball, [0.4, 0.4, 0.4], [0, -0.2, 0], '#c9c9d6')
+  for (const s of [[0.5, 0.3, 0.3], [0.3, 0.5, 0.3], [0.3, 0.3, 0.5]]) box(ball, s, [0, -s[1] / 2, 0], '#ececf4')
+  beams.visible = false
+  DISCO.forEach((c, k) => {
+    const p = new THREE.Group()
+    p.rotation.set(TILT, (k * TAU) / 3, 0, 'YXZ') // tilt, then turn
+    beams.add(p)
+    box(p, [0.1, L, 0.1], [0, -L, 0], Object.assign(fresh(c), { transparent: true, opacity: 0.3, depthWrite: false })).renderOrder = 2 // after the glass
+  })
+  // Two speakers beside the booth, the fronts turned like the booth front. A woofer and a tweeter on each front.
+  // The whole box breathes a little too: a booth of a south-row room faces away from the camera, and so do its cones.
+  const cones = [], speakers = [-1, 1].map((s) => {
+    const sp = new THREE.Group()
+    sp.position.set(booth.x + s * 1.3, 0, booth.z)
+    sp.rotation.y = (booth.rot * Math.PI) / 2
+    world.add(sp)
+    box(sp, [0.6, 1.2, 0.5], [0, 0, 0], '#2b2a33')
+    for (const [y, n, f] of [[0.42, 0.42, BEAT], [0.92, 0.18, 2 * BEAT]]) { // [height, size, pulses a second]
+      const c = new THREE.Group()
+      c.position.set(0, y, 0.25)
+      sp.add(c)
+      box(c, [n, n, 0.04], [0, -n / 2, 0], '#55545c')
+      box(c, [n * 0.6, n * 0.6, 0.04], [0, -n * 0.3, 0.015], '#1b1b20')
+      cones.push([c, f])
+    }
+    live.add(sp)
+    return sp
+  })
+  live.add(ball)
+  Object.assign(views.get(r.id), { tiles, ball, beams, speakers, cones })
+}
+// A breath on each pulse: up fast, then back slowly.
+const kick = (t, f) => { const p = (t * f) % 1; return Math.min(1, p * 10) * (1 - p) ** 2 }
+function disco(t) {
+  const v = views.get('party')
+  if (!v?.tiles) return
+  const step = Math.floor(t * 2) // the floor pattern moves twice a second
+  v.tiles.forEach((m, i) => m.emissive.set(dancing ? DISCO[(i + step) % 3] : 0))
+  v.beams.visible = dancing
+  if (dancing) v.ball.rotation.y = t * 1.5 // the ball stops where it is when the dance ends
+  for (const sp of v.speakers) sp.scale.setScalar(dancing ? 1 + 0.03 * kick(t, BEAT) : 1)
+  for (const [c, f] of v.cones) c.scale.setScalar(dancing ? 1 + 0.15 * kick(t, f) : 1)
 }
 
 // ---- state looks, every frame from the latest status ----
@@ -555,8 +626,8 @@ let office = null, sig = '', laid = '' // sig: the build signature. laid: the ro
 function update(next) {
   office = next
   const rooms = office.rooms.map((r) => [r.id, r.x, r.z, r.w, r.d, r.pods.map((p) => [p.id, p.x, p.z, p.w, p.d])])
-  const lay = JSON.stringify([ // the inputs of route(): the workspace rooms and the kitchen with their doors, the cross corridor and the desks
-    office.rooms.filter((r) => r.kind === 'workspace' || r.kind === 'kitchen').map((r) => [r.id, r.x, r.z, r.w, r.d, r.door, r.pods.map((p) => [p.id, p.x, p.z, p.w, p.d])]),
+  const lay = JSON.stringify([ // the inputs of route(): the workspace rooms, the kitchen and the party room with their doors, the cross corridor and the desks
+    office.rooms.filter((r) => r.kind === 'workspace' || r.kind === 'kitchen' || r.kind === 'party').map((r) => [r.id, r.x, r.z, r.w, r.d, r.door, r.pods.map((p) => [p.id, p.x, p.z, p.w, p.d])]),
     office.corridors.at(-1),
     office.desks.map((d) => [d.id, d.x, d.z, d.roomId, d.podId]),
   ])
@@ -840,8 +911,10 @@ renderer.setAnimationLoop((ms) => {
   if (office) keepInView()
   labels.domElement.style.fontSize = `${Math.min(13, Math.max(8, 3 + camera.zoom * 4))}px` // labels shrink with the rooms
   moving = false
+  dancing = false
   ajar.clear()
   for (const v of views.values()) if (v.desk) pose(v, t)
+  if (office) disco(t)
   if (office) swing(t - last)
   last = t
   if (moving && t > nextPass) { seen = ''; nextPass = t + 0.25 } // a walking badge: a few passes a second

@@ -218,6 +218,28 @@ export function meeting(g, room) {
   plants(put, [ne, sw, nw], 2)
 }
 
+// A DJ booth: a desk 1.6 x 0.9 x 0.7 with two turntables and a mixer on top. The front faces +z. Plain colors only, so no part reads as a status.
+const booth = prop([
+  [[1.6, 0.86, 0.7], [0, 0, 0], '#2b2a33'], [[1.64, 0.04, 0.74], [0, 0.86, 0], DARK], [[1.4, 0.5, 0.02], [0, 0.2, 0.35], '#4b4660'],
+  ...[-1, 1].flatMap((s) => [
+    [[0.5, 0.04, 0.5], [s * 0.5, 0.9, 0], '#55545c'], [[0.38, 0.03, 0.38], [s * 0.5, 0.94, 0], '#1b1b20'],
+    [[0.1, 0.01, 0.1], [s * 0.5, 0.97, 0], CREAM], [[0.04, 0.03, 0.24], [s * 0.5 + 0.2, 0.94, -0.02], GREY],
+  ]),
+  [[0.34, 0.08, 0.46], [0, 0.9, 0], DARK], [[0.12, 0.02, 0.03], [0, 0.98, -0.17], WHITE], // the crossfader on the DJ side
+  ...[-1, 1].flatMap((s) => [[[0.03, 0.02, 0.14], [s * 0.07, 0.98, -0.04], WHITE], [[0.04, 0.03, 0.04], [s * 0.07, 0.98, 0.14], GREY]]),
+])
+
+// The model sets the booth, the dance floor, the spots, and the walk rects. office.js builds the speakers beside the booth and the
+// moving lights, so the speaker floor (1.8 to each side of the booth center) and the dance floor stay free.
+export function party(g, room) {
+  const { w, d } = room, x = room.booth.x - room.x, z = room.booth.z - room.z, [x0, z0, x1, z1] = room.floor
+  booth(g, x, z, room.booth.rot)
+  const fz0 = z0 - room.z, fz1 = z1 - room.z
+  const put = placer(g, room, [x - 1.8, z - 0.45, x + 1.8, z + 0.45], [x0 - room.x, fz0, x1 - room.x, fz1])
+  ;[[E, fz0 / 2, 1], [w - E, fz0 / 2, 3], [E, (fz1 + d) / 2, 1], [w - E, (fz1 + d) / 2, 3]].some(([x, z, r]) => put(lounge, x, z, r)) // on a side wall, beside the floor
+  plants(put, corners(room), 2)
+}
+
 // "herdr" in a 3 x 7 pixel font: [x, y, w, h] per bar, y up from the baseline.
 const GLYPH = {
   h: [[0, 0, 1, 7], [1, 4, 1, 1], [2, 0, 1, 4]],

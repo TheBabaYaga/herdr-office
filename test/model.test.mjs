@@ -92,16 +92,17 @@ const inside = (p, c) => p.x > c.x && p.x < c.x + c.w && p.z > c.z && p.z < c.z 
 function assertPlan(o, snap, meetings = []) {
   const ws = [...snap.workspaces].sort((a, b) => a.number - b.number).map(w => w.workspace_id)
   const meet = meetings.length ? meetings.map(m => `meeting:${m.sessionId}`) : ['meeting']
-  assert.deepEqual(o.rooms.map(r => [r.id, r.kind]), [...ws.map(id => [id, 'workspace']), ...meet.map(id => [id, 'meeting']), ['kitchen', 'kitchen'], ['lobby', 'lobby']])
+  assert.deepEqual(o.rooms.filter(r => r.kind !== 'party').map(r => [r.id, r.kind]), [...ws.map(id => [id, 'workspace']), ...meet.map(id => [id, 'meeting']), ['kitchen', 'kitchen'], ['lobby', 'lobby']])
   for (const r of o.rooms.filter(r => !r.session && r.kind !== 'workspace')) assert.deepEqual([r.label, r.number, r.status, r.pods], [r.kind[0].toUpperCase() + r.kind.slice(1), null, null, []])
   assertSeats(o, meetings)
-  for (const r of o.rooms) assert.ok(r.kind === 'workspace' ? r.w >= 7 && r.d >= 6 : r.w >= 8 && r.d >= 7, `${r.id} size`)
+  for (const r of o.rooms) assert.ok(r.kind === 'workspace' || r.kind === 'party' ? r.w >= 7 && r.d >= 6 : r.w >= 8 && r.d >= 7, `${r.id} size`)
 
   // Rows are filled in room order, west to east: band 0 north, band 0 south, band 1 north, ...
   const rows = [...new Set(o.rooms.map(r => r.z))].sort((a, b) => a - b).map(z => o.rooms.filter(r => r.z === z))
   assert.deepEqual(rows.flat().map(r => r.id), o.rooms.map(r => r.id), 'rows in room order')
   assert.equal(rows.length % 2, 0)
   const W = o.bounds.w - 3
+  assertParty(o, rows, W)
   rows.forEach((row, i) => {
     assert.equal(row[0].x, 0)
     row.forEach((r, j) => {
@@ -137,6 +138,27 @@ function assertPlan(o, snap, meetings = []) {
     assert.ok(d.x - 1 >= r.x && d.x + 1 <= r.x + r.w && d.z - 0.75 >= r.z && d.z + 0.75 <= r.z + r.d, `${d.id} inside its room`)
   }
   assertSpacing(o.desks)
+}
+
+// The party room fills the row with the most spare width (the first on a tie), if that width is 7 or more. The spare width is the
+// building width minus the normal widths of the other rooms in the row. The other rooms of the party row keep their normal width.
+// Each other row stretches as before: every room gets the same extra width.
+const close = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${msg}: ${a} is not ${b}`)
+const span = (r) => r.pods.length ? Math.max(...r.pods.map(p => p.x + p.w)) - Math.min(...r.pods.map(p => p.x)) : 0
+const normal = (r) => r.kind === 'workspace' ? Math.max(7, 3 + span(r)) : r.kind === 'meeting' ? Math.max(8, r.table.len + 2.6) : 8
+function assertParty(o, rows, W) {
+  const spare = rows.map(row => W - row.filter(r => r.kind !== 'party').reduce((s, r) => s + normal(r), 0))
+  const most = Math.max(...spare), at = spare.findIndex(s => s > most - 1e-6), party = o.rooms.filter(r => r.kind === 'party')
+  assert.equal(party.length, most >= 7 ? 1 : 0, `a party room only for a spare width of 7 or more (${most})`)
+  rows.forEach((row, i) => {
+    if (party.length && i === at) {
+      const p = party[0]
+      assert.equal(row.at(-1).kind === 'lobby' ? row.at(-2) : row.at(-1), p, 'the party room is the last room of its row, or just before the lobby')
+      assert.deepEqual([p.id, p.door.side], ['party', i % 2 ? 'north' : 'south'])
+      close(p.w, spare[i], 'the party room takes the spare width')
+      for (const r of row) if (r !== p) close(r.w, normal(r), `${r.id} keeps its normal width`)
+    } else for (const r of row) close(r.w, normal(r) + spare[i] / row.length, `${r.id} stretches`)
+  })
 }
 
 // Meeting rooms: the table and every seat inside the room, seats apart, one seat per attendee, the head seat for the orchestrator.
@@ -391,6 +413,37 @@ test('meeting rooms appear only for meetings, and fit every attendee', () => {
   }
   const wide = buildOffice(s, [meeting('S', '/x', 13)]).rooms.find(r => r.session)
   assert.ok(wide.w > 8 && wide.table.len > 4.6, 'the table and the room grow for a big meeting')
+})
+
+test('the demo gets a party room in the row of the docs workspace', () => {
+  const o = buildOffice(demoSnapshot(0), demoMeetings(0)), p = o.rooms.find(r => r.kind === 'party'), docs = o.rooms.find(r => r.label === 'docs')
+  assert.ok(p, 'a party room')
+  assert.equal(p.z, docs.z, 'in the row of docs')
+  close(p.w, 11.7, 'the spare width of the row')
+  close(docs.w, 7.8, 'docs keeps its normal width')
+  close(p.x, docs.x + docs.w, 'east of docs')
+  assert.equal(o.rooms.at(-1).id, 'lobby')
+})
+
+test('no party room without a row with 7 or more spare width', () => {
+  const s = synthetic(), o = buildOffice(s) // the most spare width is 6.9
+  assert.deepEqual(o.rooms.map(r => r.id), ['w1', 'w2', 'meeting', 'kitchen', 'lobby'])
+  assertPlan(o, s) // each row stretches to the building width as before
+})
+
+test('the party room is the last room of the row with the most spare width, before the lobby in the lobby row', () => {
+  const s = synthetic(), b = big()
+  for (const [snap, ms, row] of [
+    [demoSnapshot(0), demoMeetings(0), ['w3', 'party']],
+    [s, [meeting('S', '/x', 13)], ['w2', 'party']],
+    [b, [], ['w2', 'w1', 'party']],
+    [b, [meeting('S', '/x', 11)], ['meeting:S', 'kitchen', 'party', 'lobby']],
+  ]) {
+    const o = buildOffice(snap, ms), p = o.rooms.find(r => r.kind === 'party')
+    assertPlan(o, snap, ms)
+    assert.deepEqual(o.rooms.filter(r => r.z === p.z).map(r => r.id), row)
+    assert.equal(o.rooms.at(-1).id, 'lobby')
+  }
 })
 
 test('the orchestrator desk is away: its worker takes the head seat', () => {
