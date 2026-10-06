@@ -30,6 +30,7 @@
 | `rows` | desk id -> HUD list `<button>` | `hud()` | page |
 | `goal` | the point that the camera target glides to, or `null` | HUD row click. Frame loop, `keepInView()`, and pointerdown clear it | until reached |
 | `selected`, `target`, `down` | the panel id, the pane id to focus or to message, the last pointerdown | `open()`, `fill()`, pointerdown | page |
+| `timer`, `msgs`, `msgKey` | the 2000 ms refresh timer, the messages of the open claude desk, and their JSON | `open()`, `close()`, `loadMessages()`, `renderMessages()` | page |
 
 `COLOR` is `STATUS_COLOR` as `THREE.Color`. `GLASS`, `SKY`, and `glow` are marked by `shared()`. `haloGeo` is one plane for all halos.
 
@@ -142,11 +143,16 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 ### Panel
 
-- `open(id)`: sets `selected`, clears `#result` and the `#msg` input, shows `#panel`, and calls `fill()`. `close()` hides it. The `#msg` clear stops a half-typed message from going to another desk.
-- `fill()`: finds the desk or subagent with the id `selected`, else it calls `close()`. For a subagent, `target` is its orchestrator desk id. The button is disabled when `DEMO` is set or `target` is empty. It shows the `#say` form only for a desk with an agent, and disables the form when `DEMO` is set. It never changes the `#msg` value, because it runs on each update. It writes the local `rows` object as `dt` and `dd` through `el()`.
-- `act(body, done)`: `POST /action` with `body` and the header `x-office-token: TOKEN`. `#result` shows `done` on success, else the error. It returns `r.ok`.
+- `open(id)`: sets `selected`, clears `#result`, `#chatResult`, and both inputs, closes `#chat`, clears the timer and the messages, shows `#panel`, and calls `fill()`. For a claude desk (not in the demo) it calls `loadMessages()` at once and starts one `setInterval` of 2000 ms, also for a desk that is not claude (`loadMessages()` then returns at once). `close()` clears the timer, closes `#chat`, and hides the panel. The `#msg` clear stops a half-typed message from going to another desk.
+- `fill()`: finds the desk or subagent with the id `selected`, else it calls `close()`. For a subagent, `target` is its orchestrator desk id. The button is disabled when `DEMO` is set or `target` is empty. It shows the `#say` form only for a desk with an agent, and disables both forms when `DEMO` is set. It shows `#last` only for a desk whose agent kind is `claude`, and closes `#chat` when `#last` turns hidden. In the demo, `#lastText` says "no messages in the demo". It never changes the input values, never fetches, and never renders the log, because it runs on each update. It writes the local `rows` object as `dt` and `dd` through `el()`.
+- `act(body, done, out = $('result'))`: `POST /action` with `body` and the header `x-office-token: TOKEN`. `out` shows `done` on success, else the error. It returns `r.ok`.
 - The focus button handler: `act({ type: 'focus', pane_id: target }, ...)`.
 - The `#say` submit handler: skips an empty message, then calls `act({ type: 'prompt', pane_id: target, text }, ...)`. On success it clears `#msg` if the text did not change during the request.
+- `loadMessages()`: for a claude desk, `GET /messages?pane=<id>` with the header `x-office-token: TOKEN`. It drops a reply when the pane is no longer `selected`. On success it stores the list. On an error it shows the error in `#lastText` and keeps the messages and the log.
+- `renderMessages(err)`: `#lastText` gets the text of the last `agent` message. `#chatLog` gets one `.msg` element for each message: a role line (`you`, the agent name, or `subagent · <from>`) and the text. The three roles have three border colors. `#lastText` changes only when its text changes, and shows `...` until the first agent reply. It re-renders only when the list changed, so the scroll position and a selection stay. It keeps the log at the bottom when the log was at the bottom.
+- `#chatOpen` calls `showModal()` on `#chat`, sets `#chatWho`, scrolls the log to the bottom, and focuses `#replyMsg`. `#chatClose` and Esc close it. The Escape handler closes the panel only when `#chat` is not open.
+- The `#reply` submit handler works like `#say`: it calls `act()` with `type: 'prompt'` and `$('chatResult')`, clears `#replyMsg` on success, and calls `loadMessages()`.
+- Transcript text goes into the page with `textContent` only.
 - The `p.warn` text in `#panel` is about focus only. The message field has no warning. A new write button needs its own warning.
 
 ### Picking
@@ -176,7 +182,7 @@ Two agents in one region need a split by function.
 | declutter | `declutter()`, `tags`, `seen`, `nextPass` | update, frame loop |
 | update | `update()`, `family()`, `office`, `sig`, `laid` | all regions |
 | hud | `hud()`, `el()`, `rows`, `setOnline()`, `who()`, `plural()` | fill, camera (`goal`), `index.html` |
-| fill | `open()`, `close()`, `fill()`, `act()`, the focus button and `#say` submit handlers | hud, picking, `index.html` |
+| fill | `open()`, `close()`, `fill()`, `act()`, `loadMessages()`, `renderMessages()`, `timer`, `msgs`, `msgKey`, the focus button, `#say`, `#chatOpen`, `#chatClose`, and `#reply` handlers | hud, picking, `index.html` |
 | camera | `fit()`, `frame()`, `keepInView()`, `resize()`, `VIEW`, `OFFSET`, `controls`, the `goal` glide | hud, update, picking |
 | picking | the pointerdown and click handlers | fill, desk (seat geometry) |
 

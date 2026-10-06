@@ -36,6 +36,7 @@ The office watches. It has two writes to herdr: a focus and a message. A click o
 - A drag moves the view. The mouse wheel zooms to the mouse pointer. Labels declutter: a label that covers a more important one hides.
 - A click on a desk, a worker, or a HUD row opens the side panel. The panel shows kind, name, status, room, tab, cwd, title, and pane.
 - The panel of an agent desk has a message field. Enter or "Send" sends the text to that agent. A subagent and a shell desk have no message field.
+- The panel of a claude desk shows the last reply of the agent. "Show all" opens a chat window in the middle of the screen with the conversation history and a field to answer. Esc or the x closes the window (decision 22).
 - `?demo` shows a simulated session with four workspaces ("api", "web", "docs", "infra") and one meeting. The focus button and the message field are off in the demo.
 
 ### Meetings
@@ -46,7 +47,7 @@ The office watches. It has two writes to herdr: a focus and a message. A click o
 - A subagent keeps its seat. When it ends, its chair stays empty, and nobody moves.
 - The panel of a subagent has "Focus orchestrator", which focuses the pane of the orchestrator.
 - With no meetings, one empty meeting room stays in the building.
-- The bridge reads only metadata from `~/.claude/projects`. The browser never gets transcript text. `CLAUDE.md` lists the files that the bridge reads.
+- For meetings, the bridge reads only metadata from `~/.claude/projects`. The browser gets transcript text only through the chat of a claude desk (decision 22). `CLAUDE.md` lists the files that the bridge reads.
 
 ## Decisions
 
@@ -88,6 +89,12 @@ The user made these decisions between 2026-10-03 and 2026-10-06.
     - The bridge sends the text with `agent.prompt`. herdr types the text and presses Enter.
     - herdr refuses a message to a blocked agent with `agent_blocked`, and the panel shows the error. So the office still never answers a blocked question.
     - A message does not bring WezTerm to the front.
+22. The last reply and a chat window, in the user's words: "Can we display the last message of an agent when I focus on him? When the message is too big we should be able to click a button or so to view the entire message." The button opens "a new window in the middle of the screen where we can see the message and message history where we can scroll and also be able to answer directly. Pressing esc or the x should close that window again."
+    - The user chose the Claude Code transcripts as the source, not the herdr screen read. So the chat works for claude agents only. The history holds the user prompts and the agent replies, without thinking, tool calls, or tool results.
+    - This changes a safety rule: transcript text now goes to the browser. It goes only through `GET /messages`, on request and behind the token, never through the `/events` stream.
+    - The bridge finds the transcript from the session id that herdr reports for the pane (`agent_session`). A pane without one gets the newest transcript of its cwd.
+    - "When I focus on him" became a click on the desk: the panel opens and shows the last reply. The "Show all" button always shows, because the window also holds the history.
+    - Messages from other agents (teammates, subagent reports, other Claude sessions) show as "subagent · <name>" with their own color, in the user's words: "Can we properly format these and make it clear those are subagents? cause it seems to be a teammate". The chat shows only the text of each message. A bare idle notice without text does not show.
 
 ## Cut on purpose
 
@@ -119,6 +126,10 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 - Nobody tested "Focus in herdr" (with the WezTerm raise) or the SketchyBar row click against the live herdr. The tests use fake sockets and stubs.
 - The tests cover only the bridge side of a message. One browser check against a fake herdr socket covered the page side.
 - The message field holds one line. "ok" in the panel means that herdr typed the text. It does not prove that the agent started a turn.
+- The chat window shows only the history in the last 512 KB of the transcript. Older messages do not show.
+- A claude pane without a herdr `agent_session` gets the newest transcript of its cwd. If two claude panes share that cwd, both can show the same chat.
+- The chat refreshes every 2 s while the panel is open. Replies show as plain text. Markdown does not render.
+- The tests cover the bridge side of the chat. A browser check with a fake herdr socket and a fake projects tree covered the page side.
 - The HUD box can cover labels in the top-left corner.
 - A Claude session maps to a herdr pane by cwd. The bridge takes one session per cwd: the newest transcript. A second session in the same cwd gets no meeting room.
 - If two claude panes share that cwd, the office takes the working one as the orchestrator.

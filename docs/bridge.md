@@ -1,10 +1,11 @@
 # bridge.mjs: the herdr bridge
 
-`bridge.mjs` is the local HTTP server of herdhouse. It polls the herdr socket, reads Claude Code subagent metadata from `~/.claude/projects`, and streams both to the page over SSE. It also serves `public/` and sends two writes to herdr: `pane.focus` and `agent.prompt`. For the herdr wire protocol, read `docs/herdr-agent-model.md` section 3.
+`bridge.mjs` is the local HTTP server of herdhouse. It polls the herdr socket, reads Claude Code subagent metadata from `~/.claude/projects`, and streams both to the page over SSE. It also serves `public/`, sends two writes to herdr (`pane.focus` and `agent.prompt`), and answers `GET /messages` with the conversation of one claude pane. For the herdr wire protocol, read `docs/herdr-agent-model.md` section 3.
 
 ## When to read this doc
 
 - A change to a herdr request, the poll, the SSE stream, a guard, or the start (port, socket path, WezTerm raise).
+- A change to `GET /messages`, `readMessages()`, or `messagesIn()`.
 - A new field in `meetings`, a new `POST /action` type, or a new static file type.
 - A failed test in `test/bridge.test.mjs`. Also read `docs/testing.md`.
 
@@ -15,6 +16,7 @@
 | `cwds`, `models` | transcript path to its first `"cwd"`, and to its last `claude-*` id | `cwdOf()`, `modelIn()`, hits only |
 | `clients` | the open `/events` responses | `/events` branch, `res` `close`, `close()` |
 | `last` | the last SSE payload, or `null` | `send()`, the end of `poll()` |
+| `snap` | the last good snapshot, or `null` after a failed cycle or when the loop stops | `poll()` |
 | `polling`, `meetings`, `readAt` | the loop flag, the last `readMeetings()` result, and its time | `poll()` |
 
 `cwds` and `models` live for the process, with no eviction. The rest live inside `startBridge()`.
@@ -26,12 +28,12 @@ At start, the `import.meta.main` block awaits `startBridge()` with `socketPath()
 `handle()`, for each HTTP request:
 
 1. A `Host` other than `127.0.0.1:<port>` or `localhost:<port>` gets 403.
-2. `POST /action` goes to the action branch, `GET /events` to the SSE branch, and each other `GET` to the static branch. The rest gets 404.
+2. `POST /action` goes to the action branch, `GET /events` to the SSE branch, `GET /messages` to the messages branch, and each other `GET` to the static branch. The rest gets 404.
 3. A throw goes to `.catch(() => res.destroy())`, so the client gets no status line.
 
 `poll()`, for each cycle:
 
-1. `herdrRequest(sock, 'session.snapshot')`.
+1. `herdrRequest(sock, 'session.snapshot')`. `snap` keeps the snapshot. A failed cycle sets `snap` to `null`.
 2. If `claudeDir` is set and `meetMs` passed since `readAt`: set `readAt`, and call `readMeetings()` with `foreground_cwd || cwd` of each `snapshot.agents` entry with `agent === 'claude'`. A rejection keeps the old `meetings`.
 3. `send({ online: true, snapshot, meetings })`. A throw in steps 1 to 3 sends `{ online: false, snapshot: null, error }`.
 4. `sleep(pollMs)`. The loop runs while `clients.size > 0`, then resets `polling`, `last`, and `readAt`.
@@ -55,7 +57,7 @@ It returns `HERDR_SOCKET_PATH`, else the `HERDR_SESSION` socket, else the defaul
 
 ### Claude subagent helpers
 
-- `ls(d)` gives `[]` and `readJson(f)` gives `{}` on any error. `chunk(file, from)` reads 32 KB at an offset and throws on an error.
+- `ls(d)` gives `[]` and `readJson(f)` gives `{}` on any error. `chunk(file, from, size = 32768)` reads `size` bytes at an offset (32 KB by default) and throws on an error. `newestIn(dir, cwd)` gives the id of the newest transcript in `dir` whose `cwdOf()` equals `cwd`, else `null`. `readMeetings()` and `readMessages()` use it.
 - `cwdOf(file)`: the first `"cwd"` in the first 32 KB, else in the first 256 KB. It caches a hit in `cwds`.
 - `modelIn(file, tail)`: the last `claude-*` model id in `tail`, cached in `models`, or `null`.
 - `plainTail(file, now)`: the last 32 KB of a plain subagent transcript. It gives `null` when the path is not a regular file or is 30 s quiet, or its last line has an `end_turn` or `stop_sequence` stop reason.
@@ -74,6 +76,26 @@ For each unique cwd, inside a `try`/`catch` that drops only that cwd:
 4. Plain subagents: each `subagents/agent-<id>.meta.json` whose `plainTail()` gives a tail. A plain subagent with no transcript never counts.
 5. It adds `{ sessionId, cwd, agents }` when `agents` is not empty. Workflow agents come first.
 
+### `messagesIn(text)`
+
+A pure parser for the `GET /messages` data. It reads JSONL text and returns `[{ role, text, from? }]` in file order. `role` is `user`, `agent`, or `subagent`.
+
+- It skips a line that does not parse, each entry that is not `user` or `assistant`, and each entry with `isSidechain` or `isCompactSummary`. It skips an `isMeta` entry, except a user entry with `origin.kind === 'peer'`.
+- A user text is the string content, or the text blocks joined with `\n`. A tool result has no text, so it goes. A text that starts, after spaces, with a wrapper tag goes. A text that starts with `<pasted` stays.
+- An agent text is the text blocks joined with `\n`. Thinking and tool calls go.
+- A user text that starts with `Another Claude session sent a message` gives one `subagent` message for each `<teammate-message>`, `<agent-message>`, or `<cross-session-message>` block, and nothing else. The head line and the trailing note never show. A peer entry without that head line goes, because it is meta.
+- `from` is `teammate_id`, else `from-name`, else `from`.
+- A leading `[harness: ...]` line, and the empty line after it, never shows. This holds for each block, and again for the first line of a hand-back report.
+- The block text is the first string of `result`, `summary`, `message`, or `content` of a JSON body. With a `failureReason`, the first line is `failed: <failureReason>`. A hand-back (`[Subagent hand-back]`) gives only the lines after the line that ends with `The report follows:`, with up to 2 leading spaces removed. Else the text is the trimmed body. A block with no text is skipped.
+
+### `readMessages(projects, pane, limit = 100)`
+
+1. A pane without `agent === 'claude'` gives `null`.
+2. With `agent_session.kind === 'id'` and a uuid value, it looks for `<id>.jsonl` in the cwd folder (`foreground_cwd || cwd`), then in each folder of `projects` (it lists `projects` only when the cwd folder has no such file). A valid id that is not found gives `null`, with no fallback. It uses a regular file only (`open()` on a FIFO never returns).
+3. A missing or bad `agent_session` (null, another kind, a value that is not a uuid) uses `newestIn(dir, cwd)`: the newest transcript of the cwd folder whose `cwdOf()` equals the cwd. `readMeetings()` uses the same helper.
+4. It reads the last 512 KB with `chunk()`, starting one byte early. When the read starts after byte 0, it drops the text up to and including the first `\n`. If the extra byte is a newline, the first line of the window is whole and stays. Else that line is partial and goes. Older history is not shown.
+5. It returns `messagesIn(tail).slice(-limit)`. No transcript, or a read error anywhere in the lookup or the read, gives `null`.
+
 ### `startBridge(options)`
 
 The options are `sock`, `port` (on `127.0.0.1`), `publicDir`, `pollMs` (500), `token` (`crypto.randomUUID()`), `claudeDir` (`null` gives `meetings: []`), `meetMs` (2000, the shortest time between two meeting reads), and `raise` (runs after a successful `pane.focus`).
@@ -87,6 +109,16 @@ It writes `data: <JSON>\n\n` to each client when the string differs from `last`.
 ### `GET /events` branch
 
 It replies 200 `text/event-stream` with `cache-control: no-store`, and adds `res` to `clients`. It writes `last` at once when it is set, and starts `poll()` when `polling` is `false`.
+
+### `GET /messages` branch
+
+1. Token check, the same as for `POST /action`. Else 403.
+2. `pane` must match `^w[0-9A-Za-z]+:p[0-9A-Za-z]+$`. Else 400.
+3. `claudeDir` of `null` gives 503 `no claude directory`. No `snap` gives 503 `no snapshot yet`.
+4. A pane that is not in `snap.panes` gives 404.
+5. `readMessages()` gives `null`: 404 `{ error: 'no transcript' }`. Else 200 `{ messages }`.
+
+The branch sends no request to herdr. The page caller is `loadMessages()` in `public/office.js`.
 
 ### `POST /action` branch
 
@@ -113,9 +145,10 @@ A rejected request sends nothing to herdr. The page callers are `$('focus').oncl
 | `agents[].model` | meta `model` (it can be an alias such as `sonnet`), else `modelIn()` |
 | `agents[].workflow`, `runId` | `<name>` of `workflows/scripts/<name>-<runId>.js`, and the run folder name |
 | `error` (offline) | the `Error.message` of the failed cycle. It can hold the socket path. The page does not show it. |
+| `GET /messages` reply | `messages[]`: the user prompts, agent replies, and subagent messages of one claude pane (`role`, `text`, and `from` for a subagent), behind the token. It is the only route that sends transcript text. |
 | `POST /action` reply | `{ ok: true }` or `{ error }`, shown with `textContent`. A 502 `error` is the `herdrRequest()` message, so it can also hold the socket path. |
 
-A plain subagent has `phase`, `workflow`, and `runId` set to `null`. No transcript text goes to the browser: `cwdOf()` gives a cwd only, and `modelIn()` gives a `claude-*` id only. The `plainTail()` text goes only into `modelIn()`. Never copy page output into a repo file. The rules for a new field are in CLAUDE.md "Safety rules".
+A plain subagent has `phase`, `workflow`, and `runId` set to `null`. The `/events` stream holds no transcript text: `cwdOf()` gives a cwd only, and `modelIn()` gives a `claude-*` id only. The `plainTail()` text goes only into `modelIn()`. Transcript text goes out only in a `GET /messages` reply. Never copy page output into a repo file. The rules for a new field are in CLAUDE.md "Safety rules".
 
 ## Change recipes
 
@@ -163,6 +196,6 @@ Add a field to the SSE message:
 - `family()` and `attendee()` in `public/office.js` call `model?.match()`. `readMeetings()` has no type check, so a `model` that is not a string throws there.
 - With `claudeDir` set, a snapshot with no `agents` array throws in each cycle that reads meetings. The page then shows offline about every `meetMs`.
 - `send()` compares the full JSON, so a timestamp field sends a message every `pollMs`. It drops a slow client only on a changed message.
-- Only the Host check guards `GET /events` and the static files. A `json()` reply has no `cache-control` and no `x-frame-options`. A new HTML route must set both.
+- Only the Host check guards `GET /events` and the static files. A `json()` reply has `cache-control: no-store` and no `x-frame-options`. A new HTML route must set both.
 - `raise` must be synchronous, or catch its own errors. In Node 25, an unhandled rejection ends the process.
 - The traversal guard checks the path string only. `readFile()` follows a symlink inside `public/`.

@@ -9,13 +9,14 @@ These docs describe the code of herdhouse, with one doc for each source area. `C
 | The 3D look of a worker or a desk | `docs/office.md` "View shapes" (the worker parts, heights, and facing), "Desks, seats, and workers", "Screens", "pose()" | `worker()`, `shirt()`, `desk()`, `seatAt()`, `attendee()`, `pose()`, `typing()`, `browse()` |
 | Status ranks, colors, and the roll-up | `docs/model.md` "Status", `docs/office.md` "Pitfalls" (a new status) | `rollup()`, `STATUS_RANK`, `STATUS_COLOR`, `COLOR`, `ARM` |
 | Labels and decluttering | `docs/office.md` "declutter()", "update()", the recipe "A new label" | `label()`, `declutter()`, `update()` (`tags`) |
-| The HUD and the panel | `docs/office.md` "HUD", "Panel". The markup is in `public/index.html` (`#hud`, `#panel`) | `hud()`, `el()`, `setOnline()`, `open()`, `close()`, `fill()`, `act()` |
+| The HUD and the panel | `docs/office.md` "HUD", "Panel". The markup is in `public/index.html` (`#hud`, `#panel`, `#chat`) | `hud()`, `el()`, `setOnline()`, `open()`, `close()`, `fill()`, `act()` |
+| The last reply and the chat window | `docs/office.md` "Panel", `docs/bridge.md` "`messagesIn(text)`", "`readMessages(projects, pane, limit = 100)`", "`GET /messages` branch" | `loadMessages()`, `renderMessages()`, `readMessages()`, `messagesIn()` |
 | Camera and picking | `docs/office.md` "Camera", "Picking" | `resize()`, `fit()`, `frame()`, `keepInView()`, the canvas `pointerdown` and `click` handlers |
 | The floor plan and the room layout | `docs/model.md` "Pods and desks", "buildOffice(snap, meetings = [], prev = null)". `docs/office.md` "Floors and walls", "Build and bake" | `buildOffice()`, `podLayout()`, `spread()`, `build()`, `inner()`, `outer()`, `stub()` |
 | Kitchen trips and routes | `docs/model.md` "Walk geometry", "route(o, deskId, spot)", "Breaks". `docs/office.md` "Idle breaks" | `route()`, `walkRects()`, `stepBreak()`, `endBreak()`, `tripAt()`, `breakPlan()`, `along()`, `breaks()`, `stroll()` |
 | Doors | `docs/office.md` "Floors and walls" (`door()`), "Idle breaks" (`swing()`), the recipe for the door leaf. `docs/model.md` "Breaks" (`opens()`). `docs/testing.md` "Change when a door opens" | `door()`, `swing()`, `opens()`, `calm()` |
 | Decor and props | `docs/decor.md` | `box()`, `placer()`, `workspaceDecor()`, `kitchen()`, `meeting()`, `lobby()`, `plant()`, `clutter()` |
-| The bridge: poll, SSE, action, guards | `docs/bridge.md` "Flow", "`startBridge(options)`", "`GET /events` branch", "`POST /action` branch" | `startBridge()`, `handle()`, `poll()`, `send()`, `herdrRequest()`, `socketPath()` |
+| The bridge: poll, SSE, action, guards | `docs/bridge.md` "Flow", "`startBridge(options)`", "`GET /events` branch", "`GET /messages` branch", "`POST /action` branch" | `startBridge()`, `handle()`, `poll()`, `send()`, `herdrRequest()`, `socketPath()` |
 | Meetings and subagents | `docs/bridge.md` "`readMeetings(projects, cwds, now = Date.now())`", "Claude subagent helpers", "What may reach the browser". `docs/model.md` "buildOffice(snap, meetings = [], prev = null)" (the meeting rooms, the orchestrator, and the seats). `docs/office.md` "Desks, seats, and workers". `docs/decor.md` "Room decor" | `readMeetings()`, `cwdOf()`, `modelIn()`, `plainTail()`, `buildOffice()`, `attendee()`, `seatAt()`, `longTable()` |
 | The demo data | `docs/model.md` "Demo", the recipe "A new demo agent" | `demoSnapshot()`, `demoMeetings()`, `DEMO_PANES`, `DEMO_AGENTS` |
 | Tests | `docs/testing.md` | `fakeHerdr()`, `sse()`, `synthetic()`, `assertPlan()`, `assertSeats()`, `checkRoute()` |
@@ -75,7 +76,13 @@ click on a desk or a seat (not a drag), or a HUD row
   -> raise(): open -a WezTerm     a failure does not change the reply
   -> 200 { ok: true }             #result shows "ok: herdr focused <id>"
 
-the message field (agent desks only), Enter or "Send"
+the read path (claude desks only, not in the demo)
+  -> open(id) -> loadMessages()   fetch GET /messages?pane=<id>, header x-office-token, then each 2000 ms
+  -> bridge.mjs handle()          Host check, token check, pane check, snap
+  -> readMessages(claudeDir, pane) the last 512 KB of the transcript, messagesIn()
+  -> 200 { messages }             #lastText shows the last agent reply. "Show all" opens #chat
+
+the message field (agent desks only), Enter or "Send"; #reply in the chat window works the same
   -> act(): fetch POST /action    body { type: 'prompt', pane_id, text }
   -> bridge.mjs handle()          Host check, token check, body check
   -> herdrRequest(sock, 'agent.prompt', { target: pane_id, text })
@@ -85,7 +92,7 @@ the message field (agent desks only), Enter or "Send"
 
 - `GET /` serves `public/index.html`, and the bridge puts the token into the `office-token` meta tag.
 - The demo page opens no `/events` stream, so the bridge does not poll herdr. The focus button and the message field are disabled in the demo.
-- `readMeetings()` gets the cwds of the claude agents in the snapshot. No transcript text goes to the browser.
+- `readMeetings()` gets the cwds of the claude agents in the snapshot. No transcript text goes into the `/events` stream.
 - An offline message keeps the old scene, and `setOnline()` dims it.
 - The first open after an `EventSource` error reloads the page, so the page gets the new token of a restarted bridge.
 - A status change calls `build()` only when it moves `away` to another desk (`docs/model.md` "Pitfalls"). Else `update()` and `pose()` set the new look in place.
@@ -103,7 +110,7 @@ test/bridge.test.mjs --- imports ------------> bridge.mjs
 test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 ```
 
-- `bridge.mjs`: the HTTP server, the herdr socket client, and the meeting reader. Doc: `docs/bridge.md`.
+- `bridge.mjs`: the HTTP server, the herdr socket client, the meeting reader, and the message reader. Doc: `docs/bridge.md`.
 - `public/index.html`: the importmap, the CSS, the HUD and panel markup, and the `office-token` meta tag. Doc: `docs/office.md` "HUD" and "Panel".
 - `public/model.js`: the pure model: the floor plan, the routes, the break timing, the door rule, and the demo data. Doc: `docs/model.md`.
 - `public/office.js`: the scene, the workers, the doors, the labels, the HUD, the panel, the camera, the click, and the data source. Doc: `docs/office.md`.
@@ -148,7 +155,7 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - status: the agent state: `blocked`, `done`, `working`, `idle`, or `unknown`, with the ranks 4 to 0 in `STATUS_RANK`.
 - roll-up: the highest-ranked status of a tab or a workspace. The model uses the herdr `agent_status`, and calls `rollup()` only when herdr sends none.
 - focus: the herdr focus in `office.focus` (`workspaceId`, `tabId`, `paneId`) and `desk.focused`. The blue `spot` light marks the focused desk, and "Focus in herdr" sends `pane.focus`.
-- message: the text that the panel field (`#say`, `#msg`) sends to an agent. The page posts it as `type: 'prompt'`, and the bridge sends it as `agent.prompt`.
+- message: one entry of an agent conversation: a user prompt, an agent reply, or a subagent message (a message from another agent, with `from`). The panel fields (`#say`, `#msg`, `#reply`, `#replyMsg`) send a user message as `type: 'prompt'`, and the bridge sends it as `agent.prompt`. `GET /messages` gives the messages of one claude pane.
 
 ## docs/herdr-agent-model.md
 

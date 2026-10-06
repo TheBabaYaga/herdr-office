@@ -654,11 +654,77 @@ let selected = null, target = null // target: the pane the focus button focuses
 function open(id) {
   selected = id
   $('result').textContent = ''
+  $('chatResult').textContent = ''
   $('msg').value = '' // a half-typed message never goes to another desk
+  $('replyMsg').value = ''
+  $('chat').close()
+  clearInterval(timer)
+  timer = null
+  msgs = []
+  msgKey = ''
   $('panel').hidden = false
   fill()
+  renderMessages()
+  if (!DEMO) { // loadMessages() skips a desk that is not claude
+    loadMessages()
+    timer = setInterval(loadMessages, 2000) // one timer: open() clears the old one
+  }
 }
-const close = () => { $('panel').hidden = true }
+const close = () => {
+  clearInterval(timer)
+  timer = null
+  $('chat').close()
+  $('panel').hidden = true
+}
+
+// ---- last reply and the chat window: the messages come from GET /messages (transcript text: untrusted, textContent only) ----
+let timer = null, msgs = [], msgKey = ''
+const isClaude = () => office.desks.find((x) => x.id === selected)?.agent?.kind === 'claude'
+const atBottom = (e) => e.scrollHeight - e.scrollTop - e.clientHeight < 8
+function renderMessages(err) {
+  const d = office.desks.find((x) => x.id === selected)
+  const last = DEMO ? 'no messages in the demo' : err ?? msgs.findLast((m) => m.role === 'agent')?.text ?? '...'
+  if ($('lastText').textContent !== last) $('lastText').textContent = last // a write only on a change
+  const key = JSON.stringify(msgs)
+  if (key === msgKey) return
+  msgKey = key
+  const log = $('chatLog'), stick = atBottom(log)
+  const name = d?.agent ? who(d) : 'agent'
+  log.replaceChildren(...msgs.map((m) => {
+    const e = document.createElement('div')
+    e.className = `msg ${m.role}`
+    e.append(el('div', m.role === 'user' ? 'you' : m.role === 'subagent' ? `subagent · ${m.from}` : name), el('div', m.text))
+    e.firstChild.className = 'role'
+    e.lastChild.className = 'body'
+    return e
+  }))
+  if (stick) log.scrollTop = log.scrollHeight
+}
+async function loadMessages() {
+  const id = selected
+  if (DEMO || !isClaude()) return
+  let list, err
+  try {
+    const r = await fetch(`/messages?pane=${encodeURIComponent(id)}`, { headers: { 'x-office-token': TOKEN } })
+    const j = await r.json()
+    if (r.ok) list = j.messages
+    else err = j.error
+  } catch (e) {
+    err = e.message
+  }
+  if (id !== selected || $('panel').hidden) return
+  if (!err) msgs = list // an error keeps the messages and the log, and shows the error only
+  renderMessages(err)
+}
+$('chatOpen').onclick = () => {
+  const d = office.desks.find((x) => x.id === selected)
+  $('chatWho').textContent = d?.agent ? who(d) : 'agent'
+  $('chat').showModal()
+  renderMessages()
+  $('chatLog').scrollTop = $('chatLog').scrollHeight
+  $('replyMsg').focus()
+}
+$('chatClose').onclick = () => $('chat').close()
 
 function fill() {
   const d = office.desks.find((x) => x.id === selected), s = office.subagents.find((x) => x.id === selected)
@@ -668,7 +734,10 @@ function fill() {
   $('focus').textContent = s ? 'Focus orchestrator' : 'Focus in herdr'
   $('focus').disabled = DEMO || !target
   $('say').hidden = !d?.agent // only an agent desk takes a message: never a subagent or a shell
-  for (const c of $('say').elements) c.disabled = DEMO
+  for (const c of [...$('say').elements, ...$('reply').elements]) c.disabled = DEMO
+  $('last').hidden = d?.agent?.kind !== 'claude' // only a claude desk has a transcript
+  if ($('last').hidden) $('chat').close() // the agent exited
+  if (DEMO) $('lastText').textContent = 'no messages in the demo'
   let rows
   if (s) {
     $('who').textContent = s.label ?? 'subagent'
@@ -685,20 +754,20 @@ function fill() {
 }
 
 $('close').onclick = close
-addEventListener('keydown', (e) => e.key === 'Escape' && close())
+addEventListener('keydown', (e) => e.key === 'Escape' && !$('chat').open && close()) // with the chat window open, Esc closes only the window
 // POST one action to the bridge and show the outcome. Returns true on success.
-async function act(body, done) {
-  $('result').textContent = '...'
+async function act(body, done, out = $('result')) {
+  out.textContent = '...'
   try {
     const r = await fetch('/action', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-office-token': TOKEN },
       body: JSON.stringify(body),
     })
-    $('result').textContent = r.ok ? done : `error: ${(await r.json()).error}`
+    out.textContent = r.ok ? done : `error: ${(await r.json()).error}`
     return r.ok
   } catch (e) {
-    $('result').textContent = `error: ${e.message}`
+    out.textContent = `error: ${e.message}`
     return false
   }
 }
@@ -708,6 +777,14 @@ $('say').onsubmit = async (e) => {
   const text = $('msg').value
   if (!text.trim()) return
   if (await act({ type: 'prompt', pane_id: target, text }, `ok: sent to ${target}`) && $('msg').value === text) $('msg').value = ''
+}
+
+$('reply').onsubmit = async (e) => {
+  e.preventDefault()
+  const text = $('replyMsg').value
+  if (!text.trim()) return
+  if (await act({ type: 'prompt', pane_id: target, text }, `ok: sent to ${target}`, $('chatResult')) && $('replyMsg').value === text) $('replyMsg').value = ''
+  loadMessages()
 }
 
 // Click (not drag) on a desk or a worker opens the panel. The desks are merged meshes, so test the ray against a box per desk

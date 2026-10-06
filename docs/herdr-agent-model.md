@@ -184,7 +184,7 @@ Herdr drops hook reports in some more cases:
 ### Extra detail that a visualizer can read
 
 - **AgentInfo:** the server returns it only for agent terminals. It has `agent`, `name`, `display_agent`, `title`, `terminal_title`, `terminal_title_stripped`, `state_labels`, `tokens`, `agent_session`, `screen_detection_skipped`, `launch_pending`, `interactive_ready`, `state_change_seq`, `focused`, `cwd`, `foreground_cwd` and `revision`.
-- **PaneInfo:** it does not have the four launch and detection fields. It has `label` and `scroll`.
+- **PaneInfo:** it does not have the four launch and detection fields. It has `label` and `scroll`. The herdr version in use also sends `agent_session` on each pane (`null` when unset).
 - The server leaves out null, false and empty fields. A missing `name` means that the agent has no name.
 - `terminal_title_stripped` removes one leading spinner glyph. For Claude, it gives the task title.
 - `title`, `display_agent`, `state_labels` (one label for each state) and `tokens` come from `pane.report_agent` and `pane.report_metadata`. They are display-only and have a maximum of 80 characters.
@@ -245,7 +245,7 @@ The live snapshot had 17 workspaces, 25 tabs, 48 panes, 25 layouts and 2 agents.
 |---|---|
 | workspace | `workspace_id, number, label, focused, pane_count, tab_count, active_tab_id, agent_status`, plus an optional `worktree` |
 | tab | `tab_id, workspace_id, number, label, focused, pane_count, agent_status` |
-| pane | `pane_id, terminal_id, workspace_id, tab_id, focused, cwd, foreground_cwd, label?, agent?, agent_status, terminal_title, terminal_title_stripped, scroll{offset_from_bottom, max_offset_from_bottom, viewport_rows}, revision` |
+| pane | `pane_id, terminal_id, workspace_id, tab_id, focused, cwd, foreground_cwd, label?, agent?, agent_status, terminal_title, terminal_title_stripped, agent_session, scroll{offset_from_bottom, max_offset_from_bottom, viewport_rows}, revision` |
 | agent | `pane_id, terminal_id, workspace_id, tab_id, agent, agent_status, focused, cwd, foreground_cwd, terminal_title, terminal_title_stripped, state_change_seq, revision`, plus the optional presentation fields |
 | layout | `workspace_id, tab_id, zoomed, focused_pane_id, area, panes[], splits[]` (see section 1) |
 

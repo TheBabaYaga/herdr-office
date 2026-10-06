@@ -42,6 +42,24 @@
   #close { position: absolute; top: 6px; right: 6px; }
   .warn { color: #f9e2af; font-size: 12px; }
   #say:not([hidden]) { display: flex; gap: 6px; }
+  #last:not([hidden]) { margin: 8px 0; }
+  #last small { color: #9399b2; display: block; }
+  #lastText { margin: 2px 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 11.2em; overflow: hidden; }
+  #chat { width: min(760px, calc(100% - 32px)); box-sizing: border-box; background: #1e1e2e; color: #cdd6f4; border: 1px solid #45475a; padding: 10px; }
+  #chat[open] { display: flex; flex-direction: column; gap: 8px; }
+  #chat::backdrop { background: #000000b0; }
+  #chatHead { display: flex; justify-content: space-between; align-items: center; }
+  #chatHead h2 { margin: 0; }
+  #chatLog { overflow: auto; max-height: 70vh; display: flex; flex-direction: column; gap: 8px; }
+  .msg { border-left: 3px solid var(--c); padding: 0 8px; }
+  .msg.user { --c: #89b4fa; }
+  .msg.agent { --c: #a6e3a1; }
+  .msg.subagent { --c: #cba6f7; }
+  .msg .role { color: #9399b2; font-size: 12px; }
+  .msg .body { white-space: pre-wrap; overflow-wrap: anywhere; }
+  #reply { display: flex; gap: 6px; }
+  #replyMsg { flex: 1; min-width: 0; background: #11111b; color: inherit; font: inherit; border: 1px solid #45475a; padding: 2px 4px; }
+  #chatResult { margin: 0; }
   #msg { flex: 1; min-width: 0; background: #11111b; color: inherit; font: inherit; border: 1px solid #45475a; padding: 2px 4px; }
 </style>
 </head>
@@ -61,7 +79,14 @@
   <p class="warn">Focus marks the whole tab as seen in herdr. Done desks in that tab turn idle.</p>
   <form id="say"><input id="msg" aria-label="Message to the agent" autocomplete="off" placeholder="message to the agent"> <button>Send</button></form>
   <p id="result"></p>
+  <div id="last" hidden><small>last reply</small><p id="lastText"></p><button id="chatOpen">Show all</button></div>
 </aside>
+<dialog id="chat">
+  <div id="chatHead"><h2 id="chatWho"></h2><button id="chatClose" aria-label="Close">x</button></div>
+  <div id="chatLog"></div>
+  <form id="reply"><input id="replyMsg" aria-label="Answer the agent" autocomplete="off" placeholder="answer the agent"> <button>Send</button></form>
+  <p id="chatResult"></p>
+</dialog>
 <script type="module" src="office.js"></script>
 </body>
 </html>

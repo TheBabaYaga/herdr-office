@@ -56,6 +56,7 @@ export function herdrRequest(sock, method, params = {}, timeoutMs = 3000) {
 // ---- Claude Code subagents, from the local transcript folder (~/.claude/projects) ----
 // Reads only folder listings, meta.json files, journal.jsonl, the first 32 KB of a session transcript (for its cwd)
 // and the last 32 KB of a plain subagent transcript (for its end marker). Sends no transcript text.
+// The one exception is readMessages(): the user prompts and agent replies of one pane, for GET /messages.
 const ls = (d) => readdir(d).catch(() => [])
 const readJson = (f) => readFile(f, 'utf8').then((t) => Object(JSON.parse(t))).catch(() => ({}))
 async function chunk(file, from, size = 32768) {
@@ -94,21 +95,26 @@ async function plainTail(file, now) {
   return /"stop_reason":"(end_turn|stop_sequence)"/.test(tail.slice(tail.lastIndexOf('\n') + 1)) ? null : tail
 }
 
+// The session id of the newest transcript in dir whose first cwd equals cwd, else null.
+// Claude Code names the folder after the cwd with every other character as '-'. That is lossy, so the cwd
+// in the transcript decides. ponytail: heuristic, one session per cwd: the transcript written last.
+// Long paths get a hashed folder name and are not found.
+async function newestIn(dir, cwd) {
+  // Regular files only: open() on a FIFO never returns.
+  const files = await Promise.all((await ls(dir)).filter((f) => f.endsWith('.jsonl')).map(async (f) => [f, await stat(path.join(dir, f)).then((x) => (x.isFile() ? x.mtimeMs : -1), () => -1)]))
+  for (const [f, t] of files.sort((a, b) => b[1] - a[1])) {
+    if (t >= 0 && (await cwdOf(path.join(dir, f))) === cwd) return f.slice(0, -6)
+  }
+  return null
+}
+
 // One entry per herdr claude cwd whose Claude session runs subagents: { sessionId, cwd, agents: [...] }.
 export async function readMeetings(projects, cwds, now = Date.now()) {
   const out = []
   for (const cwd of new Set(cwds)) {
     try { // a bad file or input (or a transcript deleted mid-read) drops only this cwd, for this read
-      // Claude Code names the folder after the cwd with every other character as '-'. That is lossy, so the cwd
-      // in the transcript decides. ponytail: heuristic, one session per cwd: the transcript written last.
-      // Long paths get a hashed folder name and are not found.
       const dir = path.join(projects, cwd.replace(/[^a-zA-Z0-9]/g, '-'))
-      // Regular files only: open() on a FIFO never returns.
-      const files = await Promise.all((await ls(dir)).filter((f) => f.endsWith('.jsonl')).map(async (f) => [f, await stat(path.join(dir, f)).then((x) => (x.isFile() ? x.mtimeMs : -1), () => -1)]))
-      let sessionId = null
-      for (const [f, t] of files.sort((a, b) => b[1] - a[1])) {
-        if (t >= 0 && (await cwdOf(path.join(dir, f))) === cwd) { sessionId = f.slice(0, -6); break }
-      }
+      const sessionId = await newestIn(dir, cwd)
       if (!sessionId) continue
       const s = path.join(dir, sessionId), agents = []
       // Workflow agents: a started journal event with no result or failed event yet. A run with workflows/<runId>.json has ended.
@@ -146,11 +152,98 @@ export async function readMeetings(projects, cwds, now = Date.now()) {
   return out
 }
 
+// ---- Conversation messages, for GET /messages ----
+const WRAPPER = /^\s*<(task-notification|command-name|command-message|local-command-stdout|bash-input|bash-stdout)/
+const FROM_AGENT = /^\s*Another Claude session sent a message/
+const BLOCK = /<(teammate-message|agent-message|cross-session-message)\b([^>]*)>([\s\S]*?)<\/\1>/g
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const PANE = /^w[0-9A-Za-z]+:p[0-9A-Za-z]+$/
+const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.filter((b) => b?.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('\n') : '')
+
+// The text of one agent-to-agent block: a JSON body gives its first text field, a hand-back gives its report, else the body.
+const noHarness = (t) => t.trim().replace(/^\[harness:[^\n]*(\n\s*|$)/, '') // a leading harness line, and the empty line after it
+function blockText(body) {
+  body = body.trim()
+  let failed = '', text = body
+  const m = body.match(/^(?:\[harness:[^\n]*\n\s*)?\[Subagent hand-back\][\s\S]*?The report follows:[ \t]*$/m)
+  if (body.startsWith('{')) {
+    try {
+      const o = Object(JSON.parse(body))
+      if (typeof o.failureReason === 'string' && o.failureReason) failed = `failed: ${o.failureReason}`
+      text = ['result', 'summary', 'message', 'content'].map((k) => o[k]).find((v) => typeof v === 'string' && v.trim()) ?? ''
+    } catch {}
+  } else if (m) {
+    text = body.slice(m[0].length).split('\n').map((l) => l.replace(/^ {1,2}/, '')).join('\n')
+  }
+  return [failed, noHarness(text)].filter(Boolean).join('\n')
+}
+
+// JSONL text to [{ role: 'user' | 'agent' | 'subagent', text, from? }]. Drops thinking, tool calls, tool results, and wrapper texts.
+export function messagesIn(text) {
+  const out = []
+  for (const l of text.split('\n')) {
+    let e = null
+    try { e = JSON.parse(l) } catch { continue }
+    if (!e || e.isSidechain || e.isCompactSummary || (e.type !== 'user' && e.type !== 'assistant')) continue
+    // A meta entry drops, except a message that a peer agent sent.
+    if (e.isMeta && !(e.type === 'user' && e.origin?.kind === 'peer')) continue
+    const t = textOf(e.message?.content)
+    if (e.type === 'user' && FROM_AGENT.test(t)) {
+      for (const [, , attrs, body] of t.matchAll(BLOCK)) {
+        const a = Object.fromEntries([...attrs.matchAll(/([\w-]+)="([^"]*)"/g)].map((m) => [m[1], m[2]]))
+        const text = blockText(body)
+        if (text) out.push({ role: 'subagent', from: a.teammate_id ?? a['from-name'] ?? a.from ?? 'agent', text })
+      }
+      continue
+    }
+    if (!t || e.isMeta || (e.type === 'user' && WRAPPER.test(t))) continue
+    out.push({ role: e.type === 'user' ? 'user' : 'agent', text: t })
+  }
+  return out
+}
+
+// The last messages of the transcript of a snapshot pane, or null.
+export async function readMessages(projects, pane, limit = 100) {
+  if (pane?.agent !== 'claude') return null
+  try {
+    const cwd = pane.foreground_cwd || pane.cwd
+    const dir = path.join(projects, String(cwd).replace(/[^a-zA-Z0-9]/g, '-'))
+    const as = pane.agent_session
+    const isFile = async (f) => (await stat(f).catch(() => null))?.isFile()
+    let file = null
+    if (as?.kind === 'id' && UUID.test(as.value)) {
+      // A valid id that is not found gives null. Only a missing or bad id takes the newest-transcript fallback.
+      file = path.join(dir, `${as.value}.jsonl`)
+      if (!(await isFile(file))) {
+        file = null
+        for (const f of await ls(projects)) {
+          const g = path.join(projects, f, `${as.value}.jsonl`)
+          if (await isFile(g)) { file = g; break }
+        }
+      }
+    } else {
+      const id = await newestIn(dir, cwd)
+      if (id) file = path.join(dir, `${id}.jsonl`)
+    }
+    if (!file) return null
+    const size = (await stat(file)).size
+    // ponytail: only the last 512 KB is read. Older history is not shown.
+    // Read one byte before the window. When it is a newline, the first line of the window is whole and stays.
+    const from = Math.max(0, size - 524288)
+    let tail = await chunk(file, Math.max(0, from - 1), 524289)
+    if (from > 0) tail = tail.slice(tail.indexOf('\n') + 1)
+    return messagesIn(tail).slice(-limit)
+  } catch {
+    return null
+  }
+}
+
 export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypto.randomUUID(), claudeDir = null, meetMs = 2000, raise = null }) {
   publicDir = path.resolve(publicDir)
   const clients = new Set()
   let last = null // the last SSE payload; null while nobody listens
   let polling = false
+  let snap = null // the last good snapshot, for GET /messages
 
   const send = (msg) => {
     const s = JSON.stringify(msg)
@@ -166,6 +259,7 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
     while (clients.size) {
       try {
         const { snapshot } = await herdrRequest(sock, 'session.snapshot')
+        snap = snapshot
         if (claudeDir && Date.now() - readAt >= meetMs) {
           readAt = Date.now()
           const cwds = snapshot.agents.filter((a) => a.agent === 'claude').map((a) => a.foreground_cwd || a.cwd)
@@ -173,17 +267,19 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
         }
         send({ online: true, snapshot, meetings })
       } catch (e) {
+        snap = null
         send({ online: false, snapshot: null, error: e.message })
       }
       await sleep(pollMs)
     }
     polling = false
+    snap = null
     last = null
     readAt = 0
   }
 
   const json = (res, status, body) =>
-    res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body))
+    res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(body))
 
   // Reads at most 4 KB; returns null when the body is larger.
   const readBody = (req) => new Promise((resolve, reject) => {
@@ -195,23 +291,27 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
     req.on('error', reject)
   })
 
+  const tokenOk = (req) => {
+    const given = Buffer.from(String(req.headers['x-office-token'] ?? ''))
+    const want = Buffer.from(token)
+    return given.length === want.length && crypto.timingSafeEqual(given, want)
+  }
+
   const server = http.createServer((req, res) => handle(req, res).catch(() => res.destroy()))
 
   async function handle(req, res) {
     const { port } = server.address()
     if (req.headers.host !== `127.0.0.1:${port}` && req.headers.host !== `localhost:${port}`) return res.writeHead(403).end()
-    const { pathname } = new URL(req.url, 'http://h')
+    const url = new URL(req.url, 'http://h'), { pathname } = url
 
     if (req.method === 'POST' && pathname === '/action') {
-      const given = Buffer.from(String(req.headers['x-office-token'] ?? ''))
-      const want = Buffer.from(token)
-      if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) return json(res, 403, { error: 'bad token' })
+      if (!tokenOk(req)) return json(res, 403, { error: 'bad token' })
       const body = await readBody(req)
       if (body === null) return json(res, 413, { error: 'body over 4 KB' })
       let msg = null
       try { msg = JSON.parse(body) } catch {}
       const say = msg?.type === 'prompt' && typeof msg.text === 'string' && /\S/.test(msg.text)
-      if ((msg?.type !== 'focus' && !say) || typeof msg.pane_id !== 'string' || !/^w[0-9A-Za-z]+:p[0-9A-Za-z]+$/.test(msg.pane_id)) {
+      if ((msg?.type !== 'focus' && !say) || typeof msg.pane_id !== 'string' || !PANE.test(msg.pane_id)) {
         return json(res, 400, { error: 'expected {"type":"focus","pane_id":"w<id>:p<id>"} or {"type":"prompt","pane_id":"w<id>:p<id>","text":"..."}' })
       }
       try {
@@ -234,6 +334,18 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
       if (last) res.write(`data: ${last}\n\n`)
       if (!polling) poll()
       return
+    }
+
+    if (pathname === '/messages') {
+      if (!tokenOk(req)) return json(res, 403, { error: 'bad token' })
+      const id = url.searchParams.get('pane') ?? ''
+      if (!PANE.test(id)) return json(res, 400, { error: 'expected ?pane=w<id>:p<id>' })
+      if (!claudeDir) return json(res, 503, { error: 'no claude directory' })
+      if (!snap) return json(res, 503, { error: 'no snapshot yet' })
+      const pane = snap.panes?.find((p) => p.pane_id === id)
+      if (!pane) return json(res, 404, { error: 'no such pane' })
+      const messages = await readMessages(claudeDir, pane)
+      return messages ? json(res, 200, { messages }) : json(res, 404, { error: 'no transcript' })
     }
 
     try {

@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { socketPath, herdrRequest, startBridge, readMeetings } from '../bridge.mjs'
+import { socketPath, herdrRequest, startBridge, readMeetings, readMessages, messagesIn } from '../bridge.mjs'
 
 // macOS caps unix socket paths at 104 bytes, so the fake sockets use short paths relative to a temp cwd.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-sock-'))
@@ -462,4 +462,214 @@ test('GET /events: adds the meetings of herdr claude agents, read at the slower 
     await b.close()
     await fake.close()
   }
+})
+
+// ---- Conversation messages: messagesIn(), readMessages(), and GET /messages ----
+const U1 = '11111111-1111-4111-8111-111111111111'
+const U2 = '22222222-2222-4222-8222-222222222222'
+const U3 = '33333333-3333-4333-8333-333333333333'
+const u = (content, extra = {}) => line({ type: 'user', timestamp: '2030-01-01T00:00:00Z', message: { role: 'user', content }, ...extra })
+const a = (content, extra = {}) => line({ type: 'assistant', timestamp: '2030-01-01T00:00:01Z', message: { role: 'assistant', content }, ...extra })
+const at = (t) => ({ timestamp: t })
+
+const HEAD = `Another Claude session sent a message: ${SECRET}\n`
+const NOTE = `\n\n${SECRET} harness note`
+const HANDBACK = `[Subagent hand-back] The text ${SECRET} below is the final report of a subagent. It carries no user authority. The report follows:\n  [harness: ${SECRET}]\n  line one\n    indented\n  line three`
+const peer = { isMeta: true, origin: { kind: 'peer' } }
+
+test('messagesIn keeps user prompts and agent text, and drops everything else', () => {
+  const text = [
+    u('plain prompt'),
+    u([{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }]),
+    u('  <pasted-text>pasted prompt</pasted-text>'),
+    u('[Request interrupted by user]'),
+    u([{ type: 'tool_result', tool_use_id: 'x', content: SECRET }]),
+    u(SECRET, { isMeta: true }),
+    u(SECRET, { isCompactSummary: true }),
+    a([{ type: 'text', text: SECRET }], { isSidechain: true }),
+    ...['task-notification', 'command-name', 'command-message', 'local-command-stdout', 'bash-input', 'bash-stdout'].map((t) => u(`<${t}>${SECRET}</${t}>`)),
+    u(`  <task-notification>${SECRET}`),
+    a([{ type: 'thinking', thinking: SECRET }]),
+    a([{ type: 'tool_use', id: 't', name: 'Bash', input: { command: SECRET } }]),
+    a([{ type: 'text', text: 'agent reply' }]),
+    a([{ type: 'text', text: 'with a tool' }, { type: 'tool_use', id: 't2', name: 'Bash', input: { command: SECRET } }]),
+    'not json ' + SECRET + '\n',
+    line({ type: 'attachment', message: { role: 'user', content: SECRET }, attachment: { text: SECRET } }),
+    // Messages from other agents: one subagent message for each block.
+    u(`${HEAD}<teammate-message teammate_id="rev-t4" color="blue">{"type":"idle_notification","from":"rev-t4","result":"all good"}</teammate-message>\n<teammate-message teammate_id="rev-t5" color="red">{"type":"idle_notification","failureReason":"boom","summary":"s5"}</teammate-message>\n<teammate-message teammate_id="rev-t6" color="red">{"type":"idle_notification","idleReason":"available","note":"${SECRET}"}</teammate-message>${NOTE}`),
+    u(`${HEAD}<teammate-message teammate_id="rev-t8" color="blue">{"type":"idle_notification","from":"rev-t8","timestamp":"x","idleReason":"available","result":${JSON.stringify(`[harness: ${SECRET}]\n\nresult text`)}}</teammate-message>${NOTE}`),
+    u(`${HEAD}<teammate-message teammate_id="rev-t7" color="blue" summary="short">  plain words  </teammate-message>${NOTE}`),
+    u(`${HEAD}<agent-message from="chat-impl">${HANDBACK}</agent-message>${NOTE}`, peer),
+    u(`${HEAD}<agent-message from="chat-impl">[harness: ${SECRET}]\n${HANDBACK.replace('  [harness: ' + SECRET + ']\n', '')}</agent-message>${NOTE}`, peer),
+    u(`${HEAD}<agent-message from="chat-impl">plain hello</agent-message>${NOTE}`, peer),
+    u(`${HEAD}<agent-message from="chat-impl">[harness: ${SECRET}]\n\nafter harness</agent-message>${NOTE}`, peer),
+    u(`${HEAD}<cross-session-message from="s1" from-name="Bob" from-mode="x">cross text</cross-session-message><cross-session-message from="s2">no name</cross-session-message>${NOTE}`, peer),
+    u(`${HEAD}<teammate-message teammate_id="x">${SECRET}</teammate-message>`, { isMeta: true, origin: { kind: 'user' } }),
+    u(`<agent-message from="x">${SECRET}</agent-message>`, peer),
+    u(`${HEAD}<teammate-message teammate_id="e"> </teammate-message>${NOTE}`),
+    line({ type: 'user', message: { role: 'user', content: 'no time' } }),
+  ].join('')
+  const out = messagesIn(text)
+  assert.ok(!JSON.stringify(out).includes(SECRET))
+  assert.deepEqual(out, [
+    { role: 'user', text: 'plain prompt' },
+    { role: 'user', text: 'first\nsecond' },
+    { role: 'user', text: '  <pasted-text>pasted prompt</pasted-text>' },
+    { role: 'user', text: '[Request interrupted by user]' },
+    { role: 'agent', text: 'agent reply' },
+    { role: 'agent', text: 'with a tool' },
+    { role: 'subagent', from: 'rev-t4', text: 'all good' },
+    { role: 'subagent', from: 'rev-t5', text: 'failed: boom\ns5' },
+    { role: 'subagent', from: 'rev-t8', text: 'result text' },
+    { role: 'subagent', from: 'rev-t7', text: 'plain words' },
+    { role: 'subagent', from: 'chat-impl', text: 'line one\n  indented\nline three' },
+    { role: 'subagent', from: 'chat-impl', text: 'line one\n  indented\nline three' },
+    { role: 'subagent', from: 'chat-impl', text: 'plain hello' },
+    { role: 'subagent', from: 'chat-impl', text: 'after harness' },
+    { role: 'subagent', from: 'Bob', text: 'cross text' },
+    { role: 'subagent', from: 's2', text: 'no name' },
+    { role: 'user', text: 'no time' },
+  ])
+})
+
+const pane = (cwd, session_id, extra = {}) => ({ pane_id: 'w1:p1', agent: 'claude', cwd, foreground_cwd: cwd, agent_session: session_id === undefined ? null : { agent: 'claude', kind: 'id', source: 'herdr:claude', value: session_id }, ...extra })
+const chat = (...texts) => texts.map((t, i) => (i % 2 ? a([{ type: 'text', text: t }]) : u(t))).join('')
+// The cwd record comes first, as in a real transcript.
+const transcript = (cwd, id, body, folder = esc(cwd), ageS = 0) =>
+  write(path.join(projects, folder, `${id}.jsonl`), line({ type: 'user', cwd, isMeta: true, message: { role: 'user', content: SECRET } }) + body, ageS)
+const texts = (m) => m.map((x) => x.text)
+
+test('readMessages: finds the session by id in the cwd folder, then in any folder', async () => {
+  transcript('/m/one', U1, chat('q1', 'r1'), esc('/m/one'), 50)
+  transcript('/m/one', U2, chat('other', 'other')) // a newer sibling: the id lookup must not take it
+  assert.deepEqual(texts(await readMessages(projects, pane('/m/one', U1))), ['q1', 'r1'])
+  write(path.join(projects, 'elsewhere', `${U3}.jsonl`), chat('q3', 'r3'))
+  assert.deepEqual(texts(await readMessages(projects, pane('/m/moved', U3))), ['q3', 'r3'])
+})
+
+test('readMessages: a bad or missing session id falls back to the newest transcript of the cwd', async () => {
+  const cwd = '/m/fall'
+  transcript(cwd, U1, chat('old', 'old'), esc(cwd), 100)
+  transcript(cwd, U2, chat('new', 'new'))
+  transcript('/m/fall/other', U3, chat('alien', 'alien'), esc(cwd), 0) // same folder, other cwd: skipped
+  write(path.join(projects, 'secret.jsonl'), chat(SECRET, SECRET))
+  for (const id of ['../secret', '../x', 'not-a-uuid', null, undefined]) {
+    const out = await readMessages(projects, pane(cwd, id))
+    assert.deepEqual(texts(out), ['new', 'new'], String(id))
+  }
+  assert.deepEqual(texts(await readMessages(projects, { ...pane(cwd, U1), agent_session: { kind: 'path', value: U1 } })), ['new', 'new'])
+})
+
+test('readMessages: no transcript and a non-claude pane give null', async () => {
+  assert.equal(await readMessages(projects, pane('/m/none', '44444444-4444-4444-8444-444444444444')), null)
+  assert.equal(await readMessages(projects, pane('/m/none', null)), null)
+  transcript('/m/shell', U2, chat('q', 'r'))
+  assert.equal(await readMessages(projects, pane('/m/shell', U2, { agent: 'codex' })), null)
+  assert.equal(await readMessages(projects, pane('/m/shell', U2, { agent: undefined })), null)
+})
+
+test('readMessages: a transcript over 512 KB gives only the tail, with no partial first message', async () => {
+  const cwd = '/m/big'
+  const pad = 'x'.repeat(1000)
+  let body = ''
+  for (let i = 0; i < 700; i++) body += u(`m${i} ${pad}`)
+  transcript(cwd, U1, body)
+  const out = await readMessages(projects, pane(cwd, U1), 10000)
+  assert.ok(out.length > 100 && out.length < 700)
+  assert.equal(out.at(-1).text.slice(0, 5), 'm699 ')
+  const first = Number(out[0].text.match(/^m(\d+) /)[1])
+  assert.ok(first > 0)
+  assert.deepEqual(out.map((m) => m.text.slice(0, -pad.length - 1)), Array.from({ length: out.length }, (_, i) => `m${first + i}`))
+})
+
+test('readMessages: limit keeps the newest messages', async () => {
+  transcript('/m/lim', U1, chat('a', 'b', 'c', 'd'))
+  assert.deepEqual(texts(await readMessages(projects, pane('/m/lim', U1), 2)), ['c', 'd'])
+  assert.equal((await readMessages(projects, pane('/m/lim', U1))).length, 4)
+})
+
+test('GET /messages: guards, then the messages of a claude pane', async () => {
+  transcript('/src/a', U1, chat('hello', 'hi there'))
+  const snap = { ...SNAP, panes: [{ ...SNAP.panes[0], agent_session: { agent: 'claude', kind: 'id', source: 'herdr:claude', value: U1 } }, SNAP.panes[1]] }
+  const fake = await fakeHerdr((req) => (req.method === 'session.snapshot' ? { result: { type: 'session_snapshot', snapshot: snap } } : { result: { type: 'ok' } }))
+  const none = await fakeHerdr()
+  const noDir = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, pollMs: 20, token: 'tk', claudeDir: null })
+  const early = await startBridge({ sock: none.sock, port: 0, publicDir: pub, pollMs: 20, token: 'tk', claudeDir: projects })
+  const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, pollMs: 20, token: 'tk', claudeDir: projects })
+  const tok = { 'x-office-token': 'tk' }
+  const get = (port, q, h = tok) => request(port, 'GET', `/messages?pane=${q}`, h)
+  const es = sse(portOf(b)), esNoDir = sse(portOf(noDir))
+  try {
+    assert.equal((await get(portOf(early), 'w1:p1')).status, 503, 'no snapshot yet')
+    const first = await es.next()
+    await esNoDir.next()
+    assert.equal((await get(portOf(b), 'w1:p1', {})).status, 403)
+    assert.equal((await get(portOf(b), 'w1:p1', { 'x-office-token': 'wrong' })).status, 403)
+    assert.equal((await get(portOf(b), 'w1:p1', { 'x-office-token': 'tk', host: 'evil.test' })).status, 403)
+    for (const bad of ['', 'x', 'w1', 'w1:p1/../x', 'w1:p1%20x']) assert.equal((await get(portOf(b), bad)).status, 400, bad)
+    assert.equal((await get(portOf(noDir), 'w1:p1')).status, 503)
+    assert.equal((await get(portOf(b), 'w9:p9')).status, 404)
+    assert.equal((await get(portOf(b), 'w1:p2')).status, 404, 'a shell pane')
+    const ok = await get(portOf(b), 'w1:p1')
+    assert.equal(ok.status, 200)
+    assert.equal(ok.headers['cache-control'], 'no-store')
+    assert.deepEqual(JSON.parse(ok.body), { messages: [{ role: 'user', text: 'hello' }, { role: 'agent', text: 'hi there' }] })
+    assert.ok(!ok.body.includes(SECRET))
+    assert.ok(fake.lines.every((l) => JSON.parse(l).method === 'session.snapshot'), 'the route sends nothing to herdr')
+    assert.ok(!JSON.stringify(first).includes('hi there'), 'no transcript text in the stream')
+    assert.ok(!JSON.stringify(es.msgs).includes('hi there'))
+  } finally {
+    es.close()
+    esNoDir.close()
+    await Promise.all([b.close(), early.close(), noDir.close()])
+    await fake.close()
+    await none.close()
+  }
+})
+
+test('GET /messages: the snapshot goes away when herdr fails, then 503', async () => {
+  transcript('/src/a', U1, chat('hello', 'hi there'))
+  let calls = 0
+  const snap = { ...SNAP, panes: [{ ...SNAP.panes[0], agent_session: { agent: 'claude', kind: 'id', source: 'herdr:claude', value: U1 } }, SNAP.panes[1]] }
+  const fake = await fakeHerdr(() => (++calls === 1 ? { result: { type: 'session_snapshot', snapshot: snap } } : { error: { code: 'boom', message: 'down' } }))
+  const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, pollMs: 20, token: 'tk', claudeDir: projects })
+  const es = sse(portOf(b))
+  try {
+    assert.equal((await es.next()).online, true)
+    assert.equal((await es.next()).online, false)
+    assert.equal((await request(portOf(b), 'GET', '/messages?pane=w1:p1', { 'x-office-token': 'tk' })).status, 503)
+  } finally {
+    es.close()
+    await b.close()
+    await fake.close()
+  }
+})
+
+test('readMessages: a read error gives null, and the tail cut handles a line start and a multi-byte character', async () => {
+  const dirOf = (cwd) => path.join(projects, esc(cwd))
+  // An unreadable transcript (a directory with the file name) gives null.
+  const U4 = '55555555-5555-4555-8555-555555555555'
+  fs.mkdirSync(path.join(dirOf('/m/err'), `${U4}.jsonl`), { recursive: true })
+  assert.equal(await readMessages(projects, pane('/m/err', U4)), null)
+  // The fallback reads the start of each transcript for its cwd. A file that cannot be opened gives null, not a throw.
+  const locked = path.join(dirOf('/m/locked'), `${U4}.jsonl`)
+  write(locked, chat('q', 'r'))
+  fs.chmodSync(locked, 0)
+  try { assert.equal(await readMessages(projects, pane('/m/locked', null)), null) } finally { fs.chmodSync(locked, 0o644) }
+  // Lines of exactly 1024 bytes. The 512 KB window starts exactly at line 188, which is complete and stays.
+  const mk = (i) => { const base = Buffer.byteLength(u(`m${i} `)); return u(`m${i} ` + 'x'.repeat(1024 - base)) }
+  let body = ''
+  for (let i = 0; i < 700; i++) body += mk(i)
+  write(path.join(dirOf('/m/cut'), `${U2}.jsonl`), body)
+  const out = await readMessages(projects, pane('/m/cut', U2), 10000)
+  assert.equal(out.length, 512)
+  assert.equal(out[0].text.slice(0, 5), 'm188 ')
+  // The window starts inside the first character of a two-byte pair: the partial line goes, the next line stays.
+  const first = u('é'.repeat(600))
+  const k = Buffer.byteLength(first.slice(0, first.indexOf('é'))) + 1
+  const rest = 524288 + k - Buffer.byteLength(first)
+  write(path.join(dirOf('/m/mb'), `${U3}.jsonl`), first + u('x'.repeat(rest - Buffer.byteLength(u('')))))
+  const mb = await readMessages(projects, pane('/m/mb', U3))
+  assert.equal(mb.length, 1)
+  assert.equal(mb[0].text.length, rest - Buffer.byteLength(u('')))
 })
