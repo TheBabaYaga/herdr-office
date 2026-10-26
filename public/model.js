@@ -195,6 +195,20 @@ export function candleSpots(o) {
   return out
 }
 
+// One strike: the wait in seconds and one or two flashes. rand() draws: wait, count, len, then at and len of the second flash.
+export function lightningPlan(rand = Math.random) {
+  const wait = 20 + 40 * rand(), two = rand() < 0.5
+  const flashes = [{ at: 0, len: 0.08 + 0.04 * rand(), power: 1 }]
+  if (two) flashes.push({ at: 0.3 + 0.3 * rand(), len: 0.08 + 0.04 * rand(), power: 0.6 })
+  return { wait, flashes }
+}
+
+// The flash power s seconds after the strike start, or 0 between flashes.
+export function flash(plan, s) {
+  const f = plan.flashes.find(f => s >= f.at && s < f.at + f.len)
+  return f ? f.power : 0
+}
+
 // meetings: Claude Code sessions with running subagents, as the bridge sends them: [{ sessionId, cwd, agents: [...] }].
 // prev: the previous office, so a subagent keeps its seat.
 export function buildOffice(snap, meetings = [], prev = null) {

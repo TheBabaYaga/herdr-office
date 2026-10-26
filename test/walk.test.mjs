@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildOffice, candleSpots, demoSnapshot, demoMeetings, along, tripAt, breakPlan, route, hash, calm, opens, pathLen, stepBreak, endBreak, WALK, RUN, WAIT } from '../public/model.js'
+import { buildOffice, candleSpots, lightningPlan, flash, demoSnapshot, demoMeetings, along, tripAt, breakPlan, route, hash, calm, opens, pathLen, stepBreak, endBreak, WALK, RUN, WAIT } from '../public/model.js'
 
 // Synthetic snapshots. All values are made up.
 const AREA = { x: 10, y: 2, width: 100, height: 40 }
@@ -854,4 +854,35 @@ test('candleSpots: corridor candelabra stand clear of the edges, doors, junction
       if (party) for (const spot of party.spots) clear(d, spot, 'party')
     }
   }
+})
+
+// Lightning: fixed random numbers, then the sampled ranges, then the flash power by time.
+test('lightningPlan gives the wait and the flash count from the random numbers', () => {
+  const low = lightningPlan(() => 0), high = lightningPlan(() => 0.999)
+  assert.equal(low.wait, 20)
+  assert.equal(low.flashes.length, 2)
+  assert.ok(Math.abs(high.wait - 60) < 0.1, `wait ${high.wait}`)
+  assert.equal(high.flashes.length, 1)
+})
+
+test('lightningPlan stays in range over many plans', () => {
+  for (let i = 0; i < 10000; i++) {
+    const p = lightningPlan()
+    assert.ok(p.wait >= 20 && p.wait <= 60, `wait ${p.wait}`)
+    assert.ok(p.flashes.length === 1 || p.flashes.length === 2, `count ${p.flashes.length}`)
+    assert.equal(p.flashes[0].at, 0)
+    assert.equal(p.flashes[0].power, 1)
+    for (const f of p.flashes) assert.ok(f.len >= 0.08 && f.len <= 0.12, `len ${f.len}`)
+    if (p.flashes.length === 2) {
+      assert.ok(p.flashes[1].at >= 0.3 && p.flashes[1].at <= 0.6, `at ${p.flashes[1].at}`)
+      assert.equal(p.flashes[1].power, 0.6)
+    }
+  }
+})
+
+test('flash returns the power of the flash that holds the time', () => {
+  const plan = { wait: 30, flashes: [{ at: 0, len: 0.1, power: 1 }, { at: 0.4, len: 0.1, power: 0.6 }] }
+  for (const s of [0, 0.05]) assert.equal(flash(plan, s), 1, `s ${s}`)
+  assert.equal(flash(plan, 0.45), 0.6)
+  for (const s of [0.1, 0.2, 0.39, 0.5, -1]) assert.equal(flash(plan, s), 0, `s ${s}`)
 })
