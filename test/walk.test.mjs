@@ -824,9 +824,14 @@ test('the demo has two long-idle agents in different rooms: time for a trip, a t
 })
 
 test('candleSpots: corridor candelabra stand clear of the edges, doors, junction mouths, and every route', () => {
-  let cross = 0
   for (const [name, o] of offices) {
     const spots = candleSpots(o)
+    assert.ok(spots.some((s) => s.axis === 'z'), `${name}: a cross corridor spot`)
+    // Screen offset of the middle flame (x, 1.5, z) from a north door sign (door.x, 3, door.z + 0.4), camera along (1, 1, 1): right axis (1, 0, -1)/sqrt2, up axis (-1, 2, -1)/sqrt6.
+    for (const r of o.rooms.filter((r) => r.door.side === 'north')) for (const s of spots) {
+      const dx = s.x - r.door.x, dy = 1.5 - 3, dz = s.z - (r.door.z + 0.4), du = (dx - dz) / Math.SQRT2, dv = (-dx + 2 * dy - dz) / Math.sqrt(6)
+      assert.ok(Math.abs(du) >= 1.6 || Math.abs(dv) >= 0.4, `${name}: candles at (${s.x}, ${s.z}) hide behind the sign of ${r.id} (du ${du.toFixed(2)}, dv ${dv.toFixed(2)})`)
+    }
     assert.deepEqual(spots, candleSpots(o), `${name}: deterministic`)
     assert.ok(spots.length >= 1, `${name}: at least one spot`)
     const X = o.corridors.at(-1), bands = o.corridors.slice(0, -1)
@@ -835,7 +840,7 @@ test('candleSpots: corridor candelabra stand clear of the edges, doors, junction
       const c = home(s)
       assert.ok(c, `${name}: spot (${s.x}, ${s.z}) is 0.25 inside a corridor`)
       assert.equal(s.axis, c === X ? 'z' : 'x', `${name}: axis`)
-      if (c === X) { cross++; for (const b of bands) assert.ok(s.z < b.z - 0.4 || s.z > b.z + b.d + 0.4, `${name}: cross spot z ${s.z} in the mouth of a band corridor`) }
+      if (c === X) { for (const b of bands) assert.ok(s.z < b.z - 0.4 || s.z > b.z + b.d + 0.4, `${name}: cross spot z ${s.z} in the mouth of a band corridor`) }
       for (const r of o.rooms) assert.ok(Math.hypot(s.x - r.door.x, s.z - r.door.z) >= 1.2 - EPS, `${name}: spot (${s.x}, ${s.z}) near the door of ${r.id}`)
       for (const t of spots) if (t !== s && home(t) === c) assert.ok(Math.hypot(s.x - t.x, s.z - t.z) >= 3 - EPS, `${name}: spots apart`)
     }
@@ -849,5 +854,4 @@ test('candleSpots: corridor candelabra stand clear of the edges, doors, junction
       if (party) for (const spot of party.spots) clear(d, spot, 'party')
     }
   }
-  assert.ok(cross > 0, 'a cross corridor spot exists')
 })

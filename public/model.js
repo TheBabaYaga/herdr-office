@@ -183,7 +183,11 @@ export function candleSpots(o) {
     const cross = c === X, len = cross ? c.d : c.w
     for (let i = 0, t = 2; t <= len - 2; i++, t += 4) {
       const e = i % 2 ? 0.4 : (cross ? c.w : c.d) - 0.4, x = cross ? c.x + e : c.x + t, z = cross ? c.z + t : c.z + e
-      const doorNear = o.rooms.some(r => Math.abs(cross ? r.door.x - x : r.door.z - z) < 0.5 && Math.abs(cross ? r.door.z - z : r.door.x - x) < 1.3)
+      // The sign of a north door falls west of the door on the floor, seen from the camera. So it skips 3.0 west, on both edges.
+      const doorNear = o.rooms.some(r => {
+        const a = cross ? z - r.door.z : x - r.door.x, north = r.door.side === 'north' && !cross
+        return (north ? Math.abs(r.door.z - z) < 3 : Math.abs(cross ? r.door.x - x : r.door.z - z) < 0.5) && a < 1.3 && a > (north ? -3 : -1.3)
+      })
       const mouth = cross && bands.some(b => z >= b.z - 0.4 && z <= b.z + b.d + 0.4)
       if (!doorNear && !mouth) out.push({ x, z, axis: cross ? 'z' : 'x' })
     }
