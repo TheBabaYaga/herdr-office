@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, hash, season, route, along, calm, opens, stepBreak, endBreak } from './model.js'
+import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, lightningPlan, flash, hash, season, route, along, calm, opens, stepBreak, endBreak } from './model.js'
 import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, party, terrace, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
 
 const $ = (id) => document.getElementById(id)
@@ -275,7 +275,9 @@ function build(office, season) {
 // ---- Halloween night: dim cool light, iron candelabra with flickering flames and a fake glow (no three.js Light: it shines through walls) ----
 let flames = [] // { flame, halo, ph, y }
 let pools = [] // { mesh, ph }: a flat additive circle on the floor
+let dark = false // the night is on
 function night(on) {
+  dark = on
   ambient.color.set(on ? '#7f8fb8' : '#fff1dc'); ambient.groundColor.set(on ? '#2e2622' : '#7a6250'); ambient.intensity = on ? 1.1 : 2
   sun.color.set(on ? '#a9bce8' : '#ffdcae'); sun.intensity = on ? 0.8 : 2.4
   SKY.color.set(on ? '#1d2540' : '#a9d5ef'); SKY.emissive.set(on ? '#141c33' : '#55819e')
@@ -327,6 +329,17 @@ function candles(t) {
     f.halo.material.opacity = 0.25 + 0.2 * n
   }
   for (const p of pools) p.mesh.material.opacity = 0.22 + 0.12 * (0.5 + (wob(t * 0.8, p.ph) - 0.5) * amp)
+}
+const NIGHT_SKY = new THREE.Color('#141c33'), FLASH_SKY = new THREE.Color('#9fb4e0'), NIGHT_BG = new THREE.Color('#0b0d1a'), FLASH_BG = new THREE.Color('#2a3150')
+let strike = null // { start, plan }: the next strike or the one in progress
+function lightning(t) { // the sky flashes at a random time, at night only, never with reduce motion
+  if (!dark || CALM.matches) { strike = null; return }
+  strike ??= (() => { const plan = lightningPlan(); return { start: t + plan.wait, plan } })()
+  const p = flash(strike.plan, t - strike.start)
+  ambient.intensity = 1.1 + 1.2 * p
+  SKY.emissive.copy(NIGHT_SKY).lerp(FLASH_SKY, p)
+  scene.background.copy(NIGHT_BG).lerp(FLASH_BG, p)
+  if (t > strike.start + 1) strike = null
 }
 
 // Merge every static box into one mesh per material: tens of draw calls instead of thousands.
@@ -1095,6 +1108,7 @@ renderer.setAnimationLoop((ms) => {
   if (office) disco(t)
   if (office) rally(t)
   candles(t)
+  lightning(t)
   if (office) swing(t - last)
   last = t
   if (moving && t > nextPass) { seen = ''; nextPass = t + 0.25 } // a walking badge: a few passes a second
