@@ -333,7 +333,7 @@ function candles(t) {
 const NIGHT_SKY = new THREE.Color('#141c33'), FLASH_SKY = new THREE.Color('#9fb4e0'), NIGHT_BG = new THREE.Color('#0b0d1a'), FLASH_BG = new THREE.Color('#2a3150')
 let strike = null // { start, plan }: the next strike or the one in progress
 function lightning(t) { // the sky flashes at a random time, at night only, never with reduce motion
-  if (!dark || CALM.matches) { strike = null; return }
+  if (!dark || CALM.matches) { if (dark && strike) { ambient.intensity = 1.1; SKY.emissive.copy(NIGHT_SKY); scene.background.copy(NIGHT_BG) } strike = null; return }
   strike ??= (() => { const plan = lightningPlan(); return { start: t + plan.wait, plan } })()
   const p = flash(strike.plan, t - strike.start)
   ambient.intensity = 1.1 + 1.2 * p
@@ -1136,5 +1136,5 @@ if (DEMO) {
   es.onerror = () => { setOnline(false, 'offline — bridge not reachable'); es.onopen = () => location.reload() }
 }
 
-// The season can change at midnight, and the live stream may send nothing for a while. Check the date each minute (INTENT.md decision 4).
+// The season can change at midnight, and the live stream may send nothing for a while. Check the date each minute (INTENT.md decision 31).
 setInterval(() => office && update(office), 60e3)
