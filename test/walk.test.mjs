@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildOffice, demoSnapshot, demoMeetings, along, tripAt, breakPlan, route, hash, calm, opens, pathLen, stepBreak, endBreak, WALK, RUN, WAIT } from '../public/model.js'
+import { buildOffice, candleSpots, demoSnapshot, demoMeetings, along, tripAt, breakPlan, route, hash, calm, opens, pathLen, stepBreak, endBreak, WALK, RUN, WAIT } from '../public/model.js'
 
 // Synthetic snapshots. All values are made up.
 const AREA = { x: 10, y: 2, width: 100, height: 40 }
@@ -821,4 +821,33 @@ test('the demo has two long-idle agents in different rooms: time for a trip, a t
   for (const d of long) assert.ok(done.get(d.id) >= 1, `${d.id}: no full trip in ${N} s`)
   assert.ok(cut >= 1, 'a status change catches a worker on a trip')
   assert.ok(games.some(([a, b]) => long.some((d) => d.id === a) && long.some((d) => d.id === b)), 'the two long-idle agents play a game')
+})
+
+test('candleSpots: corridor candelabra stand clear of the edges, doors, junction mouths, and every route', () => {
+  let cross = 0
+  for (const [name, o] of offices) {
+    const spots = candleSpots(o)
+    assert.deepEqual(spots, candleSpots(o), `${name}: deterministic`)
+    assert.ok(spots.length >= 1, `${name}: at least one spot`)
+    const X = o.corridors.at(-1), bands = o.corridors.slice(0, -1)
+    const home = (s) => o.corridors.find(c => s.x >= c.x + 0.25 - EPS && s.x <= c.x + c.w - 0.25 + EPS && s.z >= c.z + 0.25 - EPS && s.z <= c.z + c.d - 0.25 + EPS)
+    for (const s of spots) {
+      const c = home(s)
+      assert.ok(c, `${name}: spot (${s.x}, ${s.z}) is 0.25 inside a corridor`)
+      assert.equal(s.axis, c === X ? 'z' : 'x', `${name}: axis`)
+      if (c === X) { cross++; for (const b of bands) assert.ok(s.z < b.z - 0.4 || s.z > b.z + b.d + 0.4, `${name}: cross spot z ${s.z} in the mouth of a band corridor`) }
+      for (const r of o.rooms) assert.ok(Math.hypot(s.x - r.door.x, s.z - r.door.z) >= 1.2 - EPS, `${name}: spot (${s.x}, ${s.z}) near the door of ${r.id}`)
+      for (const t of spots) if (t !== s && home(t) === c) assert.ok(Math.hypot(s.x - t.x, s.z - t.z) >= 3 - EPS, `${name}: spots apart`)
+    }
+    const kitchen = o.rooms.find(r => r.kind === 'kitchen'), party = o.rooms.find(r => r.kind === 'party')
+    const clear = (d, spot, to) => {
+      const path = route(o, d.id, spot, to), len = pathLen(path)
+      for (let s = 0; s <= len; s += 0.1) { const p = along(path, s); for (const c of spots) assert.ok(Math.hypot(p.x - c.x, p.z - c.z) >= 0.5 - EPS, `${name}: ${d.id} to ${to} passes (${p.x.toFixed(2)}, ${p.z.toFixed(2)}) near the candles at (${c.x}, ${c.z})`) }
+    }
+    for (const d of o.desks.filter(d => d.agent)) {
+      for (const spot of kitchen.spots) clear(d, spot, 'kitchen')
+      if (party) for (const spot of party.spots) clear(d, spot, 'party')
+    }
+  }
+  assert.ok(cross > 0, 'a cross corridor spot exists')
 })

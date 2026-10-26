@@ -176,6 +176,21 @@ export function route(o, deskId, spot, to = 'kitchen') {
   return out
 }
 
+// Corridor candelabra: a spot every 4 along each corridor, in turn on its two edges, 0.4 in. A spot near a door on its edge, or in a band corridor mouth, is dropped.
+export function candleSpots(o) {
+  const X = o.corridors.at(-1), bands = o.corridors.slice(0, -1), out = []
+  for (const c of o.corridors) {
+    const cross = c === X, len = cross ? c.d : c.w
+    for (let i = 0, t = 2; t <= len - 2; i++, t += 4) {
+      const e = i % 2 ? 0.4 : (cross ? c.w : c.d) - 0.4, x = cross ? c.x + e : c.x + t, z = cross ? c.z + t : c.z + e
+      const doorNear = o.rooms.some(r => Math.abs(cross ? r.door.x - x : r.door.z - z) < 0.5 && Math.abs(cross ? r.door.z - z : r.door.x - x) < 1.3)
+      const mouth = cross && bands.some(b => z >= b.z - 0.4 && z <= b.z + b.d + 0.4)
+      if (!doorNear && !mouth) out.push({ x, z, axis: cross ? 'z' : 'x' })
+    }
+  }
+  return out
+}
+
 // meetings: Claude Code sessions with running subagents, as the bridge sends them: [{ sessionId, cwd, agents: [...] }].
 // prev: the previous office, so a subagent keeps its seat.
 export function buildOffice(snap, meetings = [], prev = null) {
