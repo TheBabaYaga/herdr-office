@@ -187,7 +187,7 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 ### Frame loop and data source
 
-- Season: `update()` computes `se = SEASON ?? season(new Date())`, puts it last in `sig`, and calls `build(office, se)`. `?season=halloween` or `?season=winter` shows that season on any date. Another value, for example `?season=none`, shows no seasonal props. A `setInterval` of 60 s calls `update(office)`, because the live stream sends nothing while herdr does not change, and the date can change at midnight.
+- Season: `update()` computes `se = SEASON ?? season(new Date())`, puts it last in `sig`, and calls `build(office, se)` when `sig` changes. `?season=halloween` shows the Halloween props on any date. Another value, for example `?season=none` or `?season=winter`, shows none in this version. A `setInterval` of 60 s calls `update(office)`, because the live stream sends nothing while herdr does not change, and the date can change at midnight.
 - Demo (`?demo`): disables the focus button and the message field, and calls `update()` with `demoSnapshot()` and `demoMeetings()` at once and each 1000 ms.
 - Live: `es.onmessage` calls `setOnline()`, and `update()` only when `m.snapshot` is set. An offline message keeps the old scene, dimmed.
 - `es.onerror` sets `es.onopen` to `location.reload()`, so the page gets the new token of a restarted bridge. A herdr outage with a live bridge sends an offline message, and the page does not reload.
