@@ -2,8 +2,8 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, lightningPlan, flash, hash, season, route, along, calm, opens, stepBreak, endBreak } from './model.js'
-import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, party, terrace, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
+import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, lightningPlan, flash, snowflakes, flakeAt, hash, season, route, along, calm, opens, stepBreak, endBreak } from './model.js'
+import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, party, terrace, SNOW, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
 
 const $ = (id) => document.getElementById(id)
 const DEMO = new URLSearchParams(location.search).has('demo')
@@ -226,7 +226,7 @@ function build(office, season) {
   // no +x wall away from the cross corridor, and a south row draws no +z wall, so the terrace draws these. Two terraces back to back
   // share their edge with no wall: one courtyard. A first-row terrace gets a hedge on its north edge (below), and a last-row one keeps the stub.
   for (const t of office.terraces) {
-    floor(t, FLOOR.grass, C.grass)
+    floor(t, FLOOR.grass, season === 'winter' ? SNOW : C.grass)
     const g = new THREE.Group()
     g.position.set(t.x, 0, t.z)
     world.add(g)
@@ -245,6 +245,7 @@ function build(office, season) {
   if (open) {
     outer('x', 0, W, BW, [W, BW])
     run('x', 0, open.x + T / 2, W - T / 2, 0, 0.9, C.hedge, T + 0.06)
+    if (season === 'winter') run('x', 0, open.x + T / 2, W - T / 2, 0.9, 0.05, SNOW, T + 0.1) // snow on the hedge
   }
   stub('z', BW, 0, BD, [])
   const { x: ex } = office.entrance
@@ -262,6 +263,12 @@ function build(office, season) {
     live.add(b)
     return b
   })
+  // ponytail: one mesh for each flake, an InstancedMesh if the frame rate drops
+  flakes = season === 'winter' ? office.terraces.flatMap((t) => snowflakes(t).map((f) => {
+    const mesh = box(world, [0.06, 0.06, 0.06], [f.x, 0, f.z], '#ffffff')
+    live.add(mesh)
+    return { mesh, f }
+  })) : []
   if (season === 'halloween') for (const s of candleSpots(office)) candelabra(s.x, s.z, s.axis, 3.2)
   bake()
   // The sun shines in through the west windows. Its shadow box holds the whole building.
@@ -739,6 +746,7 @@ function disco(t) {
 // A crossing takes HIT s. It starts at the paddle of the hitter, flies over the net, bounces once on the half of the receiver, and rises
 // to its paddle. So each rally of two crossings bounces once on each half. The west player hits first, at begin. A paddle hit point is
 // 0.65 from the place toward the table, 0.32 to the right of the player, and 0.96 high: the blade at the right arm angle 1.5 (stroll()).
+let flakes = [] // one box for each flake of snowflakes(), in winter only. build() makes them.
 let balls = [] // table index -> the ball of a ping-pong table, or null for a chess table. build() makes them.
 const arc = (y0, y1, h, s) => y0 + (y1 - y0) * s + 4 * h * s * (1 - s) // from y0 to y1, h over the straight line at the middle
 function rally(t) {
@@ -753,6 +761,15 @@ function rally(t) {
     const y = f < fb ? arc(0.96, 0.805, 0.3, f / fb) : arc(0.805, 0.96, 0.15, (f - fb) / (1 - fb)) // 0.805: the ball center on the top (0.77)
     ball.position.set(a[0] + (b[0] - a[0]) * f, y, a[1] + (b[1] - a[1]) * f)
   })
+}
+
+// ---- the snow: each flake falls from its start height to the ground and starts again ----
+function snowfall(t) {
+  const s = CALM.matches ? t / 2 : t // reduce motion: half the speed
+  for (const { mesh, f } of flakes) {
+    const p = flakeAt(f, s)
+    mesh.position.set(p.x, p.y + 0.03, p.z) // p.y is the base, as box() places it
+  }
 }
 
 // ---- state looks, every frame from the latest status ----
@@ -1107,6 +1124,7 @@ renderer.setAnimationLoop((ms) => {
   for (const v of views.values()) if (v.desk) pose(v, t)
   if (office) disco(t)
   if (office) rally(t)
+  snowfall(t)
   candles(t)
   lightning(t)
   if (office) swing(t - last)
