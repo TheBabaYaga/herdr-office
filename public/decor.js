@@ -458,7 +458,7 @@ export function workspaceDecor(g, room, season) {
   ;[[(3 * w) / 4, E, 0], [w / 4, E, 0], [E, d / 2, 1]].some(([x, z, r]) => put(lounge, x, z, r)) // fits only a stretched room
   plants(put, corners(room), w * d > 100 ? 4 : 2)
   furnish(put, room, OFFICE) // a big room gets more, so it does not read as an empty hall
-  if (season === 'halloween') web(g, 0.15, 2.6, 0.17) // not through put(): it hangs on the wall, over the props
+  if (season === 'halloween') web(g, 0.19, 2.6, 0.17) // not through put(): it hangs on the wall, over the props. The wall face is at 0.15, the strand is 0.035 thick.
 }
 
 const counter = (L) => (g, x, z, rot) => {
