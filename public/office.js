@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, hash, season, route, along, calm, opens, stepBreak, endBreak } from './model.js'
+import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, hash, season, route, along, calm, opens, stepBreak, endBreak } from './model.js'
 import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, party, terrace, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
 
 const $ = (id) => document.getElementById(id)
@@ -175,7 +175,7 @@ function build(office, season) {
     world.traverse((o) => {
       o.element?.remove()
       if (o.geometry?.userData.merged) o.geometry.dispose()
-      if (o.material && !o.material.userData.shared) { o.material.map?.dispose(); o.material.dispose() }
+      if (o.material && !o.material.userData.shared) { if (!o.material.map?.userData.shared) o.material.map?.dispose(); o.material.dispose() }
     })
     scene.remove(world)
   }
@@ -183,6 +183,8 @@ function build(office, season) {
   scene.add(world)
   views.clear()
   live.clear()
+  night(season === 'halloween')
+  flames = []; pools = []
   const { w: BW, d: BD } = office.bounds, X = office.corridors.at(-1), W = X.x // X: the cross corridor
   box(world, [BW + 0.6, 0.4, BD + 0.6], [BW / 2, -0.5, BD / 2], C.slab)
   // Corridors: light wood, a runner down each one, a plant in each dead end. The runners meet in the cross corridor.
@@ -202,7 +204,8 @@ function build(office, season) {
     const g = new THREE.Group()
     g.position.set(r.x, 0, r.z)
     world.add(g)
-    DECOR[r.kind](g, r, season)
+    const spot = DECOR[r.kind](g, r, season) // Halloween: where the room wants its candelabra
+    if (spot) candelabra(spot.x, spot.z, 'x', 2.6)
     // Inner walls, each drawn once: the -x and -z edge of every room, the door wall of a north row, the wall to the cross corridor.
     if (r.x > 0) inner('z', r.x, r.z, r.z + r.d, [])
     if (r.z > 0) inner('x', r.z, r.x, r.x + r.w, r.door.side === 'north' ? [[r.door.x, DOOR]] : [])
@@ -259,6 +262,7 @@ function build(office, season) {
     live.add(b)
     return b
   })
+  for (const s of candleSpots(office)) candelabra(s.x, s.z, s.axis, 3.2)
   bake()
   // The sun shines in through the west windows. Its shadow box holds the whole building.
   const R = Math.hypot(BW, BD) / 2 + 2
@@ -266,6 +270,63 @@ function build(office, season) {
   sun.position.set(-4, 10, 5).setLength(2 * R).add(sun.target.position)
   Object.assign(sun.shadow.camera, { left: -R, right: R, top: R, bottom: -R, near: 1, far: 4 * R }).updateProjectionMatrix()
   world.traverse((o) => { if (o.isMesh) { o.castShadow = o.material !== GLASS && o.material !== SKY && o.material.depthWrite; o.receiveShadow = true } }) // depthWrite false: a light beam or a halo, no shadow
+}
+
+// ---- Halloween night: dim cool light, iron candelabra with flickering flames and a fake glow (no three.js Light: it shines through walls) ----
+let flames = [] // { flame, halo, ph, y }
+let pools = [] // { mesh, ph }: a flat additive circle on the floor
+function night(on) {
+  ambient.color.set(on ? '#7f8fb8' : '#fff1dc'); ambient.groundColor.set(on ? '#2e2622' : '#7a6250'); ambient.intensity = on ? 1.1 : 2
+  sun.color.set(on ? '#a9bce8' : '#ffdcae'); sun.intensity = on ? 0.8 : 2.4
+  SKY.color.set(on ? '#1d2540' : '#a9d5ef'); SKY.emissive.set(on ? '#141c33' : '#55819e')
+  scene.background.set(on ? '#0b0d1a' : '#181825')
+}
+const blob = (() => { // one soft round gradient for all halos and pools: build() never disposes it
+  const c = document.createElement('canvas'); c.width = c.height = 64
+  const x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32)
+  g.addColorStop(0, '#fff'); g.addColorStop(1, '#000'); x.fillStyle = g; x.fillRect(0, 0, 64, 64)
+  return Object.assign(new THREE.CanvasTexture(c), { userData: { shared: true } })
+})()
+const poolGeo = new THREE.PlaneGeometry(1, 1) // one for all pools: build() never disposes it
+const glowMat = (color, opacity) => new THREE.MeshBasicMaterial({ map: blob, color, blending: THREE.AdditiveBlending, transparent: true, opacity, depthWrite: false })
+function pool(x, z, size) {
+  const mesh = new THREE.Mesh(poolGeo, glowMat('#ff8a30', 0.3))
+  mesh.scale.set(size, size, 1)
+  mesh.rotation.x = -Math.PI / 2
+  mesh.position.set(x, 0.04, z)
+  world.add(mesh); live.add(mesh)
+  pools.push({ mesh, ph: hash(`${x},${z}`, 1e9) / 1e9 * 6.28 })
+}
+function candle(x, y, z, h) { // y: the base of the candle
+  box(world, [0.07, h, 0.07], [x, y, z], CREAM)
+  const flame = box(world, [0.05, 0.11, 0.05], [x, y + h, z], fresh('#ff8a30'))
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: blob, color: '#ff9a40', blending: THREE.AdditiveBlending, transparent: true, opacity: 0.35, depthWrite: false })) // depth test on: a wall header hides the halo with its flame
+  halo.scale.set(0.9, 0.9, 1)
+  halo.position.set(x, y + h + 0.08, z)
+  world.add(halo); live.add(flame); live.add(halo)
+  flames.push({ flame, halo, ph: hash(`${x},${y},${z}`, 1e9) / 1e9 * 6.28, y: y + h })
+}
+const IRON = '#2b2a2e'
+function candelabra(x, z, axis, poolSize) { // three candles on a bar along axis
+  box(world, [0.3, 0.06, 0.3], [x, 0, z], IRON)
+  box(world, [0.06, 1.2, 0.06], [x, 0.06, z], IRON)
+  box(world, axis === 'x' ? [0.6, 0.04, 0.06] : [0.06, 0.04, 0.6], [x, 1.22, z], IRON)
+  for (const k of [-0.25, 0, 0.25]) candle(axis === 'x' ? x + k : x, 1.26, axis === 'x' ? z : z + k, 0.16)
+  pool(x, z, poolSize)
+}
+const CALM = matchMedia('(prefers-reduced-motion: reduce)')
+const mix = new THREE.Color(), HOT = new THREE.Color('#ff6a1a'), WARM = new THREE.Color('#ffae42')
+const wob = (t, ph) => (Math.sin(t * 7 + ph) + 0.6 * Math.sin(t * 11.3 + ph * 1.7) + 0.4 * Math.sin(t * 17.1 + ph * 2.3)) / 4 + 0.5 // 0..1
+function candles(t) {
+  const amp = CALM.matches ? 0.5 : 1 // reduce motion: half the flicker
+  for (const f of flames) {
+    const n = 0.5 + (wob(t, f.ph) - 0.5) * amp, h = 0.8 + 0.45 * n
+    f.flame.material.color.copy(mix.copy(HOT).lerp(WARM, n))
+    f.flame.scale.y = 0.11 * h
+    f.flame.position.y = f.y + f.flame.scale.y / 2
+    f.halo.material.opacity = 0.25 + 0.2 * n
+  }
+  for (const p of pools) p.mesh.material.opacity = 0.22 + 0.12 * (0.5 + (wob(t * 0.8, p.ph) - 0.5) * amp)
 }
 
 // Merge every static box into one mesh per material: tens of draw calls instead of thousands.
@@ -1033,6 +1094,7 @@ renderer.setAnimationLoop((ms) => {
   for (const v of views.values()) if (v.desk) pose(v, t)
   if (office) disco(t)
   if (office) rally(t)
+  candles(t)
   if (office) swing(t - last)
   last = t
   if (moving && t > nextPass) { seen = ''; nextPass = t + 0.25 } // a walking badge: a few passes a second
