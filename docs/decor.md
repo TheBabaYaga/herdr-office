@@ -133,7 +133,7 @@ Each function gets `(g, room, season)` with `g` at the room corner. The candidat
 
 ### Seasonal props
 
-`office.js` passes `season` (`'halloween'`, `'winter'`, or `null`, from `season()` in `model.js`) as the third argument of each `DECOR` function and of `terrace()`. With `null`, the decor is the normal one. Only `'halloween'` has props in this version. `meeting()` and `terrace()` ignore the season.
+`office.js` passes `season` (`'halloween'`, `'winter'`, or `null`, from `season()` in `model.js`) as the third argument of each `DECOR` function and of `terrace()`. With `null`, the decor is the normal one. Only `'halloween'` has props in this version. `terrace()` ignores the season. `meeting()` takes it for the candelabra only.
 
 - `pumpkin(g, x, z, rot, s = 1)`: a maker, like `plant()`. It is not exported. The body is 0.5 x 0.3 x 0.46, with two ribs, a stem, and a face on the +z side.
 - `bat(g, x, y, z)`: a body with ears and two white eyes, and stepped wings with a span of 1.0. It hangs on a string that reaches y 2.6.
@@ -144,6 +144,12 @@ Each function gets `(g, room, season)` with `g` at the room corner. The candidat
 - `workspaceDecor()`: a web in the north-west corner, on the north wall face. The pivot is at x 0.19, so the strands stay off the west wall face at x 0.15.
 
 The kitchen pumpkin, the bats, and the web are direct calls, not `put()` calls. `put()` tests a floor footprint. It refuses a pumpkin that stands on the counter, a bat over the dance floor (a keep rect), and a web that touches a wall.
+
+- `candleSpot(g, room, put)`: with Halloween, `workspaceDecor()`, `kitchen()`, `meeting()`, `party()`, and `lobby()` call it last and return its result: `{ x, z }` in world coords, or `null` when no spot is clear. Other seasons return `undefined`. `office.js` draws the candelabra there (`candelabra()`), so `decor.js` only measures.
+  - The candidates lie on a 0.5 grid, 0.6 or more from the walls. The camera-side corner (large `x / w + z / d`) comes first, then the larger x. A candidate must pass `put.fits` for a 0.6 square with a gap of 0.3. The chosen square goes into `put.taken`.
+  - The camera sees a flame when a ray in the direction (1, 1, 1) from it hits no box. The test casts the ray from three x offsets (-0.25, 0, 0.25) at two heights (1.47 and 1.53), the base and the top of the flames.
+  - The boxes: each mesh of the group, each pod grown by 0.3 (1.7 high), each lamp post (2.4 high), and the east and south inner-wall header slabs (y 2.48 to 2.6, the east one reaches 0.7 past the corner, as the neighbor header does).
+  - No `Math.random()`. The same room gives the same spot.
 
 A season change needs a rebuild. `update()` in `office.js` puts the season in `sig`.
 
@@ -234,5 +240,5 @@ Do this after a change to `placer()`, `furnish()`, a pool, a prop size, `kitchen
 - `GLYPH` has only h, e, r, and d. Another letter makes `logo()` throw.
 - Keep the deck boards of `terrace()` at 0.05 high. The cafe table base of `parasol` is 0.04 high, and a board of the same height z-fights with it.
 - The hedge on the open north edge reaches 0.18 into a first-row terrace. The placer inset (`E - 0.01`, 0.19) keeps the props off it. A thicker hedge needs a `keep` rect.
-- Do not add a prop that glows or has a status color (the comment above `printer`). The one exception is the party room parts in `office.js` (`partyLights()`). They glow, in magenta, violet, and white only.
+- Do not add a prop that glows or has a status color (the comment above `printer`). The one exception is the party room parts in `office.js` (`partyLights()`). They glow, in magenta, violet, and white only. The other exception is the Halloween candle flames in `office.js` (`candle()`), which glow in orange only (`INTENT.md` decision 32).
 - A wrong look shows only in the browser (`docs/testing.md` "Visual check in the browser").

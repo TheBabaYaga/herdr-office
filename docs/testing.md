@@ -125,6 +125,13 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
 - The pick test of `breakPlan()` copies the `wait` and `stay` formula in `before()`. It fails when a new plan value takes the index 0 or 1.
 - The demo test runs `stepBreak()` for each agent desk of the demo, 10 frames a second for 700 s, with the seed `hash(d.terminalId, 1e9)` and the spots and tables of the demo office, as `public/office.js` will. It wants a full trip of each long-idle agent, a trip that a status change cuts short, and a game of `w2:p2` and `w3:p3`. In the current run, they play twice (from 214.8 s and from 367.1 s), and status changes cut 7 trips. It depends on the long-idle entries of `w2:p2` and `w3:p3` in `DEMO_PANES`, on `WALK`, on `breakPlan()` (also the indices of `pick` and `game`), and on the demo floor plan.
 
+### The Halloween night tests (in `test/walk.test.mjs`)
+
+- `candleSpots`: for every test floor plan (`offices`), it checks a cross corridor spot, the axis, the 0.25 inset inside a corridor, no spot in a band mouth, 1.2 from each door, 3 between spots on one corridor, determinism, and no door sign over a flame. The sign check projects the middle flame on the screen plane of the camera and needs a horizontal offset of 1.6 or a vertical offset of 0.4 from the sign of each north door. It also samples each route from each agent desk to each kitchen and party spot every 0.1, and checks 0.5 from each spot.
+- `lightningPlan`: fixed random numbers give the wait and the flash count. 10000 random plans stay in range (wait, count, lengths, the 0.3 to 0.6 gap, the powers).
+- `flash`: the power inside a flash, and 0 between flashes and before the start.
+- `candleSpot()` in `decor.js` has no Node test, because the module needs three.js. A scratch ray test in Node loads `decor.js` with three.js and checks, for each room of the test plans, that the ray from each flame misses each prop, pod, and lamp post. See `docs/decor.md` "Check placement in Node".
+
 ## Change recipes
 
 ### Add a bridge test with a fake socket
@@ -198,6 +205,7 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
 
 1. Start a check bridge in the background: `PORT=4848 npm start`.
 2. Open `http://127.0.0.1:4848/?demo`. From 24 October to 1 November, `?demo` shows the Halloween props. Open `?demo&season=none` for the normal decor, and `?demo&season=halloween` for the props on any date. The `?season` value `none` shows no seasonal props. The demo page opens no `/events` stream, and the focus button and the message field are disabled.
+2a. For the Halloween night, open `?demo&season=halloween`. Check the dim cool light, the candelabra in the corridors and in each room, and the flicker. A strike comes 20 to 60 s after load. Check with the emulated media feature `prefers-reduced-motion: reduce` that no strike shows and the flicker is weaker. For the switch back, set the page clock to 1 November 23:59:30 before load (override `Date`, with no `?season`), wait for the minute timer, and check that the normal light, background, and windows return at 2 November 00:00.
 3. For a party trip, watch `w2:p2` in the "web" room. It walks to the party room about 18 s after load and sits again about 51 s after load. Its second trip goes to the kitchen at about 100 s, and the status change at 110 s cuts it short.
 4. For a rush, watch `w3:p3` in the "docs" room. It turns `working` at tick 30, during the walk to its first lunch. A rush in the demo always shows `working`, never `blocked` or `done`.
 5. For a lunch, watch `w3:p3` again. It is idle again from tick 80. It walks to a kitchen chair about 97 s after load, sits there from about 144 s to 183 s, and sits at its desk again about 229 s after load.

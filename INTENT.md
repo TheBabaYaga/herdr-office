@@ -159,12 +159,21 @@ The user made these decisions between 2026-10-03 and 2026-10-20.
     - The panel of a codex desk now shows the last reply and the chat window, as for a claude desk. The bridge reads the Codex rollout files. `docs/idr/0001-codex-chat-from-rollout-files.md` records the technical choices.
     - The office without herdr (options C and D of the research) is not built.
 
+31. Halloween props, from issue TheBabaYaga/herdhouse#11 (Halloween props). The user saw them in screenshots and in the running office.
+    - From 24 October to 1 November (or `?season=halloween`): two pumpkins beside the reception, a small pumpkin on the kitchen counter, bats round the disco ball, and a web in each workspace room.
+32. The castle night, in the user's words: "an overall halloween vibe like in a castle", "make it more like a real candle light with some flickering", and "some sort of lightning flickering on the outside at a random interval like thunder". It shows only in the Halloween season.
+    - The light is dim and cool, and the windows are night-blue. Desks, workers, lamps, screens, and labels stay easy to read. The user chose cream walls over stone walls.
+    - Iron candelabra with three candles stand along the corridors and in each room. The flames flicker between deep orange and amber.
+    - Exception to decision 25 ("No prop glows"): the candle flames may glow, in orange only, with a soft halo and a warm pool on the floor. There is no three.js light, and no color near working yellow or blocked red.
+    - The lightning is the one flash in the office. A strike comes after 20 to 60 s, with one or two soft flashes. It has no sound (decision 6 cut sound).
+    - With "reduce motion" on, no lightning shows, and the flames flicker at half strength.
+
 ## Cut on purpose
 
 The user cut these with "ponytail ultra" (decision 6). Do not add them again without the user's approval.
 
 - Walk animations, except the idle breaks (decision 19). A worker does not walk to a new desk and does not walk to the meeting room. Nobody else walks. An orchestrator moves to the meeting room without a walk: its worker sits at the head of the meeting table.
-- Toasts and sound. The office has no desk phone and no bell.
+- Toasts and sound. The office has no desk phone and no bell. The lightning of the Halloween night is silent too (decision 32).
 - Zoom dimming. A zoomed herdr tab does not dim the other desks.
 - The herdr event subscription. The bridge polls `session.snapshot` every 500 ms instead. A status change can take up to 500 ms to show.
 - npm dependencies. three.js comes from a CDN importmap. The bridge uses only Node built-ins.
@@ -186,6 +195,10 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 
 ## Open items and known limits
 
+- The open questions of issue 11: more seasons, and the date ranges of the seasons. Winter has no props yet.
+- A floor pool of a candelabra can spill a little past a wall or the building edge.
+- A stack of halos can make a flame look a little more yellow than orange.
+- No Node test covers `night()`, `candles()`, `lightning()`, or `candleSpot()`, because Node cannot load three.js. Browser checks and a scratch ray test covered them.
 - No test covers the party lights, the speakers, or the dance, because Node cannot load three.js. A browser check in the demo and in the live office covered them.
 - The rooms in the party row and in a terrace row do not get wider, so they do not get the extra props of a wide room. In the demo, "docs" is 7.8 wide, not 19.5. The demo has no terrace: each of its other rows has less than 4 spare width.
 - Under a short pod next to a tall pod, only a lane 0.6 wide below each last-row desk is walk floor (decision 25). The props fit between these lanes. In a room with a north door, the row lane runs above the pods, and the floor under a short pod was never walk floor.

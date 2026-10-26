@@ -35,7 +35,7 @@
 | `selected`, `target`, `down` | the panel id, the pane id to focus or to message, the last pointerdown | `open()`, `fill()`, pointerdown | page |
 | `timer`, `msgs`, `msgKey` | the 2000 ms refresh timer, the messages of the open claude or codex desk, and their JSON | `open()`, `close()`, `loadMessages()`, `renderMessages()` | page |
 
-`COLOR` is `STATUS_COLOR` as `THREE.Color`. `GLASS`, `SKY`, and `glow` are marked by `shared()`. `haloGeo` is one plane for all halos.
+`COLOR` is `STATUS_COLOR` as `THREE.Color`. `GLASS`, `SKY`, and `glow` are marked by `shared()`. `haloGeo` is one plane for all halos. The Halloween night adds `flames`, `pools`, `dark`, `strike`, `CALM`, `blob`, and `poolGeo` (see "Halloween night"). `blob` and `poolGeo` live for the whole page.
 
 ## View shapes
 
@@ -79,14 +79,14 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 ### Build and bake
 
 - `build(office, season)`: runs only when `sig` changes. Order:
-  1. Dispose `v.tex` of each view, each geometry with `userData.merged`, and each material without `userData.shared` (with its `map`). Remove each label element from the DOM.
-  2. Make a new `world`, and clear `views` and `live`.
-  3. The corridors, then each room: the floor, `DECOR[r.kind](g, r, season)` in a group at the room corner, the inner walls (each wall once), `door(r)`, `partyLights(r)` for the party room, and the pod lamps.
+  1. Dispose `v.tex` of each view, each geometry with `userData.merged`, and each material without `userData.shared` (with its `map`, except a `map` with `userData.shared`, like `blob`). Remove each label element from the DOM.
+  2. Make a new `world`, clear `views` and `live`, call `night(season === 'halloween')`, and empty `flames` and `pools`.
+  3. The corridors, then each room: the floor, `DECOR[r.kind](g, r, season)` in a group at the room corner (with Halloween it returns the candelabra spot, and `build()` calls `candelabra(spot.x, spot.z, 'x', 2.6)`), the inner walls (each wall once), `door(r)`, `partyLights(r)` for the party room, and the pod lamps.
   4. Each terrace: the grass, `terrace(g, t, season)` in a group at the terrace corner, and its glass walls. A room draws no wall on its +x edge away from the cross corridor, and a south-row room draws none on its +z edge, so the terrace draws its walls itself:
      - the -x edge (the last room of the row) and the +x edge (the cross corridor), always.
      - the -z edge, when `z` is more than 0. A terrace in the row behind shares the span from the larger x of the two to `W`. That span gets no wall, so the two terraces make one courtyard.
      - the +z edge, only when the band corridor is in front. Else the rooms or the terrace of the next row draw it, or the south stub stands there.
-  5. The outer walls, then `desk()` for each desk and `attendee()` for each subagent, then `balls`: a hidden white ball (0.07, in `live`) for each ping-pong table of `office.games`.
+  5. With Halloween, `candelabra(s.x, s.z, s.axis, 3.2)` for each spot of `candleSpots(office)`. The outer walls, then `desk()` for each desk and `attendee()` for each subagent, then `balls`: a hidden white ball (0.07, in `live`) for each ping-pong table of `office.games`.
   6. `bake()`, the sun, and the shadow flags. A material with `depthWrite` false (the glass, a light beam, a halo) casts no shadow.
 - `bake()`: skips each object in `live` with its subtree. It merges the meshes of each material with 2 or more meshes into one mesh, and marks its geometry `userData.merged`.
 
@@ -115,6 +115,17 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 - `rally(t)`: runs once a frame after `disco()`. For each ball in `balls`, it reads the trips of the two places of its table through `claimed` and `trips`. The ball shows while both trips have `begin`, and `begin <= t < min(end)`. A rush ends the game of the partner, so the ball then hides. Crossing `k` counts from `begin` in steps of `HIT` (0.8 s), and an even `k` flies east. A crossing starts at the hit point of the hitter: 0.65 from its place toward the table, 0.32 to its right (`+z` for west, `-z` for east), and 0.96 high. That is the blade at the right arm angle 1.5. The ball moves in a straight line in x and z. It bounces 0.55 past the net, on the half of the receiver, at the ball center height 0.805 (the top is at 0.77). The first arc rises 0.3 over its chord and clears the net. The second arc rises 0.15 to the hit point of the receiver. So each rally of two crossings bounces once on each half. `arc(y0, y1, h, s)` gives the height.
 - `swing(dt)`: turns each door toward `OPEN` when `ajar` has its room id, else toward 0, at a speed set by `SWING`. It writes `doors` and `hinge.rotation.y`.
 - `opens()` in `model.js` gives the doors that one walker opens: its own room door and the door of its target room. See `docs/model.md` "Breaks".
+
+### Halloween night
+
+The night is on only with `season === 'halloween'`. Without it, `night(false)` sets the normal values, and `CLAUDE.md` "Scene conventions" lists both sets.
+
+- `night(on)`: sets `dark`, the ambient and sun colors and intensities, the `SKY` color and emissive, and the background. `build()` calls it each time, so the switch back to the normal season at 2 November 00:00 (a rebuild, because the season is in `sig`) restores every value.
+- `candle(x, y, z, h)`: a cream candle, an orange flame box (`fresh()` color), and an additive halo sprite. It adds the flame and the halo to `live` and an entry to `flames`.
+- `candelabra(x, z, axis, poolSize)`: an iron base, a post, a bar along `axis`, three candles, and a `pool()`. The corridor candelabra come from `candleSpots()` (pool 3.2). The room candelabra come from the spot that the `DECOR` function returns (pool 2.6).
+- `pool(x, z, size)`: a flat additive circle at y 0.04, in `live` and in `pools`. All pools share `poolGeo`, and all halos and pools share the texture `blob`. `glowMat()` makes the material of each, so the materials are not shared and `build()` disposes them. The shared `map` stays.
+- `candles(t)`: runs each frame. Each flame gets a height and a color between `#ff6a1a` and `#ffae42` from `wob(t, phase)` (the phase comes from the position), and the halo and the pool follow. With reduce motion (`CALM`), the flicker has half strength.
+- `lightning(t)`: runs each frame after `candles(t)`. At night, without reduce motion, it takes `lightningPlan()` into `strike` (the start is `t` plus the wait) and reads `flash(plan, t - start)`. It writes the ambient intensity (1.1 plus 1.2 times the power), the `SKY` emissive, and the background each frame, so the values return to the night values between flashes. It clears `strike` 1 s after the start. When `dark` is false or `CALM` matches, it writes nothing and clears `strike`.
 
 ### Party room
 
@@ -205,6 +216,7 @@ Two agents in one region need a split by function.
 | breaks | `breaks()`, `stroll()`, `rally()`, `arc()`, `balls`, `HIT`, `trips`, `claimed` | update, pose, `model.js`, `test/walk.test.mjs` |
 | doors | `swing()`, `doors`, `ajar`, `OPEN`, `SWING` | build (`door()`), pose, frame loop, `model.js`, `test/walk.test.mjs` |
 | party | `partyLights()`, `disco()`, `kick()`, `DISCO`, `BEAT`, `dancing` | build (the call after `door(r)`), breaks (`stroll()` sets `dancing`), frame loop, `decor.js` `party()` (the speaker rect) |
+| night | `night()`, `candle()`, `candelabra()`, `pool()`, `candles()`, `lightning()`, `flames`, `pools`, `dark`, `strike`, `CALM`, `blob`, `poolGeo`, `glowMat()` | build (the calls), frame loop, `decor.js` (`candleSpot()`), `model.js` |
 | pose | `pose()`, `ARM`, `moving` | screens, breaks, doors, frame loop |
 | declutter | `declutter()`, `tags`, `seen`, `nextPass` | update, frame loop |
 | update | `update()`, `family()`, `office`, `sig`, `laid` | all regions |

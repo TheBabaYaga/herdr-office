@@ -49,6 +49,16 @@ Each frame, `pose()` calls `breaks()` for each view with a worker. `breaks()` ca
 
 `season(date)` returns `'halloween'` from 24 October to 1 November, `'winter'` from 1 December to 6 January, else `null`. It reads the local month and day of the `Date` argument, so a test gives it `new Date(2026, 9, 24)` and not a UTC string. It reads no clock itself. `office.js` calls it with `new Date()`. `buildOffice()` does not use it, and the floor plan does not depend on the season. `test/model.test.mjs` pins the ranges.
 
+### candleSpots(o), lightningPlan(rand), flash(plan, s)
+
+- `candleSpots(o)`: the corridor candelabra, `[{ x, z, axis }]`. A spot lies every 4 along each corridor from 2, in turn on its two edges, 0.4 in. `axis` is `'z'` in the cross corridor, else `'x'`. It drops a spot:
+  - within 1.3 of a door center along the corridor, when the door is on the same edge (within 0.5 across),
+  - for a north door, from 3.0 west to 1.3 east of the door on both edges, so no door sign covers a candelabra,
+  - in the cross corridor, within 0.4 of a band corridor mouth.
+- `lightningPlan(rand = Math.random)`: draws the wait (20 to 60 s), whether a second flash comes (half of the plans), and the lengths. The first flash is at 0 with power 1 and a length of 0.08 to 0.12 s. The second is 0.3 to 0.6 s later with power 0.6. So two flashes are 0.3 s or more apart.
+- `flash(plan, s)`: the power of the flash that holds the time `s`, else 0.
+- Only `lightningPlan` may use `Math.random()`. `candleSpots` is deterministic. `office.js` runs both only with the Halloween night.
+
 ### Status
 
 `rollup(statuses)` returns the status with the highest `STATUS_RANK`. An empty list gives `'unknown'`. A string that is not in `STATUS_RANK` never wins. `buildOffice()` calls it only when herdr sends no `agent_status` for a tab or a workspace. `demoSnapshot()` calls it for each demo tab and workspace.
