@@ -24,6 +24,7 @@
 | `trips`, `claimed` | desk id -> `{ n, next, trip }`, and the spot key `'<kind>:<index>'` (kind: `kitchen`, `lunch` for a kitchen chair, `party`, or `game` for a place at a game table) -> desk id | `stepBreak()`, `endBreak()`, `update()` (clears on a `lay` change), `stroll()` (`trip.rot`) | page |
 | `doors` | room id -> the door angle now | `swing()` | page. A rebuild keeps it |
 | `balls` | table index in `office.games` -> the ball of a ping-pong table (in `live`), or `null` for a chess table | `build()` | one build |
+| `flakes` | each flake `{ mesh, f }`: a white box of 0.06 (in `live`) and its flake from `snowflakes()`. `[]` except in winter. `snowfall()` reads it | `build()` | one build |
 | `ajar`, `moving`, `dancing` | the room ids whose door a walker opens, whether a worker walked, and whether a worker danced, in this frame | frame loop resets, `pose()` sets (`dancing` through `stroll()`) | one frame |
 | `last` | the time of the last frame in seconds, 0 at first | frame loop | page |
 | `tags` | the label elements, highest priority first | `update()` | one update |
@@ -55,7 +56,7 @@ The face of a worker is on local -z. At a desk the camera sees its back and its 
 
 At start, the module makes the renderers, the scene, the camera, and the handlers, then starts the frame loop. The data source block at the end of the file makes the first `update()`.
 
-The update path, the frame order, and the click path are in `docs/README.md` "Data flow". `update()` is the only caller of `build()`. The frame loop is the only caller of `pose()`, `disco()`, `rally()`, `swing()`, `keepInView()`, and `declutter()`.
+The update path, the frame order, and the click path are in `docs/README.md` "Data flow". `update()` is the only caller of `build()`. The frame loop is the only caller of `pose()`, `disco()`, `rally()`, `snowfall()`, `swing()`, `keepInView()`, and `declutter()`.
 
 ## Functions
 
@@ -217,7 +218,7 @@ Two agents in one region need a split by function.
 | desk | `desk()`, `seatAt()`, `attendee()`, `deskChair` | worker, pose, picking (seat offset) |
 | worker | `worker()`, `shirt()`, `SHIRT` | pose, breaks, update, `test/walk.test.mjs` |
 | screens | `screenCtx()`, `typing()`, `browse()`, `rnd()`, `glow`, `haloGeo`, `IDLE`, `INK`, `PIC` | pose, build |
-| breaks | `breaks()`, `stroll()`, `rally()`, `arc()`, `balls`, `HIT`, `trips`, `claimed` | update, pose, `model.js`, `test/walk.test.mjs` |
+| breaks | `breaks()`, `stroll()`, `rally()`, `snowfall()`, `arc()`, `balls`, `flakes`, `HIT`, `trips`, `claimed` | update, pose, `model.js`, `test/walk.test.mjs` |
 | doors | `swing()`, `doors`, `ajar`, `OPEN`, `SWING` | build (`door()`), pose, frame loop, `model.js`, `test/walk.test.mjs` |
 | party | `partyLights()`, `disco()`, `kick()`, `DISCO`, `BEAT`, `dancing` | build (the call after `door(r)`), breaks (`stroll()` sets `dancing`), frame loop, `decor.js` `party()` (the speaker rect) |
 | night | `night()`, `candle()`, `candelabra()`, `pool()`, `candles()`, `lightning()`, `flames`, `pools`, `dark`, `strike`, `CALM`, `blob`, `poolGeo`, `glowMat()` | build (the calls), frame loop, `decor.js` (`candleSpot()`), `model.js` |
