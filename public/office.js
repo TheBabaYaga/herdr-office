@@ -262,7 +262,7 @@ function build(office, season) {
     live.add(b)
     return b
   })
-  for (const s of candleSpots(office)) candelabra(s.x, s.z, s.axis, 3.2)
+  if (season === 'halloween') for (const s of candleSpots(office)) candelabra(s.x, s.z, s.axis, 3.2)
   bake()
   // The sun shines in through the west windows. Its shadow box holds the whole building.
   const R = Math.hypot(BW, BD) / 2 + 2
