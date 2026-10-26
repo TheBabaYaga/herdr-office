@@ -304,6 +304,42 @@ function plants(put, spots, n) {
   for (const [x, z] of spots) if (n > 0 && put(bigPlant, x, z)) n--
 }
 
+// A pumpkin: an orange body, two darker ribs and a stem, and a face on the +z side. s scales it, as for plant().
+function pumpkin(g, x, z, rot = 0, s = 1) {
+  const o = at(g, x, z, rot), F = '#2b2a33'
+  o.scale.setScalar(s)
+  box(o, [0.5, 0.3, 0.46], [0, 0, 0], '#c8742f')
+  for (const a of [-1, 1]) box(o, [0.05, 0.3, 0.01], [a * 0.2, 0, 0.235], '#a95f26')
+  box(o, [0.08, 0.08, 0.08], [0, 0.3, 0], WOOD_D)
+  for (const a of [-1, 1]) box(o, [0.08, 0.08, 0.01], [a * 0.1, 0.17, 0.235], F)
+  box(o, [0.2, 0.06, 0.01], [0, 0.06, 0.235], F)
+}
+// A bat that hangs from a string: the body center is at y, the string reaches up to the wall height 2.6.
+function bat(g, x, y, z) {
+  box(g, [0.12, 0.1, 0.08], [x, y - 0.05, z], '#2b2a33')
+  for (const a of [-1, 1]) box(g, [0.2, 0.03, 0.1], [x + a * 0.16, y - 0.02, z], '#2b2a33')
+  box(g, [0.02, 2.6 - (y + 0.05), 0.02], [x, y + 0.05, z], '#2b2a33')
+}
+// A cobweb in a wall corner: 4 strands 0.6 long, 30 degrees apart, below the horizontal toward +x, and two chords between each pair.
+function web(g, x, y, z) {
+  const o = new THREE.Group(), C = '#e4e4ea'
+  o.position.set(x, y, z)
+  g.add(o)
+  for (let k = 0; k < 4; k++) {
+    const a = (k * Math.PI) / 6, s = at(o, 0, 0)
+    s.position.y = 0
+    s.rotation.set(0, 0, -a)
+    box(s, [0.6, 0.035, 0.02], [0.3, -0.035, 0], C)
+    if (k < 3) for (const r of [0.25, 0.45]) {
+      const p = [a, a + Math.PI / 6].map((t) => [r * Math.cos(t), -r * Math.sin(t)]), v = [p[1][0] - p[0][0], p[1][1] - p[0][1]]
+      const c = at(o, 0, 0)
+      c.position.set((p[0][0] + p[1][0]) / 2, (p[0][1] + p[1][1]) / 2, 0)
+      c.rotation.z = Math.atan2(v[1], v[0])
+      box(c, [Math.hypot(...v) - 0.04, 0.035, 0.02], [0, -0.0175, 0], C)
+    }
+  }
+}
+
 // Places props on free floor only: inside the walls, clear of the pods (and their lamp posts), the 2 x 2 area
 // inside the door, the walk rects of the room (where idle workers walk), the keep-out rects, and what is placed already.
 // Room-local coords. Returns true when the prop fits. pad grows the prop for the test against what is taken, so a gap stays around it.
@@ -406,7 +442,7 @@ const lounge = (g, x, z, rot) => {
   coffeeTable(o, 0, 1.45)
 }
 
-export function workspaceDecor(g, room) {
+export function workspaceDecor(g, room, season) {
   const put = placer(g, room), n = room.number, { w, d } = room
   gameTables(g, room, put)
   room.pods.forEach((p, i) => {
@@ -422,6 +458,7 @@ export function workspaceDecor(g, room) {
   ;[[(3 * w) / 4, E, 0], [w / 4, E, 0], [E, d / 2, 1]].some(([x, z, r]) => put(lounge, x, z, r)) // fits only a stretched room
   plants(put, corners(room), w * d > 100 ? 4 : 2)
   furnish(put, room, OFFICE) // a big room gets more, so it does not read as an empty hall
+  if (season === 'halloween') web(g, 0.15, 2.6, 0.17) // not through put(): it hangs on the wall, over the props
 }
 
 const counter = (L) => (g, x, z, rot) => {
@@ -471,9 +508,15 @@ function gameTables(g, room, put) {
   }
 }
 
-export function kitchen(g, room) {
+export function kitchen(g, room, season) {
   const put = placer(g, room), { w, d } = room, { len: L } = room.counter // the model sets the counter, the spots and the walk rects
-  put(counter(L), room.counter.x - room.x, room.counter.z - room.z)
+  const cx = room.counter.x - room.x, cz = room.counter.z - room.z
+  put(counter(L), cx, cz)
+  if (season === 'halloween') { // on the counter top east of the sink, under the wall cabinets (y 1.6). Not through put(): it stands on a prop.
+    const o = at(g, cx + L / 2 - 0.16, cz + 0.42)
+    o.position.y = 0.94
+    pumpkin(o, 0, 0, 0, 0.55)
+  }
   // The lunch tables and chairs come from the model (room.tables, room.chairs, in world coords). A chair point is the body of a seated
   // worker and stands on a walk rect, so put() would refuse it. Draw each table with its chairs directly, and add their footprint to
   // put.taken, so the props after them keep clear. A chair stands as a desk chair does: 0.1 behind the body, the back away from the table.
@@ -528,7 +571,7 @@ const booth = prop([
 
 // The model sets the booth, the dance floor, the spots, and the walk rects. office.js builds the speakers beside the booth and the
 // moving lights, so the speaker floor (1.8 to each side of the booth center) and the dance floor stay free.
-export function party(g, room) {
+export function party(g, room, season) {
   const { w, d } = room, x = room.booth.x - room.x, z = room.booth.z - room.z, [x0, z0, x1, z1] = room.floor
   booth(g, x, z, room.booth.rot)
   const fz0 = z0 - room.z, fz1 = z1 - room.z
@@ -537,6 +580,10 @@ export function party(g, room) {
   ;[[E, fz0 / 2, 1], [w - E, fz0 / 2, 3], [E, (fz1 + d) / 2, 1], [w - E, (fz1 + d) / 2, 3]].some(([x, z, r]) => put(lounge, x, z, r)) // on a side wall, beside the floor
   plants(put, corners(room), 2)
   furnish(put, room, PARTY)
+  if (season === 'halloween') { // four bats round the disco ball, above the beams (they start at y 2.2). Not through put(): the keep rect covers the floor.
+    const fx = (x0 + x1) / 2 - room.x, fz = (z0 + z1) / 2 - room.z
+    ;[[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([a, b], i) => bat(g, fx + a, i % 2 ? 2.45 : 2.3, fz + b))
+  }
 }
 // A bar (wall prop): a back shelf with two rows of bottles, the counter, and three stools in front.
 const bar = (g, x, z, rot) => {
@@ -583,10 +630,11 @@ const waiting = (g, x, z, rot) => {
 }
 
 // The building entrance is in the middle of the lobby's south wall. The reception faces it.
-export function lobby(g, room) {
+export function lobby(g, room, season) {
   const { w, d } = room, put = placer(g, room, [w / 2 - 1, d - 2, w / 2 + 1, d])
   put(reception, w / 2 + 0.6, d - 3.2, 0)
   ;[d / 2 + 0.4, d / 2, d - 1.6].some((z) => put(waiting, E, z, 1))
+  if (season === 'halloween') for (const x of [w / 2 - 1.1, w / 2 + 2.3]) put(pumpkin, x, d - 3, 0)
   plants(put, corners(room), 2)
   furnish(put, room, LOBBY)
 }
