@@ -449,6 +449,31 @@ const lounge = (g, x, z, rot) => {
   coffeeTable(o, 0, 1.45)
 }
 
+// The spot of the room candelabra, in world coords, or null. The camera looks along (1, 1, 1), so a flame is seen when the ray
+// from it in that direction misses each mesh of the room, each pod (grown by 0.3, 1.7 high), and each lamp post (2.4 high).
+// Candidates lie on a 0.5 grid, 0.6 or more from the walls. The camera-side corner (large x / w + z / d) comes first.
+// Call it last: it measures what the room has. It does not draw the candelabra: office.js does.
+function candleSpot(g, room, put) {
+  const { w, d, pods = [] } = room
+  g.updateMatrixWorld(true)
+  const at0 = g.position.clone().negate(), box = (x0, y0, z0, x1, y1, z1) => new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1))
+  const boxes = []
+  g.traverse((o) => o.isMesh && boxes.push(new THREE.Box3().setFromObject(o).translate(at0)))
+  for (const p of pods) {
+    const x = p.x - room.x, z = p.z - room.z, lx = x + LAMP[0], lz = z + LAMP[1]
+    boxes.push(box(x - 0.3, 0, z - 0.3, x + p.w + 0.3, 1.7, z + p.d + 0.3), box(lx - 0.2, 0, lz - 0.2, lx + 0.2, 2.4, lz + 0.2))
+  }
+  const dir = new THREE.Vector3(1, 1, 1).normalize(), cands = []
+  for (let x = 0.6; x <= w - 0.6; x += 0.5) for (let z = 0.6; z <= d - 0.6; z += 0.5) cands.push([x, z])
+  cands.sort((a, b) => b[0] / w + b[1] / d - a[0] / w - a[1] / d || b[0] - a[0])
+  const spot = cands.find(([x, z]) => put.fits([x - 0.3, z - 0.3, x + 0.3, z + 0.3], 0.3) &&
+    [-0.25, 0, 0.25].every((f) => { const ray = new THREE.Ray(new THREE.Vector3(x + f, 1.47, z), dir); return !boxes.some((b) => ray.intersectsBox(b)) }))
+  if (!spot) return null
+  const [x, z] = spot
+  put.taken.push([x - 0.3, z - 0.3, x + 0.3, z + 0.3])
+  return { x: room.x + x, z: room.z + z }
+}
+
 export function workspaceDecor(g, room, season) {
   const put = placer(g, room), n = room.number, { w, d } = room
   gameTables(g, room, put)
@@ -466,6 +491,7 @@ export function workspaceDecor(g, room, season) {
   plants(put, corners(room), w * d > 100 ? 4 : 2)
   furnish(put, room, OFFICE) // a big room gets more, so it does not read as an empty hall
   if (season === 'halloween') web(g, 0.19, 2.6, 0.17) // not through put(): it hangs on the wall, over the props. The wall face is at 0.15, the strand is 0.035 thick.
+  if (season === 'halloween') return candleSpot(g, room, put)
 }
 
 const counter = (L) => (g, x, z, rot) => {
@@ -540,6 +566,7 @@ export function kitchen(g, room, season) {
   const [nw, , sw, se] = corners(room)
   plants(put, [sw, nw, se], 1)
   furnish(put, room, KITCHEN)
+  if (season === 'halloween') return candleSpot(g, room, put)
 }
 
 // The long table and a chair behind each seat, from the model: room.table and room.seats, in world coords.
@@ -555,7 +582,7 @@ const longTable = (room) => (g) => {
   }
 }
 
-export function meeting(g, room) {
+export function meeting(g, room, season) {
   const put = placer(g, room), { w } = room
   put(longTable(room))
   // The head of the table is at the west wall, so the whiteboard and the TV share the north wall, clear of a door there.
@@ -563,6 +590,7 @@ export function meeting(g, room) {
   put(tv, (3 * w) / 4, E)
   const [nw, ne, sw] = corners(room)
   plants(put, [ne, sw, nw], 2)
+  if (season === 'halloween') return candleSpot(g, room, put)
 }
 
 // A DJ booth: a desk 1.6 x 0.9 x 0.7 with two turntables and a mixer on top. The front faces +z. Plain colors only, so no part reads as a status.
@@ -591,6 +619,7 @@ export function party(g, room, season) {
     const fx = (x0 + x1) / 2 - room.x, fz = (z0 + z1) / 2 - room.z
     ;[[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([a, b], i) => bat(g, fx + a, i % 2 ? 2.45 : 2.3, fz + b))
   }
+  if (season === 'halloween') return candleSpot(g, room, put)
 }
 // A bar (wall prop): a back shelf with two rows of bottles, the counter, and three stools in front.
 const bar = (g, x, z, rot) => {
@@ -644,6 +673,7 @@ export function lobby(g, room, season) {
   if (season === 'halloween') for (const x of [w / 2 - 1.1, w / 2 + 2.3]) put(pumpkin, x, d - 3, 0)
   plants(put, corners(room), 2)
   furnish(put, room, LOBBY)
+  if (season === 'halloween') return candleSpot(g, room, put)
 }
 
 // ---- garden props for terrace(): plain colors, no status color, nothing glows ----
