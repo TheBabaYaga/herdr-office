@@ -64,6 +64,8 @@ follow -> goal glide -> zoom glide -> controls.update() -> keepInView() -> label
        stroll(), opens() -> ajar            the walk or the dance (sets dancing), and the doors to open: its own room and its target room
   -> disco(t)                               the party room parts, on only while a worker dances
   -> rally(t)                               the ping-pong balls, on only while both players of a table play
+  -> candles(t)                             the candle flicker (Halloween night)
+  -> lightning(t)                           the night flash, off with reduce motion
   -> swing(t - last)
   -> seen = '' while a worker walks, at most 4 times a second
   -> renderer.render() -> labels.render() -> declutter()

@@ -161,7 +161,7 @@ The user made these decisions between 2026-10-03 and 2026-10-20.
 
 31. Halloween props, from issue TheBabaYaga/herdhouse#11 (Halloween props). The user saw them in screenshots and in the running office.
     - From 24 October to 1 November (or `?season=halloween`): two pumpkins beside the reception, a small pumpkin on the kitchen counter, bats round the disco ball, and a web in each workspace room.
-32. The castle night, in the user's words: "an overall halloween vibe like in a castle", "make it more like a real candle light with some flickering", and "some sort of lightning flickering on the outside at a random interval like thunder". It shows only in the Halloween season.
+32. The castle night, in the user's words: "Just an overall halloween vibe like in a castle, maybe that could be done? The overall vibe should be like that", "make it more like a real candle light with some "flickering"", and "Maybe even some sort of lightning flckering on the outside at a random interval like thunder". It shows only in the Halloween season.
     - The light is dim and cool, and the windows are night-blue. Desks, workers, lamps, screens, and labels stay easy to read. The user chose cream walls over stone walls.
     - Iron candelabra with three candles stand along the corridors and in each room. The flames flicker between deep orange and amber.
     - Exception to decision 25 ("No prop glows"): the candle flames may glow, in orange only, with a soft halo and a warm pool on the floor. There is no three.js light, and no color near working yellow or blocked red.
