@@ -2,11 +2,12 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, hash, route, along, calm, opens, stepBreak, endBreak } from './model.js'
+import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, hash, season, route, along, calm, opens, stepBreak, endBreak } from './model.js'
 import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, party, terrace, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
 
 const $ = (id) => document.getElementById(id)
 const DEMO = new URLSearchParams(location.search).has('demo')
+const SEASON = new URLSearchParams(location.search).get('season') // halloween or winter shows that season on any date, another value shows none
 const TOKEN = document.querySelector('meta[name=office-token]').content
 // 3D only: herdr's cream working yellow reads pale on the cream walls, so screens, lamps and door lights use a strong yellow.
 const COLOR = Object.fromEntries(Object.entries({ ...STATUS_COLOR, working: '#ffd43b' }).map(([s, c]) => [s, new THREE.Color(c)]))
@@ -168,7 +169,7 @@ const live = new Set() // objects whose look changes in place: never merged
 const DECOR = { workspace: workspaceDecor, kitchen, meeting, lobby, party }
 const ROOM_FLOOR = { meeting: [FLOOR.planks, '#b98b5e'], kitchen: [FLOOR.checker, '#ffffff'], lobby: [FLOOR.stone, '#eee7dc'], party: [FLOOR.carpet, '#3f3a4a'] }
 
-function build(office) {
+function build(office, season) {
   if (world) {
     views.forEach((v) => v.tex?.dispose()) // typing textures: the screen map is null when the desk is not typing
     world.traverse((o) => {
@@ -201,7 +202,7 @@ function build(office) {
     const g = new THREE.Group()
     g.position.set(r.x, 0, r.z)
     world.add(g)
-    DECOR[r.kind](g, r)
+    DECOR[r.kind](g, r, season)
     // Inner walls, each drawn once: the -x and -z edge of every room, the door wall of a north row, the wall to the cross corridor.
     if (r.x > 0) inner('z', r.x, r.z, r.z + r.d, [])
     if (r.z > 0) inner('x', r.z, r.x, r.x + r.w, r.door.side === 'north' ? [[r.door.x, DOOR]] : [])
@@ -226,7 +227,7 @@ function build(office) {
     const g = new THREE.Group()
     g.position.set(t.x, 0, t.z)
     world.add(g)
-    terrace(g, t)
+    terrace(g, t, season)
     const back = office.terraces.find((u) => Math.abs(u.z + u.d - t.z) < 1e-6), x1 = back ? Math.max(t.x, back.x) : W // the wall behind ends where the courtyard starts
     inner('z', t.x, t.z, t.z + t.d, []) // the last room of the row
     inner('z', W, t.z, t.z + t.d, []) // the cross corridor
@@ -745,11 +746,12 @@ function update(next) {
     office.corridors.at(-1),
     office.desks.map((d) => [d.id, d.x, d.z, d.roomId, d.podId]),
   ])
-  const s = JSON.stringify([rooms, office.terraces, office.desks.map((d) => [d.id, d.x, d.z, d.agent ? d.agent.kind ?? '?' : 0, d.away]), office.subagents.map((s) => [s.id, s.x, s.z, s.rot, s.model])])
+  const se = SEASON ?? season(new Date())
+  const s = JSON.stringify([rooms, office.terraces, office.desks.map((d) => [d.id, d.x, d.z, d.agent ? d.agent.kind ?? '?' : 0, d.away]), office.subagents.map((s) => [s.id, s.x, s.z, s.rot, s.model]), se])
   if (lay !== laid) { trips.clear(); claimed.clear(); laid = lay } // a change of the routes ends every trip
   for (const d of office.desks) if (d.away || !d.agent) endBreak(trips, claimed, d.id, last) // the worker sits at the meeting table, or the agent quit: no worker, no trip. last: the frame time, so the game of a partner ends now
   if (s !== sig) {
-    build(office)
+    build(office, se)
     if (!sig) frame(office.rooms.find((r) => r.id === office.focus.workspaceId) ?? { x: 0, z: 0, w: office.bounds.w, d: office.bounds.d })
     sig = s
   }
@@ -1057,3 +1059,6 @@ if (DEMO) {
   // A restarted bridge has a new token. Reload when the stream comes back, so the page gets it.
   es.onerror = () => { setOnline(false, 'offline — bridge not reachable'); es.onopen = () => location.reload() }
 }
+
+// The season can change at midnight, and the live stream may send nothing for a while. Check the date each minute (INTENT.md decision 4).
+setInterval(() => office && update(office), 60e3)
