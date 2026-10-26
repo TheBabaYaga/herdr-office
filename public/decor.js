@@ -449,25 +449,28 @@ const lounge = (g, x, z, rot) => {
   coffeeTable(o, 0, 1.45)
 }
 
-// The spot of the room candelabra, in world coords, or null. The camera looks along (1, 1, 1), so a flame is seen when the ray
-// from it in that direction misses each mesh of the room, each pod (grown by 0.3, 1.7 high), and each lamp post (2.4 high).
+// The spot of the room candelabra, in world coords, or null. The camera looks along (1, 1, 1), so the camera sees a flame when the ray
+// from it in that direction misses each mesh of the room, each pod (grown by 0.3, 1.7 high), each lamp post (2.4 high), and the two
+// inner-wall headers (y 2.48 to 2.6) that office.js draws on the east and south wall lines. It casts the ray from the flame base and top.
 // Candidates lie on a 0.5 grid, 0.6 or more from the walls. The camera-side corner (large x / w + z / d) comes first.
 // Call it last: it measures what the room has. It does not draw the candelabra: office.js does.
 function candleSpot(g, room, put) {
   const { w, d, pods = [] } = room
   g.updateMatrixWorld(true)
-  const at0 = g.position.clone().negate(), box = (x0, y0, z0, x1, y1, z1) => new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1))
+  const at0 = g.position.clone().negate(), aabb = (x0, y0, z0, x1, y1, z1) => new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1))
   const boxes = []
   g.traverse((o) => o.isMesh && boxes.push(new THREE.Box3().setFromObject(o).translate(at0)))
   for (const p of pods) {
     const x = p.x - room.x, z = p.z - room.z, lx = x + LAMP[0], lz = z + LAMP[1]
-    boxes.push(box(x - 0.3, 0, z - 0.3, x + p.w + 0.3, 1.7, z + p.d + 0.3), box(lx - 0.2, 0, lz - 0.2, lx + 0.2, 2.4, lz + 0.2))
+    boxes.push(aabb(x - 0.3, 0, z - 0.3, x + p.w + 0.3, 1.7, z + p.d + 0.3), aabb(lx - 0.2, 0, lz - 0.2, lx + 0.2, 2.4, lz + 0.2))
   }
+  boxes.push(aabb(w - 0.15, 2.48, -0.15, w + 0.15, 2.6, d + 0.7), aabb(-0.15, 2.48, d - 0.15, w + 0.7, 2.6, d + 0.15)) // 0.7 past the corner: the neighbor header
   const dir = new THREE.Vector3(1, 1, 1).normalize(), cands = []
   for (let x = 0.6; x <= w - 0.6; x += 0.5) for (let z = 0.6; z <= d - 0.6; z += 0.5) cands.push([x, z])
-  cands.sort((a, b) => b[0] / w + b[1] / d - a[0] / w - a[1] / d || b[0] - a[0])
+  const score = ([x, z]) => Math.round((x / w + z / d) * 1e6)
+  cands.sort((a, b) => score(b) - score(a) || b[0] - a[0])
   const spot = cands.find(([x, z]) => put.fits([x - 0.3, z - 0.3, x + 0.3, z + 0.3], 0.3) &&
-    [-0.25, 0, 0.25].every((f) => { const ray = new THREE.Ray(new THREE.Vector3(x + f, 1.47, z), dir); return !boxes.some((b) => ray.intersectsBox(b)) }))
+    [-0.25, 0, 0.25].every((f) => [1.47, 1.53].every((y) => { const ray = new THREE.Ray(new THREE.Vector3(x + f, y, z), dir); return !boxes.some((b) => ray.intersectsBox(b)) })))
   if (!spot) return null
   const [x, z] = spot
   put.taken.push([x - 0.3, z - 0.3, x + 0.3, z + 0.3])
