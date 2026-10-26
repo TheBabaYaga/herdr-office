@@ -366,6 +366,13 @@ export const calm = (dd) => Math.min(1, Math.max(0, (dd - 1.4) / 0.6))
 export const opens = (o, d, a) => a.phase === 'stay' || a.room === d.roomId ? [] :
   o.rooms.filter((r) => (r.id === d.roomId || r.id === a.room) && Math.hypot(a.x - r.door.x, a.z - r.door.z) < 3).map((r) => r.id)
 export const hash = (s, m = 360) => [...(s ?? '')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % m, 0)
+// Halloween is 24 Oct to 1 Nov. Winter is 1 Dec to 6 Jan. The date is local.
+export function season(date) {
+  const md = 100 * (date.getMonth() + 1) + date.getDate()
+  if (md >= 1024 && md <= 1101) return 'halloween'
+  if (md >= 1201 || md <= 106) return 'winter'
+  return null
+}
 
 // The browse wait before trip n, the stay, and the lunch stay, in seconds, for one idle stretch. The first trip comes sooner.
 // pick: a number in [0, 1) that picks the first kind of trip n in stepBreak(). game: a number in [0, 1) that sets the game time of a

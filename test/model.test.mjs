@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { STATUS_RANK, STATUS_COLOR, rollup, buildOffice, demoSnapshot, demoMeetings } from '../public/model.js'
+import { STATUS_RANK, STATUS_COLOR, rollup, buildOffice, demoSnapshot, demoMeetings, season } from '../public/model.js'
 
 // Synthetic snapshot. All values are made up.
 const area = { x: 10, y: 2, width: 100, height: 40 }
@@ -693,4 +693,12 @@ test('a big room with no free place for a table gets none', () => {
   assertPlan(o, s)
   assert.ok(free(r) >= 80, `${free(r)} m² free`)
   assert.deepEqual(r.games, [])
+})
+
+test('season() gives halloween from 24 Oct to 1 Nov and winter from 1 Dec to 6 Jan, by the local date', () => {
+  const on = (m, d) => season(new Date(2026, m - 1, d))
+  assert.deepEqual(
+    [on(10, 23), on(10, 24), on(11, 1), on(11, 2), on(11, 30), on(12, 1), on(12, 31), on(1, 1), on(1, 6), on(1, 7)],
+    [null, 'halloween', 'halloween', null, null, 'winter', 'winter', 'winter', 'winter', null],
+  )
 })
