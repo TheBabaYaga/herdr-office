@@ -73,6 +73,7 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
 
 ### Fixtures and helpers
 
+- `season()` has one test, `season() gives halloween from 24 Oct to 1 Nov and winter from 1 Dec to 6 Jan, by the local date`. It builds each date with `new Date(year, month - 1, day)`, so the test does not depend on the time zone.
 - `rect()`, `layout()`, `pane()` (a shell pane with status `unknown`), and `agent()` build a snapshot.
 - `plan(spec)`: workspaces from a list of `[label, tabs]`, with one idle claude agent on each pane. A tab is its pane count: the panes stand side by side, or for a negative count, in one column. `plan([['api', [3]], ['web', [-6]]])` gives a row 16.2 deep, so api has 149 m² of free floor round its one pod row.
 - `synthetic()`: two workspaces out of number order, with a shell pane `logs` and a 2x2 split. `big()`: 18 workspaces, 26 tabs, and 49 panes. `garden()`: one wide workspace "api" (4 panes side by side) and four small ones. Its two middle rows get a terrace each, back to back, and its last row (3.6 spare width) stretches.
@@ -196,7 +197,7 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
 ## Visual check in the browser
 
 1. Start a check bridge in the background: `PORT=4848 npm start`.
-2. Open `http://127.0.0.1:4848/?demo`. The demo page opens no `/events` stream, and the focus button and the message field are disabled.
+2. Open `http://127.0.0.1:4848/?demo`. From 24 October to 1 November, `?demo` shows the Halloween props. Open `?demo&season=none` for the normal decor, and `?demo&season=halloween` for the props on any date. The `?season` value `none` shows no seasonal props. The demo page opens no `/events` stream, and the focus button and the message field are disabled.
 3. For a party trip, watch `w2:p2` in the "web" room. It walks to the party room about 18 s after load and sits again about 51 s after load. Its second trip goes to the kitchen at about 100 s, and the status change at 110 s cuts it short.
 4. For a rush, watch `w3:p3` in the "docs" room. It turns `working` at tick 30, during the walk to its first lunch. A rush in the demo always shows `working`, never `blocked` or `done`.
 5. For a lunch, watch `w3:p3` again. It is idle again from tick 80. It walks to a kitchen chair about 97 s after load, sits there from about 144 s to 183 s, and sits at its desk again about 229 s after load.

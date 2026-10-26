@@ -15,6 +15,7 @@ These docs describe the code of herdr-office, with one doc for each source area.
 | The floor plan, the room layout, and the terraces | `docs/model.md` "Pods and desks", "buildOffice(snap, meetings = [], prev = null)". `docs/office.md` "Floors and walls", "Build and bake" | `buildOffice()`, `podLayout()`, `spread()`, `build()`, `inner()`, `outer()`, `stub()` |
 | Kitchen and party trips, and routes | `docs/model.md` "Walk geometry", "route(o, deskId, spot, to = 'kitchen')", "Breaks". `docs/office.md` "Idle breaks" | `route()`, `walkRects()`, `stepBreak()`, `endBreak()`, `tripAt()`, `breakPlan()`, `along()`, `breaks()`, `stroll()` |
 | Doors | `docs/office.md` "Floors and walls" (`door()`), "Idle breaks" (`swing()`), the recipe for the door leaf. `docs/model.md` "Breaks" (`opens()`). `docs/testing.md` "Change when a door opens" | `door()`, `swing()`, `opens()`, `calm()` |
+| Seasonal decor | `docs/decor.md` "Seasonal props". `docs/model.md` "season(date)". `docs/office.md` "Frame loop and data source" (`SEASON`, the minute timer) | `season()`, `SEASON`, `pumpkin()`, `bat()`, `web()` |
 | Decor and props | `docs/decor.md` | `box()`, `placer()`, `workspaceDecor()`, `kitchen()`, `meeting()`, `lobby()`, `terrace()`, `plant()`, `clutter()` |
 | The bridge: poll, SSE, action, guards | `docs/bridge.md` "Flow", "`startBridge(options)`", "`GET /events` branch", "`GET /messages` branch", "`POST /action` branch" | `startBridge()`, `handle()`, `poll()`, `send()`, `herdrRequest()`, `socketPath()` |
 | Meetings and subagents | `docs/bridge.md` "`readMeetings(projects, cwds, now = Date.now())`", "Claude subagent helpers", "What may reach the browser". `docs/model.md` "buildOffice(snap, meetings = [], prev = null)" (the meeting rooms, the orchestrator, and the seats). `docs/office.md` "Desks, seats, and workers". `docs/decor.md` "Room decor" | `readMeetings()`, `cwdOf()`, `modelIn()`, `plainTail()`, `buildOffice()`, `attendee()`, `seatAt()`, `longTable()` |
@@ -143,7 +144,7 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - subagent: a Claude Code subagent that still runs, an entry of `office.subagents`. It sits at a meeting seat and always shows `working`.
 - away: `desk.away = { roomId, x, z, rot }`, the head seat of the orchestrator. The worker sits there, and the desk shows an empty chair.
 - view: an entry of `views` in `office.js`, by room, pod, desk, or subagent id. It holds the objects that show the state of that id.
-- build signature (`sig`): the JSON of the room, pod, desk, and subagent positions, with the agent kind, `away`, `rot`, `model`, and the terraces. `build()` runs only when it changes.
+- build signature (`sig`): the JSON of the room, pod, desk, and subagent positions, with the agent kind, `away`, `rot`, `model`, the terraces, and the season. `build()` runs only when it changes.
 - live: the `Set` of objects that `bake()` does not merge, because their look changes after the build.
 - tags: the label elements that `declutter()` checks, highest priority first. `update()` fills it.
 - bake: `bake()` merges the static meshes of a build into one mesh for each material.

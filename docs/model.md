@@ -45,6 +45,10 @@ Each frame, `pose()` calls `breaks()` for each view with a worker. `breaks()` ca
 
 ## Functions
 
+### season(date)
+
+`season(date)` returns `'halloween'` from 24 October to 1 November, `'winter'` from 1 December to 6 January, else `null`. It reads the local month and day of the `Date` argument, so a test gives it `new Date(2026, 9, 24)` and not a UTC string. It reads no clock itself. `office.js` calls it with `new Date()`. `buildOffice()` does not use it, and the floor plan does not depend on the season. `test/model.test.mjs` pins the ranges.
+
 ### Status
 
 `rollup(statuses)` returns the status with the highest `STATUS_RANK`. An empty list gives `'unknown'`. A string that is not in `STATUS_RANK` never wins. `buildOffice()` calls it only when herdr sends no `agent_status` for a tab or a workspace. `demoSnapshot()` calls it for each demo tab and workspace.

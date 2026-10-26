@@ -35,10 +35,10 @@ No state lives for a build or a frame. A decor call reads only its room, and its
 ```text
 office.js build()  (only when sig changes)
   plant() at each corridor corner        world coords, no placer()
-  each room: DECOR[r.kind](g, r)         g at (r.x, 0, r.z)
+  each room: DECOR[r.kind](g, r, season)  g at (r.x, 0, r.z)
              the fixed props by priority, then furnish(put, r, pool), not in meeting()
              then inner walls, door(r), partyLights(r) for the party room, the lamp posts at p + LAMP
-  each terrace: the grass, terrace(g, t)  g at (t.x, 0, t.z)
+  each terrace: the grass, terrace(g, t, season)  g at (t.x, 0, t.z)
              the deck, the fixed garden props, then furnish(put, t, TERRACE, GARDEN)
              then the glass walls, and the hedge on an open north edge
   desk(d): deskChair, clutter(g, hash(d.id, 1e6))
@@ -120,16 +120,32 @@ Each prop gets the gap `PAD` (0.3), so no two groups touch. Before it calls `put
 
 ### Room decor
 
-Each function gets `(g, room)` with `g` at the room corner. The candidates are in the code. `room.walk`, `counter`, `tables`, `chairs`, `table`, `seats`, `pods`, `booth`, and `floor` are in world coords, so subtract `room.x` and `room.z`.
+Each function gets `(g, room, season)` with `g` at the room corner. The candidates are in the code. `room.walk`, `counter`, `tables`, `chairs`, `table`, `seats`, `pods`, `booth`, and `floor` are in world coords, so subtract `room.x` and `room.z`.
 
 - `workspaceDecor()`: rugs (direct `box()` calls), a bookshelf, a board or a printer by `room.number`, the game tables of `room.games` (`gameTables()`), a lounge on the north or west wall if it fits, plants, then the fill pass with `OFFICE`.
 - `kitchen()`: the counter, the lunch tables, the fridge, the cooler, a plant, then the fill pass with `KITCHEN`. The model sets `room.tables` and `room.chairs`. Each chair point is the body of a seated worker on a walk rect, so `put()` would refuse it. `kitchen()` draws each `cafeTable` and its wooden `chair`s directly, and pushes the footprint of the table with its chairs into `put.taken`. The props after them keep clear. A chair stands as the desk chair does: 0.1 behind the body point, with its back away from the table.
 - `meeting()`: `longTable(room)`, a board and a TV on the north wall, plants. `longTable()` ignores `x`, `z`, and `rot`. It reads `room.table`, `room.seats`, and `room.session`.
 - `lobby()`: the reception facing the entrance, `waiting` (`logo()` and a lounge) on the west wall, plants, then the fill pass with `LOBBY`.
-- `terrace(g, t)`: a terrace is not a room. `office.js` draws its grass, its walls, and the hedge on an open north edge. `terrace()` draws a wood deck 1 in from each edge (boards 0.05 high along x on a base 0.03 high), so the grass shows round it. Then, by priority: a garden tree in each back corner, a parasol table in the middle, a lounger on each side of it, a bench between the trees, a pond, and a bush in each front corner (low, so the camera sees in). Then the fill pass with `TERRACE` and the strip round with `GARDEN`. The seed is `t.id`. A terrace with less than 37 m² of free floor after the fixed props gets no fill.
+- `terrace(g, t, season)`: a terrace is not a room. `office.js` draws its grass, its walls, and the hedge on an open north edge. `terrace()` draws a wood deck 1 in from each edge (boards 0.05 high along x on a base 0.03 high), so the grass shows round it. Then, by priority: a garden tree in each back corner, a parasol table in the middle, a lounger on each side of it, a bench between the trees, a pond, and a bush in each front corner (low, so the camera sees in). Then the fill pass with `TERRACE` and the strip round with `GARDEN`. The seed is `t.id`. A terrace with less than 37 m² of free floor after the fixed props gets no fill.
 - `party()`: the DJ booth at `room.booth` (a direct call, two turntables and a mixer on a dark desk), then the game tables of `room.games` (`gameTables()`), then a lounge on a side wall beside the dance floor if it fits, then plants. It keeps two rects free: the speaker floor (1.8 to each side of the booth center, 0.45 to the front and the back) and `room.floor`. `office.js` builds the speakers and the lights there, because they move. The lounge goes first, because a corner plant can block it. The fill pass with `PARTY` comes last.
 - `gameTables(g, room, put)` draws each table of `room.games` (world coords) directly, because a place is on a walk rect and `put()` would refuse it. It pushes the union of the measured box and the model footprint (half width 1.75 for ping-pong, 0.95 for chess, half depth 0.6) into `put.taken`, so the players stay clear, and the caller runs it first, so the props after it keep clear. A chess table lies along x (`chessTable(o, x, z, 1, false)`: no chairs of its own), with a `chair` 0.1 behind each place, so 0.72 from the center. A ping-pong table has rot 0, so its long side runs along x. `OFFICE` and `PARTY` have no `chessTable` and no `pingPong`: the model decides if a room has them.
 - The pools: `OFFICE` has 25 kinds (13 floor kinds), `PARTY` 14, `KITCHEN` 11, `LOBBY` 14, and `THIN` 7 for the strip round of each room. `TERRACE` has 7 floor kinds and no wall kind, and `GARDEN` 4 for the strip round of a terrace. `pot` can come twice in each pool. `beanBag` can come twice in `OFFICE` and `PARTY`, and once in `LOBBY`. `bar` and `drums` are only in `PARTY`, `magazines` only in `LOBBY`.
+
+### Seasonal props
+
+`office.js` passes `season` (`'halloween'`, `'winter'`, or `null`, from `season()` in `model.js`) as the third argument of each `DECOR` function and of `terrace()`. With `null`, the decor is the normal one. Only `'halloween'` has props in this version. `meeting()` and `terrace()` ignore the season.
+
+- `pumpkin(g, x, z, rot, s = 1)`: a maker, like `plant()`. It is not exported. The body is 0.5 x 0.3 x 0.46, with two ribs, a stem, and a face on the +z side.
+- `bat(g, x, y, z)`: a body with ears and two white eyes, and stepped wings with a span of 1.0. It hangs on a string that reaches y 2.6.
+- `web(g, x, y, z)`: 4 strands 0.6 long, 30 degrees apart, and two chords between each pair of strands.
+- `lobby()`: two pumpkins beside the reception, through `put()`, after `waiting` and before the plants and the fill pass.
+- `kitchen()`: a pumpkin (scale 0.55) on the east end of the counter top, at y 0.94.
+- `party()`: four bats round the axis of the disco ball, after the fill pass. Their heights go 2.3 and 2.45 in turn. The beams start at y 2.2.
+- `workspaceDecor()`: a web in the north-west corner, on the north wall face. The pivot is at x 0.19, so the strands stay off the west wall face at x 0.15.
+
+The kitchen pumpkin, the bats, and the web are direct calls, not `put()` calls. `put()` tests a floor footprint. It refuses a pumpkin that stands on the counter, a bat over the dance floor (a keep rect), and a web that touches a wall.
+
+A season change needs a rebuild. `update()` in `office.js` puts the season in `sig`.
 
 ### Desk clutter
 
@@ -150,7 +166,7 @@ Each function gets `(g, room)` with `g` at the room corner. The candidates are i
 
 1. Ask the user first. A new room needs a numbered decision in `INTENT.md`.
 2. Add the room in `buildOffice()`, before the lobby (`docs/model.md` "A new room kind").
-3. Add `export function <kind>(g, room)`. Use `room.w` and `room.d`, because the band plan stretches the room.
+3. Add `export function <kind>(g, room, season)`. Use `room.w` and `room.d`, because the band plan stretches the room.
 4. Add it to `DECOR` in `office.js`, or `build()` throws. Add a `ROOM_FLOOR` entry, or the room gets carpet.
 5. If workers cross the room, it needs walk rects, `opens()`, a route, and a place in `lay`.
 6. Update the room lists in `assertPlan()` and "buildOffice maps rooms, pods and desks". `CASES` in `test/walk.test.mjs` must still give a kitchen door on each side.
@@ -211,6 +227,8 @@ Do this after a change to `placer()`, `furnish()`, a pool, a prop size, `kitchen
 - Do not shrink the door rect. It also keeps the open door leaf (`door()`, `swing()`) clear.
 - The lobby keep rect copies the entrance x (`w / 2`) from `model.js`. Move both together.
 - The speaker keep rect in `party()` (1.8 to each side of the booth center, 0.45 deep) holds the speakers of `office.js`. A wider speaker or booth needs a wider rect. The booth itself is a direct call, so only this rect keeps props off it.
+- A prop in the air or on another prop needs no `put()` and no `placer()` rect. Draw it with a direct call, as the bats and the web do. A `put()` call refuses it.
+- `?demo` shows the Halloween props from 24 October to 1 November. Use `?demo&season=none` to see the normal decor.
 - `room.number` is not in `sig`. The rug and the extra prop change only at the next rebuild.
 - Keep east-end clutter off the mouse of an agent desk (`desk()` in `office.js`).
 - `GLYPH` has only h, e, r, and d. Another letter makes `logo()` throw.

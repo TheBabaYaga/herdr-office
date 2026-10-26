@@ -18,6 +18,7 @@
 |---|---|---|---|
 | `office` | the last `buildOffice()` result, `null` at first | `update()` | page |
 | `sig`, `laid` | the build signature and the last `lay` (route inputs), as JSON | `update()` | page |
+| `SEASON` | the value of `?season`, or `null` | page load | page |
 | `views` | id -> view (see "View shapes") | the build and screen functions, `pose()`, `update()` (`v.desk`) | one build |
 | `world`, `live` | the group of one build, and the objects that `bake()` does not merge | `build()` and the build functions | one build |
 | `trips`, `claimed` | desk id -> `{ n, next, trip }`, and the spot key `'<kind>:<index>'` (kind: `kitchen`, `lunch` for a kitchen chair, `party`, or `game` for a place at a game table) -> desk id | `stepBreak()`, `endBreak()`, `update()` (clears on a `lay` change), `stroll()` (`trip.rot`) | page |
@@ -77,11 +78,11 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 ### Build and bake
 
-- `build(office)`: runs only when `sig` changes. Order:
+- `build(office, season)`: runs only when `sig` changes. Order:
   1. Dispose `v.tex` of each view, each geometry with `userData.merged`, and each material without `userData.shared` (with its `map`). Remove each label element from the DOM.
   2. Make a new `world`, and clear `views` and `live`.
-  3. The corridors, then each room: the floor, `DECOR[r.kind](g, r)` in a group at the room corner, the inner walls (each wall once), `door(r)`, `partyLights(r)` for the party room, and the pod lamps.
-  4. Each terrace: the grass, `terrace(g, t)` in a group at the terrace corner, and its glass walls. A room draws no wall on its +x edge away from the cross corridor, and a south-row room draws none on its +z edge, so the terrace draws its walls itself:
+  3. The corridors, then each room: the floor, `DECOR[r.kind](g, r, season)` in a group at the room corner, the inner walls (each wall once), `door(r)`, `partyLights(r)` for the party room, and the pod lamps.
+  4. Each terrace: the grass, `terrace(g, t, season)` in a group at the terrace corner, and its glass walls. A room draws no wall on its +x edge away from the cross corridor, and a south-row room draws none on its +z edge, so the terrace draws its walls itself:
      - the -x edge (the last room of the row) and the +x edge (the cross corridor), always.
      - the -z edge, when `z` is more than 0. A terrace in the row behind shares the span from the larger x of the two to `W`. That span gets no wall, so the two terraces make one courtyard.
      - the +z edge, only when the band corridor is in front. Else the rooms or the terrace of the next row draw it, or the south stub stands there.
@@ -186,6 +187,7 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 ### Frame loop and data source
 
+- Season: `update()` computes `se = SEASON ?? season(new Date())`, puts it last in `sig`, and calls `build(office, se)`. `?season=halloween` or `?season=winter` shows that season on any date. Another value, for example `?season=none`, shows no seasonal props. A `setInterval` of 60 s calls `update(office)`, because the live stream sends nothing while herdr does not change, and the date can change at midnight.
 - Demo (`?demo`): disables the focus button and the message field, and calls `update()` with `demoSnapshot()` and `demoMeetings()` at once and each 1000 ms.
 - Live: `es.onmessage` calls `setOnline()`, and `update()` only when `m.snapshot` is set. An offline message keeps the old scene, dimmed.
 - `es.onerror` sets `es.onopen` to `location.reload()`, so the page gets the new token of a restarted bridge. A herdr outage with a live bridge sends an offline message, and the page does not reload.
@@ -259,7 +261,7 @@ New geometry that depends on a new desk field:
 A new room kind on the 3D side:
 
 1. `buildOffice()` makes the room with `door` and `pods` (`[]` is valid).
-2. `decor.js`: export a decor function `(g, room)` in room-local coordinates, with props from `placer()`.
+2. `decor.js`: export a decor function `(g, room, season)` in room-local coordinates, with props from `placer()`.
 3. `office.js`: import it and add it to `DECOR`, or `build()` throws. Add a `ROOM_FLOOR` entry, or the room gets carpet. `door()`, `swing()`, and `update()` need no change, and a room with `status: null` gets the `C.wood` light and sign.
 4. Routes use only the workspace rooms, the corridors, the kitchen, and the party room. For a walk to the new room, change `route()`, `stepBreak()`, `breaks()`, and `lay`. `opens()` already opens the door of the target room. See the recipe "A new room kind" in `docs/model.md`.
 5. Add the `kind` to `CLAUDE.md` "Contracts between the files", and update `assertPlan()` and the room id checks in `test/model.test.mjs`.
