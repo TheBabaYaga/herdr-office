@@ -746,7 +746,6 @@ function disco(t) {
 // A crossing takes HIT s. It starts at the paddle of the hitter, flies over the net, bounces once on the half of the receiver, and rises
 // to its paddle. So each rally of two crossings bounces once on each half. The west player hits first, at begin. A paddle hit point is
 // 0.65 from the place toward the table, 0.32 to the right of the player, and 0.96 high: the blade at the right arm angle 1.5 (stroll()).
-let flakes = [] // one box for each flake of snowflakes(), in winter only. build() makes them.
 let balls = [] // table index -> the ball of a ping-pong table, or null for a chess table. build() makes them.
 const arc = (y0, y1, h, s) => y0 + (y1 - y0) * s + 4 * h * s * (1 - s) // from y0 to y1, h over the straight line at the middle
 function rally(t) {
@@ -764,6 +763,7 @@ function rally(t) {
 }
 
 // ---- the snow: each flake falls from its start height to the ground and starts again ----
+let flakes = [] // one box for each flake of snowflakes(), in winter only. build() makes them.
 function snowfall(t) {
   const s = CALM.matches ? t / 2 : t // reduce motion: half the speed
   for (const { mesh, f } of flakes) {

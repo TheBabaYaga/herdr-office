@@ -22,7 +22,7 @@ export function box(parent, [w, h, d], [x, y, z], color) {
 export const WOOD = '#b5835a', WOOD_D = '#8f6243', CREAM = '#efe4cf'
 const WHITE = '#f4f1ea', DARK = '#3b3a40', GREY = '#9a9ca0', TEAL = '#5f8a8b'
 const GREENS = ['#4f7a3a', '#6b9a48', '#8dbb5a'], POTS = ['#c0673f', '#5b5f66']
-export const SNOW = '#eef3f8' // snow on the ground and on the caps. Task 3 uses it in office.js.
+export const SNOW = '#eef3f8' // snow on the ground and on the caps. office.js uses it for the terrace grass and the hedge cap.
 const BOOKS = ['#b0503f', '#4f6f8f', '#c9a24a', '#5f8a5b', '#8a6a86', '#d8cfb8']
 const RUGS = [['#7c5d4a', '#a8826a'], ['#55706b', '#7b968f'], ['#6c6788', '#8f8aa8'], ['#8f7340', '#b2955e']]
 const E = 0.2 // a prop's back against a wall sits this far from the room edge
@@ -721,10 +721,6 @@ const pond = prop([
   [[1.6, 0.1, 1], [0, 0, 0], '#34507a'], [[0.26, 0.02, 0.22], [0.3, 0.1, -0.15], GREENS[1]], [[0.2, 0.02, 0.18], [-0.35, 0.1, 0.2], GREENS[0]],
 ])
 
-// A terrace: the spare width of a row, a garden with no door, no pods, and no walk rects. office.js draws the grass, the walls, and the
-// hedge on an open north edge. This draws a wood deck 1 in from each edge, so the grass shows round it. Then trees in the back corners,
-// a parasol table in the middle, loungers beside it, a bench, a pond, bushes in the front corners (low, so the camera sees in), and
-// the fill pass with TERRACE and the strip round with GARDEN.
 // Snow: a cap on the top of each green block 0.1 high or more (tree crowns, bushes, planters). The cap is 0.04 wider, so no face is shared.
 function snow(g) {
   g.updateMatrixWorld(true)
@@ -733,6 +729,10 @@ function snow(g) {
   for (const b of tops) if (b.max.y - b.min.y >= 0.1) box(g, [b.max.x - b.min.x + 0.04, 0.05, b.max.z - b.min.z + 0.04], [(b.min.x + b.max.x) / 2 - g.position.x, b.max.y, (b.min.z + b.max.z) / 2 - g.position.z], SNOW)
 }
 
+// A terrace: the spare width of a row, a garden with no door, no pods, and no walk rects. office.js draws the grass, the walls, and the
+// hedge on an open north edge. This draws a wood deck 1 in from each edge, so the grass shows round it. Then trees in the back corners,
+// a parasol table in the middle, loungers beside it, a bench, a pond, bushes in the front corners (low, so the camera sees in), and
+// the fill pass with TERRACE and the strip round with GARDEN.
 export function terrace(g, t, season) {
   const { w, d } = t, put = placer(g, t)
   box(g, [w - 2, 0.03, d - 2], [w / 2, 0, d / 2], WOOD_D)
