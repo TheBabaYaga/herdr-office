@@ -167,6 +167,9 @@ The user made these decisions between 2026-10-03 and 2026-10-26.
     - Exception to decision 25 ("No prop glows"): the candle flames may glow, in orange only, with a soft halo and a warm pool on the floor. There is no three.js light, and no color near working yellow or blocked red.
     - The lightning is the one flash in the office. A strike comes after 20 to 60 s, with one or two soft flashes. It has no sound (decision 6 cut sound).
     - With "reduce motion" on, no lightning shows, and the flames flicker at half strength.
+33. Winter props, from issue TheBabaYaga/herdhouse#11 (the winter part of the proposal). The issue says: "A tree in the lobby, with ornaments and a star on top.", "Snow on the terrace grass, the hedge, and the garden trees.", and "Snowflakes that fall slowly over each terrace." It sets the dates, 1 December to 6 January, and the switch `?season=winter`.
+    - The tree has white, silver, violet, and blue ornaments and a brass star, so no ornament reads as a status color. Nothing glows, and no light is added.
+    - The snow covers the terrace grass, the hedge, and each green block of the garden. The flakes fall at 0.3 a second, and at half that speed with reduce motion.
 
 ## Cut on purpose
 
@@ -195,7 +198,7 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 
 ## Open items and known limits
 
-- The open questions of issue 11: more seasons, and the date ranges of the seasons. Winter has no props yet.
+- The open questions of issue 11: more seasons, and the date ranges of the seasons. A flake falls through a parasol canopy or a tree crown, because the flakes ignore the props. The demo has no terrace, so `?demo&season=winter` shows only the tree.
 - A floor pool of a candelabra can spill a little past a wall or the building edge.
 - A stack of halos can make a flame look a little more yellow than orange.
 - No Node test covers `night()`, `candles()`, `lightning()`, or `candleSpot()`, because Node cannot load three.js. Browser checks and a scratch ray test covered them.
@@ -207,7 +210,7 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 - In a room full of pods (two pod rows, about 30 x 13), most fill props are thin props. In the test room with 9 tabs (30.6 x 13.3), the free floor went from 31% to 37%, and the props from 6 to 24. A test room with two rows of 4 pods (29.1 x 13.3) went from 29% to 34%, and also from 6 to 24 props. The band along the corridor side is about 0.5 deep after the gap, so it stays empty. Few groups of the floor round fit between the lanes there.
 - A party room in a long, shallow row is mostly the dance floor and the strip. Only a few small props fit beside it.
 - No test covers the fill pass, because Node cannot load three.js. A scratch check in Node (`docs/decor.md` "Check placement in Node") covered 288 rooms in 33 offices. A test in `test/walk.test.mjs` covers the narrow lanes under a short pod.
-- No test covers the terrace walls, the hedge, the grass, or the garden props, because Node cannot load three.js. A scratch check in Node copied the wall rules of `build()`. In 29 offices it found one wall on each edge, and no wall between two terraces. A placement check covered the props of 31 terraces. The browser check of the terraces is still open.
+- No test covers the terrace walls, the hedge, the grass, or the garden props, because Node cannot load three.js. A scratch check in Node copied the wall rules of `build()`. In 29 offices it found one wall on each edge, and no wall between two terraces. A placement check covered the props of 31 terraces. A browser check against a fake herdr socket with a terrace covered the grass, the hedge, the garden, and the snow. No browser check covered the half speed of the snow with reduce motion.
 - A row with a spare width just under 4 still stretches its rooms, by less than 4 in total. The user did not tune the 4.
 - Nobody tested "Focus in herdr" (with the terminal raise) or the SketchyBar row click against the live herdr. The tests use fake sockets and stubs.
 - The tests cover only the bridge side of a message. One browser check against a fake herdr socket covered the page side.

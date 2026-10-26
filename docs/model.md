@@ -1,6 +1,6 @@
 # public/model.js: the office model
 
-`public/model.js` turns a herdr snapshot and the meeting list into the office plan: rooms, pods, desks, corridors, terraces, meeting seats, kitchen spots, kitchen tables and chairs, the party room, and the game tables. It also plans the idle routes, keeps the break timing, and makes the demo data. It has no imports and no DOM, so the Node tests import it. `public/office.js` imports `STATUS_RANK`, `STATUS_COLOR`, `buildOffice`, `demoSnapshot`, `demoMeetings`, `hash`, `season`, `route`, `along`, `calm`, `opens`, `stepBreak`, and `endBreak`. `public/decor.js` imports only `hash`, to seed its fill pass with `room.id`. It reads the room fields `id`, `walk`, `counter`, `tables`, `chairs`, `table`, `seats`, `session`, `number`, `door`, `pods`, `booth`, and `floor`, and the terrace fields `id`, `w`, and `d`. The shapes of the office, a room, a desk, and most exported functions are in CLAUDE.md "Contracts between the files".
+`public/model.js` turns a herdr snapshot and the meeting list into the office plan: rooms, pods, desks, corridors, terraces, meeting seats, kitchen spots, kitchen tables and chairs, the party room, and the game tables. It also plans the idle routes, keeps the break timing, and makes the demo data. It has no imports and no DOM, so the Node tests import it. `public/office.js` imports `STATUS_RANK`, `STATUS_COLOR`, `buildOffice`, `demoSnapshot`, `demoMeetings`, `hash`, `season`, `snowflakes`, `flakeAt`, `route`, `along`, `calm`, `opens`, `stepBreak`, and `endBreak`. `public/decor.js` imports only `hash`, to seed its fill pass with `room.id`. It reads the room fields `id`, `walk`, `counter`, `tables`, `chairs`, `table`, `seats`, `session`, `number`, `door`, `pods`, `booth`, and `floor`, and the terrace fields `id`, `w`, and `d`. The shapes of the office, a room, a desk, and most exported functions are in CLAUDE.md "Contracts between the files".
 
 ## When to read this doc
 
@@ -48,6 +48,12 @@ Each frame, `pose()` calls `breaks()` for each view with a worker. `breaks()` ca
 ### season(date)
 
 `season(date)` returns `'halloween'` from 24 October to 1 November, `'winter'` from 1 December to 6 January, else `null`. It reads the local month and day of the `Date` argument, so a test gives it `new Date(2026, 9, 24)` and not a UTC string. It reads no clock itself. `office.js` calls it with `new Date()`. `buildOffice()` does not use it, and the floor plan does not depend on the season. `test/model.test.mjs` pins the ranges.
+
+### snowflakes(t), flakeAt(f, s)
+
+- `snowflakes(t)`: `[{ x, z, phase }]` for a terrace `{ x, z, w, d }`. It gives `Math.round(w * d / 2)` flakes. The steps 0.7549 and 0.5698 (the R2 sequence) spread them, each 0.3 or more from each terrace edge. `phase` is `(i * 0.618) % 1`. It is deterministic and uses no `Math.random()`.
+- `flakeAt(f, s)`: `{ x, y, z }`. `y` falls from 2.6 at 0.3 a second, so one fall takes about 8.7 s, and starts again at the top. `x` drifts by `0.1 * sin(s + 6 * phase)`. `z` stays. `y` is the base of the flake box.
+- `office.js` runs both only in winter. `test/model.test.mjs` pins the count, the margins, the spread, and the fall.
 
 ### candleSpots(o), lightningPlan(rand), flash(plan, s)
 

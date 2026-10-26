@@ -70,9 +70,9 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 ### Floors and walls
 
-- `floor()`: a floor box with a cloned `FLOOR` texture and a new material, which the next rebuild disposes. `FLOOR.grass` is the terrace floor, tinted `C.grass`, a dark plain green far from the idle green.
+- `floor()`: a floor box with a cloned `FLOOR` texture and a new material, which the next rebuild disposes. `FLOOR.grass` is the terrace floor, tinted `C.grass`, a dark plain green far from the idle green. In winter, `build()` tints it `SNOW`.
 - `run()` puts one box on a wall line, and `pieces()` gives the solid spans around the gaps.
-- `outer()` draws the far walls (west, north) with windows, and `stub()` the cut camera-side walls (east, south, with the entrance). The north wall skips a first-row terrace: `run()` draws a low hedge there (0.9 high, `T + 0.06` thick, `C.hedge`), and the cross corridor keeps its piece of the wall.
+- `outer()` draws the far walls (west, north) with windows, and `stub()` the cut camera-side walls (east, south, with the entrance). The north wall skips a first-row terrace: `run()` draws a low hedge there (0.9 high, `T + 0.06` thick, `C.hedge`, and in winter a `SNOW` cap 0.05 high and `T + 0.1` thick on top), and the cross corridor keeps its piece of the wall.
 - `inner()`: a glass inner wall. Its comment says why the header stays thin.
 - `door(r)`: the posts, the lintel, the transom, the status `light`, and a `hinge` group with the leaf and the knob. The hinge starts at `doors.get(r.id) ?? 0`, so a rebuild keeps an open door open. The leaf and the knob use cached colors. Sets the room view.
 
@@ -86,7 +86,7 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
      - the -x edge (the last room of the row) and the +x edge (the cross corridor), always.
      - the -z edge, when `z` is more than 0. A terrace in the row behind shares the span from the larger x of the two to `W`. That span gets no wall, so the two terraces make one courtyard.
      - the +z edge, only when the band corridor is in front. Else the rooms or the terrace of the next row draw it, or the south stub stands there.
-  5. With Halloween, `candelabra(s.x, s.z, s.axis, 3.2)` for each spot of `candleSpots(office)`. The outer walls, then `desk()` for each desk and `attendee()` for each subagent, then `balls`: a hidden white ball (0.07, in `live`) for each ping-pong table of `office.games`.
+  5. With Halloween, `candelabra(s.x, s.z, s.axis, 3.2)` for each spot of `candleSpots(office)`. The outer walls, then `desk()` for each desk and `attendee()` for each subagent, then `balls`: a hidden white ball (0.07, in `live`) for each ping-pong table of `office.games`. In winter, `flakes`: one white box of 0.06 (in `live`) for each flake of `snowflakes(t)` of each terrace.
   6. `bake()`, the sun, and the shadow flags. A material with `depthWrite` false (the glass, a light beam, a halo) casts no shadow.
 - `bake()`: skips each object in `live` with its subtree. It merges the meshes of each material with 2 or more meshes into one mesh, and marks its geometry `userData.merged`.
 
@@ -115,6 +115,10 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 - `rally(t)`: runs once a frame after `disco()`. For each ball in `balls`, it reads the trips of the two places of its table through `claimed` and `trips`. The ball shows while both trips have `begin`, and `begin <= t < min(end)`. A rush ends the game of the partner, so the ball then hides. Crossing `k` counts from `begin` in steps of `HIT` (0.8 s), and an even `k` flies east. A crossing starts at the hit point of the hitter: 0.65 from its place toward the table, 0.32 to its right (`+z` for west, `-z` for east), and 0.96 high. That is the blade at the right arm angle 1.5. The ball moves in a straight line in x and z. It bounces 0.55 past the net, on the half of the receiver, at the ball center height 0.805 (the top is at 0.77). The first arc rises 0.3 over its chord and clears the net. The second arc rises 0.15 to the hit point of the receiver. So each rally of two crossings bounces once on each half. `arc(y0, y1, h, s)` gives the height.
 - `swing(dt)`: turns each door toward `OPEN` when `ajar` has its room id, else toward 0, at a speed set by `SWING`. It writes `doors` and `hinge.rotation.y`.
 - `opens()` in `model.js` gives the doors that one walker opens: its own room door and the door of its target room. See `docs/model.md` "Breaks".
+
+### Winter snow
+
+`snowfall(t)` runs each frame. For each entry of `flakes` it places the box with `flakeAt(f, s)`, where `s` is `t`, or `t / 2` with reduce motion (`CALM`). It adds 0.03 to `y`, because `flakeAt()` gives the base of the box. One mesh for each flake is a known limit. A `ponytail:` comment names `InstancedMesh` as the upgrade if the frame rate drops. A flake ignores the parasol canopies and the tree crowns, so it can pass through one.
 
 ### Halloween night
 
@@ -198,7 +202,7 @@ The night is on only with `season === 'halloween'`. Without it, `night(false)` s
 
 ### Frame loop and data source
 
-- Season: `update()` computes `se = SEASON ?? season(new Date())`, puts it last in `sig`, and calls `build(office, se)` when `sig` changes. `?season=halloween` shows the Halloween props on any date. Another value, for example `?season=none` or `?season=winter`, shows none in this version. A `setInterval` of 60 s calls `update(office)`, because the live stream sends nothing while herdr does not change, and the date can change at midnight.
+- Season: `update()` computes `se = SEASON ?? season(new Date())`, puts it last in `sig`, and calls `build(office, se)` when `sig` changes. `?season=halloween` shows the Halloween props on any date. `?season=winter` shows the winter props on any date. Another value, for example `?season=none`, shows none. A `setInterval` of 60 s calls `update(office)`, because the live stream sends nothing while herdr does not change, and the date can change at midnight.
 - Demo (`?demo`): disables the focus button and the message field, and calls `update()` with `demoSnapshot()` and `demoMeetings()` at once and each 1000 ms.
 - Live: `es.onmessage` calls `setOnline()`, and `update()` only when `m.snapshot` is set. An offline message keeps the old scene, dimmed.
 - `es.onerror` sets `es.onopen` to `location.reload()`, so the page gets the new token of a restarted bridge. A herdr outage with a live bridge sends an offline message, and the page does not reload.

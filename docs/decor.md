@@ -23,6 +23,7 @@ Related docs: `docs/office.md` (`build()`, `bake()`, `sig`, `live`, `views`). `d
 | `E` | 0.2: the gap from a room edge to the back of a wall prop. |
 | `LAMP` | `[-0.5, 0.4]`: the pod lamp post from the pod corner. `placer()` and `office.js` `build()` read it. |
 | the palette, the prop makers, `PLANTS`, `BAGS`, `GLYPH`, `CLUTTER` | constant data. `office.js` imports `WOOD`, `WOOD_D`, and `CREAM`. |
+| `SNOW` | `'#eef3f8'`: the color of the snow on the terrace grass, the hedge, and the caps. `office.js` imports it. |
 | `FREE`, `PER`, `PAD` | 30, 7, 0.3: the fill pass gives one floor prop for each 7 m² of free floor over 30 m², with a gap of 0.3 around each prop. |
 | `EDGE`, `NEAR`, `STRIP_EDGE`, `WALL_MAX` | 1.2, 0.6, 0.6, 3: a spot of the floor round is at least 1.2 from each room edge and its prop at least 0.6, a spot of the strip round at least 0.6, and a room gets at most 3 fill wall props. |
 | `OFFICE`, `PARTY`, `KITCHEN`, `LOBBY`, `THIN` | the pools of the fill pass and of its strip round: `[make, how, max]` entries. See "furnish(put, room, pool, thin = THIN)". |
@@ -40,6 +41,7 @@ office.js build()  (only when sig changes)
              then inner walls, door(r), partyLights(r) for the party room, the lamp posts at p + LAMP
   each terrace: the grass, terrace(g, t, season)  g at (t.x, 0, t.z)
              the deck, the fixed garden props, then furnish(put, t, TERRACE, GARDEN)
+             in winter, snow(g): a cap on each green block
              then the glass walls, and the hedge on an open north edge
   desk(d): deskChair, clutter(g, hash(d.id, 1e6))
   bake()                                 merges meshes by material: no decor object is in live
@@ -133,7 +135,7 @@ Each function gets `(g, room, season)` with `g` at the room corner. The candidat
 
 ### Seasonal props
 
-`office.js` passes `season` (`'halloween'`, `'winter'`, or `null`, from `season()` in `model.js`) as the third argument of each `DECOR` function and of `terrace()`. With `null`, the decor is the normal one. Only `'halloween'` has props in this version. `terrace()` ignores the season. `meeting()` takes it for the candelabra only.
+`office.js` passes `season` (`'halloween'`, `'winter'`, or `null`, from `season()` in `model.js`) as the third argument of each `DECOR` function and of `terrace()`. With `null`, the decor is the normal one. Only `'halloween'` and `'winter'` have props. `terrace()` uses the season for the winter snow only. `meeting()` takes it for the candelabra only.
 
 - `pumpkin(g, x, z, rot, s = 1)`: a maker, like `plant()`. It is not exported. The body is 0.5 x 0.3 x 0.46, with two ribs, a stem, and a face on the +z side.
 - `bat(g, x, y, z)`: a body with ears and two white eyes, and stepped wings with a span of 1.0. It hangs on a string that reaches y 2.6.
@@ -145,6 +147,9 @@ Each function gets `(g, room, season)` with `g` at the room corner. The candidat
 
 The kitchen pumpkin, the bats, and the web are direct calls, not `put()` calls. `put()` tests a floor footprint. It refuses a pumpkin that stands on the counter, a bat over the dance floor (a keep rect), and a web that touches a wall.
 
+- `xmasTree`: a prop from `prop()`. A stand, a trunk, four green tiers (1.3, 1.0, 0.7, and 0.4 wide, 0.45 high, with the top at y 2.2), two ornaments on each of the +z and +x faces of each tier (white, silver, violet, and blue), and a brass star `#d8b45c` with its top at y 2.4. No ornament is red, green, or yellow, because those read as a status color (INTENT.md decision 33). Nothing glows.
+- `lobby()` in winter: `put(xmasTree, x, z, 0)` for the corners (1, 1), (w - 1, 1), and (1, d - 1), the first that fits. It comes after `waiting` and before the plants.
+- `snow(g)`: for each green block of a terrace that is 0.1 high or more, a `SNOW` cap 0.05 high and 0.04 wider than the block, on its top. `terrace(g, t, season)` calls it last in winter. The lily pads are lower than 0.1, so they stay bare. The caps are direct `box()` calls, not `put()`, because a cap stands on a prop and `put()` refuses it.
 - `candleSpot(g, room, put)`: with Halloween, `workspaceDecor()`, `kitchen()`, `meeting()`, `party()`, and `lobby()` call it last and return its result: `{ x, z }` in world coords, or `null` when no spot is clear. Other seasons return `undefined`. `office.js` draws the candelabra there (`candelabra()`), so `decor.js` only measures.
   - The candidates lie on a 0.5 grid, 0.6 or more from the walls. The camera-side corner (large `x / w + z / d`) comes first, then the larger x. A candidate must pass `put.fits` for a 0.6 square with a gap of 0.3. The chosen square goes into `put.taken`.
   - The camera sees a flame when a ray in the direction (1, 1, 1) from it hits no box. The test casts the ray from three x offsets (-0.25, 0, 0.25) at two heights (1.47 and 1.53), the base and the top of the flames.
@@ -207,7 +212,8 @@ Do this after a change to `placer()`, `furnish()`, a pool, a prop size, `kitchen
 6. Check that no two flat boxes (0.05 high or less) of different colors overlap at the same height. Print a map of each big room, and check that the fill props stand in the open floor, not along the walls.
 7. For a party room, check that the booth is inside the room and off `room.floor`, and that no placed prop overlaps `room.floor` or the speaker floor.
 8. For each terrace, call `terrace()` on a group at `(t.x, 0, t.z)`. Check that each prop is inside the terrace, that no two props overlap, that no prop of a first-row terrace touches the hedge (local z 0.18), and that no two flat boxes of different colors overlap at one height (the deck boards and the table base).
-9. Compare the count of props of each kind and the share of free floor with the old version. The demo rooms "api" and "docs" must not change. A room in a terrace row has a new size, so its one-try props can move.
+9. With `'winter'`, check that each lobby gets the tree, and where it stands. For each terrace, check that each green block 0.1 high or more has a `SNOW` cap on its top, and that the lily pads have none.
+10. Compare the count of props of each kind and the share of free floor with the old version. The demo rooms "api" and "docs" must not change. A room in a terrace row has a new size, so its one-try props can move.
 
 ## Pitfalls
 
@@ -236,6 +242,7 @@ Do this after a change to `placer()`, `furnish()`, a pool, a prop size, `kitchen
 - The speaker keep rect in `party()` (1.8 to each side of the booth center, 0.45 deep) holds the speakers of `office.js`. A wider speaker or booth needs a wider rect. The booth itself is a direct call, so only this rect keeps props off it.
 - A prop in the air or on another prop needs no `put()` and no `placer()` rect. Draw it with a direct call, as the bats and the web do. A `put()` call refuses it.
 - `?demo` shows the Halloween props from 24 October to 1 November. Use `?demo&season=none` to see the normal decor.
+- The demo has no terrace, so `?demo&season=winter` shows the lobby tree only. Check the snow with a fake socket (`docs/testing.md`).
 - `room.number` is not in `sig`. The rug and the extra prop change only at the next rebuild.
 - Keep east-end clutter off the mouse of an agent desk (`desk()` in `office.js`).
 - `GLYPH` has only h, e, r, and d. Another letter makes `logo()` throw.
