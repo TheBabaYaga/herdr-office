@@ -315,10 +315,18 @@ function pumpkin(g, x, z, rot = 0, s = 1) {
   box(o, [0.2, 0.06, 0.01], [0, 0.06, 0.235], F)
 }
 // A bat that hangs from a string: the body center is at y, the string reaches up to the wall height 2.6.
+// It spans 1.0 with stepped wings (a scalloped edge), two ears, and two white eyes, so it reads over the dark dance floor.
 function bat(g, x, y, z) {
-  box(g, [0.12, 0.1, 0.08], [x, y - 0.05, z], '#2b2a33')
-  for (const a of [-1, 1]) box(g, [0.2, 0.03, 0.1], [x + a * 0.16, y - 0.02, z], '#2b2a33')
-  box(g, [0.02, 2.6 - (y + 0.05), 0.02], [x, y + 0.05, z], '#2b2a33')
+  const C = '#2b2a33'
+  box(g, [0.16, 0.2, 0.1], [x, y - 0.1, z], C)
+  for (const a of [-1, 1]) {
+    box(g, [0.04, 0.04, 0.04], [x + a * 0.05, y + 0.1, z], C) // the ears
+    box(g, [0.03, 0.03, 0.01], [x + a * 0.035, y + 0.02, z + 0.055], '#f4f1ea') // the eyes
+    box(g, [0.18, 0.12, 0.04], [x + a * 0.17, y - 0.06, z], C) // each wing steps down and out in 3 parts
+    box(g, [0.14, 0.08, 0.04], [x + a * 0.33, y - 0.1, z], C)
+    box(g, [0.1, 0.05, 0.04], [x + a * 0.45, y - 0.14, z], C)
+  }
+  box(g, [0.02, 2.6 - (y + 0.1), 0.02], [x, y + 0.1, z], C)
 }
 // A cobweb in a wall corner: 4 strands 0.6 long, 30 degrees apart, below the horizontal toward +x, and two chords between each pair.
 function web(g, x, y, z) {
@@ -327,7 +335,6 @@ function web(g, x, y, z) {
   g.add(o)
   for (let k = 0; k < 4; k++) {
     const a = (k * Math.PI) / 6, s = at(o, 0, 0)
-    s.position.y = 0
     s.rotation.set(0, 0, -a)
     box(s, [0.6, 0.035, 0.02], [0.3, -0.035, 0], C)
     if (k < 3) for (const r of [0.25, 0.45]) {
@@ -582,7 +589,7 @@ export function party(g, room, season) {
   furnish(put, room, PARTY)
   if (season === 'halloween') { // four bats round the disco ball, above the beams (they start at y 2.2). Not through put(): the keep rect covers the floor.
     const fx = (x0 + x1) / 2 - room.x, fz = (z0 + z1) / 2 - room.z
-    ;[[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([a, b], i) => bat(g, fx + a, i % 2 ? 2.45 : 2.3, fz + b))
+    ;[[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([a, b], i) => bat(g, fx + a, i % 2 ? 2.45 : 2.3, fz + b))
   }
 }
 // A bar (wall prop): a back shelf with two rows of bottles, the counter, and three stools in front.
