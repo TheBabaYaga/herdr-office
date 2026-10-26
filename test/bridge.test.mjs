@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { socketPath, herdrRequest, startBridge, readMeetings, readMessages, messagesIn } from '../bridge.mjs'
+import { socketPath, herdrRequest, startBridge, readMeetings, readMessages, readCodexMessages, messagesIn, codexMessagesIn, bundleIdsIn, pickTerminal, raiser } from '../bridge.mjs'
 
 // macOS caps unix socket paths at 104 bytes, so the fake sockets use short paths relative to a temp cwd.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-sock-'))
@@ -266,18 +266,18 @@ test('POST /action: guards, then pane.focus', async () => {
     const big = await post(JSON.stringify({ type: 'focus', pane_id: 'w1:p2', pad: 'x'.repeat(5000) }))
     assert.ok([400, 413].includes(big.status), String(big.status))
     assert.equal(fake.lines.length, 0, 'no rejected request reaches herdr')
-    assert.equal(raised, 0, 'no rejected request raises WezTerm')
+    assert.equal(raised, 0, 'no rejected request raises the terminal')
 
     const ok = await post(focus('w1:p2'))
     assert.equal(ok.status, 200)
     assert.deepEqual(JSON.parse(ok.body), { ok: true })
     assert.deepEqual(fake.lines, ['{"id":"office:focus","method":"pane.focus","params":{"pane_id":"w1:p2"}}\n'])
-    assert.equal(raised, 1, 'a focus raises WezTerm')
+    assert.equal(raised, 1, 'a focus raises the terminal')
 
     const fail = await post(focus('w9:p9'))
     assert.equal(fail.status, 502)
     assert.match(JSON.parse(fail.body).error, /pane_not_found/)
-    assert.equal(raised, 1, 'a herdr error does not raise WezTerm')
+    assert.equal(raised, 1, 'a herdr error does not raise the terminal')
 
     const b2 = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, token: TOKEN, raise: () => { throw new Error('x') } })
     try {
@@ -315,7 +315,7 @@ test('POST /action: guards, then agent.prompt', async () => {
     const blocked = await post(prompt('w9:p9', 'hello'))
     assert.equal(blocked.status, 502)
     assert.match(JSON.parse(blocked.body).error, /agent_blocked/)
-    assert.equal(raised, 0, 'a prompt never raises WezTerm')
+    assert.equal(raised, 0, 'a prompt never raises the terminal')
   } finally {
     await b.close()
     await fake.close()
@@ -672,4 +672,176 @@ test('readMessages: a read error gives null, and the tail cut handles a line sta
   const mb = await readMessages(projects, pane('/m/mb', U3))
   assert.equal(mb.length, 1)
   assert.equal(mb[0].text.length, rest - Buffer.byteLength(u('')))
+})
+
+// ---- Codex: codexMessagesIn(), readCodexMessages(), and GET /messages for a codex pane. All names and texts are made up. ----
+const ev = (type, payload) => line({ timestamp: '2030-01-01T00:00:00Z', type, payload, ordinal: 0 })
+const block = (role, t) => (typeof t === 'string' ? { type: role === 'assistant' ? 'output_text' : 'input_text', text: t } : t)
+const msg = (role, ...ts) => ev('response_item', { type: 'message', role, content: ts.map((t) => block(role, t)) })
+
+test('codexMessagesIn keeps user prompts and agent text, and drops everything else', () => {
+  const text = [
+    ev('session_meta', { id: 'x', cwd: '/c/x', source: 'cli', base_instructions: { text: SECRET } }),
+    ev('turn_context', { cwd: '/c/x', model: 'gpt-x', user_instructions: SECRET }),
+    msg('developer', `<permissions>${SECRET}</permissions>`),
+    msg('user', `# AGENTS.md instructions for /c/x\n\n<INSTRUCTIONS>${SECRET}</INSTRUCTIONS>`),
+    msg('user', `<environment_context>${SECRET}</environment_context>`),
+    msg('user', `<subagent_notification>${SECRET}</subagent_notification>`),
+    msg('user', `<agent_message_board_notification>${SECRET}</agent_message_board_notification>`),
+    msg('user', `<codex_internal_context source="x">${SECRET}</codex_internal_context>`),
+    msg('user', `<goal_context>${SECRET}</goal_context>`),
+    msg('user', `<external_foo>${SECRET}</external_foo>`),
+    msg('user', `<recommended_plugins>${SECRET}</recommended_plugins>`),
+    msg('user', `<hook_prompt hook_run_id="h1">${SECRET}</hook_prompt>`),
+    msg('user', 'plain prompt'),
+    msg('user', '# heading prompt'),
+    msg('user', '  <div>pasted html</div>'),
+    msg('user', 'look at this', '<image name=[Image #1]>', { type: 'input_image', image_url: `data:${SECRET}` }, '</image>'),
+    msg('user', `<skill>${SECRET}</skill>`),
+    msg('user', ''),
+    ev('response_item', { type: 'reasoning', summary: [{ type: 'summary_text', text: SECRET }], encrypted_content: SECRET }),
+    ev('response_item', { type: 'function_call', name: 'shell', arguments: SECRET, call_id: 'c1' }),
+    ev('response_item', { type: 'function_call_output', call_id: 'c1', output: SECRET }),
+    ev('response_item', { type: 'custom_tool_call', name: 'apply_patch', input: SECRET, call_id: 'c2' }),
+    ev('response_item', { type: 'custom_tool_call_output', call_id: 'c2', output: SECRET }),
+    msg('assistant', 'progress note'),
+    msg('assistant', 'part one', 'part two'),
+    ev('event_msg', { type: 'item_completed', item: { type: 'AgentMessage', id: 'i1', content: [{ type: 'Text', text: SECRET }] } }),
+    ev('event_msg', { type: 'user_message', message: SECRET }),
+    ev('event_msg', { type: 'agent_message', message: SECRET }),
+    ev('event_msg', { type: 'task_complete', last_agent_message: SECRET }),
+    'not json ' + SECRET + '\n',
+  ].join('')
+  const out = codexMessagesIn(text)
+  assert.ok(!JSON.stringify(out).includes(SECRET))
+  assert.deepEqual(out, [
+    { role: 'user', text: 'plain prompt' },
+    { role: 'user', text: '# heading prompt' },
+    { role: 'user', text: '  <div>pasted html</div>' },
+    { role: 'user', text: 'look at this' },
+    { role: 'agent', text: 'progress note' },
+    { role: 'agent', text: 'part one\npart two' },
+  ])
+})
+
+const codex = path.join(dir, 'codex', 'sessions')
+const C = (n) => `c${String(n).padStart(7, '0')}-0000-4000-8000-${String(n).padStart(12, '0')}`
+// A rollout: the session_meta line first, as in a real rollout. Its base instructions hold SECRET.
+const rollout = (day, id, cwd, body, { ageS = 0, source = 'cli', pad = '' } = {}) =>
+  write(path.join(codex, '2030', '01', day, `rollout-2030-01-${day}T00-00-00-${id}.jsonl`),
+    ev('session_meta', { id, timestamp: '2030-01-01T00:00:00Z', cwd, source, base_instructions: { text: SECRET + pad } }) + body, ageS)
+const cpane = (cwd, id, extra = {}) => ({ pane_id: 'w1:p3', agent: 'codex', cwd, foreground_cwd: cwd, agent_session: id === undefined ? null : { agent: 'codex', kind: 'id', source: 'herdr:codex', value: id }, ...extra })
+const cchat = (...ts) => ts.map((t, i) => msg(i % 2 ? 'assistant' : 'user', t)).join('')
+
+test('readCodexMessages: finds the rollout by thread id in any date folder', async () => {
+  rollout('01', C(1), '/c/one', cchat('q1', 'r1'), { ageS: 50 })
+  rollout('02', C(2), '/c/one', cchat('other', 'other')) // a newer sibling: the id lookup must not take it
+  assert.deepEqual(texts(await readCodexMessages(codex, cpane('/c/one', C(1)))), ['q1', 'r1'])
+  assert.deepEqual(texts(await readCodexMessages(codex, cpane('/c/moved', C(1)))), ['q1', 'r1'], 'the id wins over the cwd')
+  assert.equal(await readCodexMessages(codex, cpane('/c/one', C(0))), null, 'a valid id that is not found gives null')
+})
+
+test('readCodexMessages: a missing or bad id takes the newest top-level rollout of the cwd', async () => {
+  const cwd = '/c/fall'
+  rollout('03', C(3), cwd, cchat('old', 'old'), { ageS: 100 })
+  rollout('03', C(4), cwd, cchat('new', 'new'), { ageS: 10, pad: 'x'.repeat(40_000) }) // a session_meta line over 32 KB
+  rollout('04', C(5), cwd, cchat(SECRET, SECRET), { source: { subagent: { thread_spawn: { parent_thread_id: C(4), depth: 1 } } } }) // newer, but a subagent thread
+  rollout('04', C(6), '/c/fall/other', cchat('alien', 'alien'))
+  for (const id of ['../x', 'not-a-uuid', null, undefined]) {
+    assert.deepEqual(texts(await readCodexMessages(codex, cpane(cwd, id))), ['new', 'new'], String(id))
+  }
+  assert.deepEqual(texts(await readCodexMessages(codex, { ...cpane(cwd, C(3)), agent_session: { kind: 'path', value: C(3) } })), ['new', 'new'])
+})
+
+test('readCodexMessages: limit, a non-codex pane, no rollout, a missing folder, and a folder with a rollout name', async () => {
+  rollout('05', C(7), '/c/lim', cchat('a', 'b', 'c', 'd'))
+  assert.deepEqual(texts(await readCodexMessages(codex, cpane('/c/lim', C(7)), 2)), ['c', 'd'])
+  assert.equal(await readCodexMessages(codex, cpane('/c/lim', C(7), { agent: 'claude' })), null)
+  assert.equal(await readCodexMessages(codex, cpane('/c/none', null)), null)
+  assert.equal(await readCodexMessages(path.join(dir, 'no-such'), cpane('/c/lim', null)), null)
+  fs.mkdirSync(path.join(codex, '2030', '01', '06', `rollout-2030-01-06T00-00-00-${C(9)}.jsonl`), { recursive: true })
+  assert.deepEqual(texts(await readCodexMessages(codex, cpane('/c/lim', null))), ['a', 'b', 'c', 'd'], 'a folder is skipped')
+  assert.equal(await readCodexMessages(codex, cpane('/c/lim', C(9))), null)
+})
+
+test('readCodexMessages: a first line without a newline is not cached, so a later call finds it', async () => {
+  const cwd = '/c/grow'
+  const file = path.join(codex, '2030', '01', '08', `rollout-2030-01-08T00-00-00-${C(10)}.jsonl`)
+  const first = ev('session_meta', { id: C(10), timestamp: '2030-01-01T00:00:00Z', cwd, source: 'cli' })
+  write(file, first.slice(0, 20))
+  assert.equal(await readCodexMessages(codex, cpane(cwd, null)), null, 'a new rollout with no whole line yet')
+  write(file, first + cchat('q', 'r'))
+  assert.deepEqual(texts(await readCodexMessages(codex, cpane(cwd, null))), ['q', 'r'])
+})
+
+test('GET /messages: the messages of a codex pane, and 503 without a codex folder', async () => {
+  rollout('07', C(8), '/src/c', cchat('hello codex', 'hi from codex'))
+  const cp = { pane_id: 'w1:p3', terminal_id: 't3', workspace_id: 'w1', tab_id: 'w1:t1', focused: false, cwd: '/src/c', foreground_cwd: '/src/c', agent: 'codex', agent_status: 'idle', revision: 1 }
+  const odd = { ...cp, pane_id: 'w1:p4', agent: 'constructor' }
+  const snap = { ...SNAP, panes: [...SNAP.panes, cp, odd] }
+  const fake = await fakeHerdr((req) => (req.method === 'session.snapshot' ? { result: { type: 'session_snapshot', snapshot: snap } } : { result: { type: 'ok' } }))
+  const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, pollMs: 20, token: 'tk', claudeDir: projects, codexDir: codex })
+  const noCodex = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, pollMs: 20, token: 'tk', claudeDir: projects })
+  const get = (br, q) => request(portOf(br), 'GET', `/messages?pane=${q}`, { 'x-office-token': 'tk' })
+  const es = sse(portOf(b)), es2 = sse(portOf(noCodex))
+  try {
+    await es.next()
+    await es2.next()
+    const ok = await get(b, 'w1:p3')
+    assert.equal(ok.status, 200)
+    assert.deepEqual(JSON.parse(ok.body), { messages: [{ role: 'user', text: 'hello codex' }, { role: 'agent', text: 'hi from codex' }] })
+    assert.ok(!ok.body.includes(SECRET))
+    assert.equal((await get(noCodex, 'w1:p3')).status, 503, 'no codex folder')
+    assert.equal((await get(noCodex, 'w1:p2')).status, 404, 'a shell pane')
+    assert.equal((await get(b, 'w1:p4')).status, 404, 'an agent name that is an Object key')
+    assert.ok(fake.lines.every((l) => JSON.parse(l).method === 'session.snapshot'), 'the route sends nothing to herdr')
+    assert.ok(!JSON.stringify(es.msgs).includes('hi from codex'), 'no transcript text in the stream')
+  } finally {
+    es.close()
+    es2.close()
+    await Promise.all([b.close(), noCodex.close()])
+    await fake.close()
+  }
+})
+
+test('bundleIdsIn keeps the distinct valid bundle ids and nothing else', () => {
+  const ps = (id) => `herdr FOO=1 SECRET_TOKEN=abc123 __CFBundleIdentifier=${id} HOME=/x`
+  assert.deepEqual(bundleIdsIn([ps('com.example.term')]), ['com.example.term'])
+  assert.deepEqual(bundleIdsIn([ps('com.example.term'), ps('com.example.term')]), ['com.example.term'])
+  assert.deepEqual(bundleIdsIn([ps('com.a.b'), ps('org.c-d')]), ['com.a.b', 'org.c-d'])
+  assert.deepEqual(bundleIdsIn(['herdr server HOME=/x', '']), [])
+  assert.deepEqual(bundleIdsIn([ps('bad;rm'), '__CFBundleIdentifier=;x']), [])
+  assert.ok(!JSON.stringify(bundleIdsIn([ps('com.a.b')])).includes('SECRET'))
+})
+
+test('pickTerminal: one id wins, no TTY guesses, a TTY asks', async () => {
+  const { PassThrough } = await import('node:stream')
+  const ask = async (found, line, tty = true) => {
+    const input = new PassThrough(); input.isTTY = tty
+    const output = new PassThrough()
+    const p = pickTerminal(found, { input, output })
+    if (tty && found.length !== 1) input.write(line + '\n')
+    return p
+  }
+  assert.equal(await ask(['com.a.b'], ''), 'com.a.b')
+  assert.equal(await ask([], '', false), 'com.github.wez.wezterm')
+  assert.equal(await ask(['com.a.b', 'com.c.d'], '', false), 'com.a.b')
+  assert.equal(await ask([], ''), 'com.github.wez.wezterm')
+  assert.equal(await ask(['com.a.b', 'com.c.d'], '2'), 'com.c.d')
+  assert.equal(await ask(['com.github.wez.wezterm', 'com.c.d'], '3'), 'com.mitchellh.ghostty')
+  assert.equal(await ask([], '8'), null)
+  assert.equal(await ask([], 'x'), null)
+})
+
+test('raiser: opens the one detected terminal, else the start pick', async (t) => {
+  const opened = []
+  const open = (id) => opened.push(id)
+  await raiser('y', async () => ['x'], open)()
+  await raiser('y', async () => [], open)()
+  await raiser('y', async () => ['x', 'z'], open)()
+  assert.deepEqual(opened, ['x', 'y', 'y'])
+  const err = t.mock.method(console, 'error', () => {})
+  await assert.doesNotReject(raiser('y', () => Promise.reject(new Error('boom')), open)())
+  assert.deepEqual(opened, ['x', 'y', 'y'], 'a failed detect opens nothing')
+  assert.match(err.mock.calls[0].arguments[0], /raise: boom/)
 })

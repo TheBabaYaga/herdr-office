@@ -251,6 +251,13 @@ function build(office) {
 
   for (const d of office.desks) desk(d)
   for (const s of office.subagents) attendee(s)
+  balls = office.games.map((g) => { // a white ball for each ping-pong table, hidden until rally() shows it
+    if (g.kind !== 'pingpong') return null
+    const b = box(world, [0.07, 0.07, 0.07], [g.x, 0.77, g.z], '#ffffff')
+    b.visible = false
+    live.add(b)
+    return b
+  })
   bake()
   // The sun shines in through the west windows. Its shadow box holds the whole building.
   const R = Math.hypot(BW, BD) / 2 + 2
@@ -407,8 +414,15 @@ function worker(parent, d) {
   box(plate, [0.12, 0.07, 0.1], [-0.08, 0.03, 0], '#8b5a2b')
   box(plate, [0.06, 0.05, 0.06], [0.08, 0.03, -0.05], '#e8913a')
   box(plate, [0.06, 0.05, 0.06], [0.1, 0.03, 0.06], '#7a4b94')
+  // The ping-pong paddle in the right hand (stroll() shows it in a ping-pong stay). It comes after mats, as the plate does. It turns with
+  // the arm: a short handle past the hand, and the blade across the arm, so the blade faces the ball when the arm points forward.
+  const paddle = new THREE.Group()
+  paddle.visible = false
+  arms[1].add(paddle)
+  box(paddle, [0.05, 0.08, 0.05], [0, -0.58, 0], '#b06a4f')
+  box(paddle, [0.2, 0.03, 0.2], [0, -0.61, 0], '#b06a4f')
   // A seated subagent never shows the beacon, so its badge sits just over its head. At 2.2 it would cover the worker behind it.
-  return { g, arms, sit, stand, legs, mug, plate, paper, beacon, mats, badge: label(g, 'badge', [0, d.seated ? 1.2 : 2.2, 0]) }
+  return { g, arms, sit, stand, legs, mug, plate, paddle, paper, beacon, mats, badge: label(g, 'badge', [0, d.seated ? 1.2 : 2.2, 0]) }
 }
 
 // ---- typing screens: a tiny canvas per working desk, redrawn 10x a second ----
@@ -482,19 +496,22 @@ function browse(v, t) {
   v.tex.needsUpdate = true // the texture uploads again, also when it came from a typing screen
 }
 
-// ---- idle breaks: after a wait, an idle worker walks to the kitchen counter, a kitchen chair for lunch, or the party room, and back ----
+// ---- idle breaks: after a wait, an idle worker walks to the kitchen counter, a kitchen chair for lunch, the party room, or a game table, and back ----
 // The clock is t of the animation loop. A trip lives in trips by desk id, so it survives a rebuild for a new subagent.
 // ponytail: a change of the route inputs (`lay`) clears every trip: the workers sit at their desks again. Tracking a trip across a new layout needs a new route.
 const trips = new Map() // desk id -> { n: the next trip, next: when it starts, trip: the one that runs now }
-const claimed = new Map() // '<kind>:<spot index>' (kind: kitchen, lunch, or party) -> desk id: two workers never stand on one spot or sit on one chair
+const claimed = new Map() // '<kind>:<spot index>' (kind: kitchen, lunch, party, or game) -> desk id: two workers never stand on one spot or sit on one chair
 // Where the worker of this view is now: { x, z, dx, dz, s, phase, got, trip, room }, or null at the desk. stepBreak() in model.js keeps the state.
 function breaks(v, t) {
   const d = v.desk, room = (id) => office.rooms.find((r) => r.id === id), kit = room('kitchen')
   const spots = { kitchen: kit.spots.length, party: room('party')?.spots.length ?? 0, lunch: kit.chairs.length }
-  // The trip kind: 'kitchen' (a counter spot), 'party' (a dance spot), or 'lunch' (a kitchen chair). A lunch route ends at the chair point.
-  const go = (kind, i) => (kind === 'lunch' ? route(office, d.id, kit.chairs[i], 'kitchen') : route(office, d.id, room(kind).spots[i], kind))
-  const a = stepBreak(trips, claimed, d.id, { idle: d.status === 'idle' && !d.away, seed: v.seed, spots, route: go }, t)
-  return a && { ...along(a.trip.path, a.s), ...a, room: a.trip.room === 'lunch' ? 'kitchen' : a.trip.room } // room: a room id for opens()
+  // The trip kind: 'kitchen' (a counter spot), 'party' (a dance spot), 'lunch' (a kitchen chair), or 'game' (a place at a game table).
+  // A lunch route ends at the chair point. Game place i is place i & 1 of table i >> 1, in the room of that table.
+  const game = (i) => office.games[i >> 1]
+  const go = (kind, i) => (kind === 'lunch' ? route(office, d.id, kit.chairs[i], 'kitchen') : kind === 'game' ? route(office, d.id, game(i).places[i & 1], game(i).room) : route(office, d.id, room(kind).spots[i], kind))
+  const a = stepBreak(trips, claimed, d.id, { idle: d.status === 'idle' && !d.away, seed: v.seed, spots, route: go, tables: office.games.map((g) => g.kind) }, t)
+  const to = a?.trip.room === 'lunch' ? 'kitchen' : a?.trip.room === 'game' ? office.games[a.trip.table].room : a?.trip.room
+  return a && { ...along(a.trip.path, a.s), ...a, room: to } // room: a room id for opens()
 }
 
 // ---- doors: closed. A walker opens its own door and the door of its target room (opens() in model.js), and the door closes after it. ----
@@ -511,17 +528,20 @@ function swing(dt) { // dt: the frame time in seconds, so a door moves at the sa
   }
 }
 
-const TAU = Math.PI * 2
+const TAU = Math.PI * 2, HIT = 0.8 // HIT: the seconds of one ping-pong ball crossing, from paddle to paddle
 // A worker on a trip stands and walks. The legs swing with the distance, the arms swing the other way. After the
 // kitchen the right hand holds the mug. It faces the way it moves, and the counter during the stay.
 // Near a door (see calm() in model.js) the arms hang and the mug hand stays low, so no hand goes through the open leaf or a post.
 // In the party room the stay is a dance: the worker faces the booth with a sway, at its own tempo and phase.
 // In a lunch stay the worker sits on its kitchen chair, faces the table, and eats from the plate.
+// In a game stay the worker sits at the chess table or stands with a paddle at the ping-pong table, and faces the table.
 function stroll(w, d, a, t) {
   const g = w.g, back = a.phase === 'back' || a.phase === 'rush', stay = a.phase === 'stay', tr = a.trip
   const dance = stay && tr.room === 'party', h = hash(d.id, 1e6), b = t * Math.PI * (1.6 + (h % 100) / 125) + h, beat = Math.sin(b) // 1.6 to 2.4 steps a second: a step is half a turn of b
   const chair = stay && tr.room === 'lunch' && office.rooms.find((r) => r.id === 'kitchen').chairs[+tr.spot.split(':')[1]] // tr.spot: 'lunch:<index>'
-  const to = dance ? (office.rooms.find((r) => r.id === tr.room).booth.z < a.z ? 0 : Math.PI) + 0.35 * Math.sin(b / 2) : chair ? (chair.rot * Math.PI) / 2 : stay ? 0 : Math.atan2(a.dx * (back ? 1 : -1), a.dz * (back ? 1 : -1))
+  const side = tr.room === 'game' && +tr.spot.split(':')[1] & 1, table = stay && tr.room === 'game' && office.games[tr.table] // tr.spot: 'game:<index>'. side 0: west
+  const place = table && table.places[side], seat = chair || place // a lunch chair point or a game place: the body point of the stay
+  const to = dance ? (office.rooms.find((r) => r.id === tr.room).booth.z < a.z ? 0 : Math.PI) + 0.35 * Math.sin(b / 2) : seat ? (seat.rot * Math.PI) / 2 : stay ? 0 : Math.atan2(a.dx * (back ? 1 : -1), a.dz * (back ? 1 : -1))
   const sw = stay ? 0 : 0.7 * Math.sin(a.s * 5), c = calm(Math.min(...office.rooms.map((r) => Math.hypot(a.x - r.door.x, a.z - r.door.z))))
   const hand = stay ? 1.2 + 0.1 * Math.sin(t * 2) : 0.1 + 1.1 * c // the angle of the mug arm
   tr.rot = tr.rot == null ? to : tr.rot + (to - tr.rot - Math.round((to - tr.rot) / TAU) * TAU) * 0.25 // the heading lives on the trip: a rebuild makes a new group
@@ -536,6 +556,31 @@ function stroll(w, d, a, t) {
   w.arms[0].rotation.x = -sw * c
   w.arms[1].rotation.x = a.got ? hand : sw * c
   w.plate.visible = !!chair
+  w.paddle.visible = table?.kind === 'pingpong'
+  if (place) { // a game: the body at the place, facing the table. A waiter, and a player after the game end, keep the arms down.
+    const chess = table.kind === 'chess', u = t - tr.begin // u: the time since the game began
+    g.position.set(place.x - d.x, 0.5, place.z - d.z)
+    w.sit.visible = chess
+    w.stand.visible = !chess
+    w.arms[0].rotation.x = w.arms[1].rotation.x = 0
+    if (!a.play) return
+    if (chess) { // both hands on the table. Each turn lasts 3 to 5 s (from begin, so both players agree). The west player moves in the
+      // even turns. The player in turn leans to the board and reaches with the right hand, out and back in 1.2 s.
+      const turn = 3 + hash(`${tr.begin}`, 200) / 100, k = Math.floor(u / turn), f = u - k * turn
+      const r = k % 2 === side && f < 1.2 ? Math.sin((Math.PI * f) / 1.2) : 0
+      w.arms[0].rotation.x = 1.2
+      w.arms[1].rotation.x = 1.2 + 0.3 * r // 1.5 or less: a hand over the shoulder means blocked
+      g.rotation.set(-0.2 * r, tr.rot, 0, 'YXZ') // YXZ: the lean turns the body about its own x axis, after the heading
+    } else { // the ball reaches the west paddle at begin and then each 2 HIT s, the east paddle HIT s later (rally()). The right arm
+      // stays at 1.4 or more, so the blade stays over the table top (0.77), and goes to 1.5 at the hit. The stroke is a turn of the
+      // body: back by 0.35 0.3 s before the hit, through 0 at the hit, 0.35 through after it, then back again before the next hit.
+      const e = (u - side * HIT) % (2 * HIT), dt = e > HIT ? e - 2 * HIT : e // the time from the nearest hit of this player
+      w.arms[0].rotation.x = 0.3
+      w.arms[1].rotation.x = 1.4 + 0.1 * Math.max(0, Math.cos((Math.PI * dt) / 0.6))
+      g.rotation.y = tr.rot + 0.35 * (Math.abs(dt) <= 0.3 ? Math.sin((Math.PI * dt) / 0.6) : Math.cos(Math.PI * (dt > 0 ? dt - 0.3 : dt + 1.3)))
+    }
+    return
+  }
   if (chair) { // lunch: sit on the chair (the body point), face the table, and eat. Every 3 to 5 s the right hand goes to the mouth in 1 s.
     g.position.set(chair.x - d.x, 0.5, chair.z - d.z)
     w.sit.visible = true
@@ -615,6 +660,26 @@ function disco(t) {
   for (const [c, f] of v.cones) c.scale.setScalar(dancing ? 1 + 0.15 * kick(t, f) : 1)
 }
 
+// ---- the ping-pong balls: a ball flies only while both players of its table play ----
+// A crossing takes HIT s. It starts at the paddle of the hitter, flies over the net, bounces once on the half of the receiver, and rises
+// to its paddle. So each rally of two crossings bounces once on each half. The west player hits first, at begin. A paddle hit point is
+// 0.65 from the place toward the table, 0.32 to the right of the player, and 0.96 high: the blade at the right arm angle 1.5 (stroll()).
+let balls = [] // table index -> the ball of a ping-pong table, or null for a chess table. build() makes them.
+const arc = (y0, y1, h, s) => y0 + (y1 - y0) * s + 4 * h * s * (1 - s) // from y0 to y1, h over the straight line at the middle
+function rally(t) {
+  balls.forEach((ball, i) => {
+    if (!ball) return
+    const [w, e] = [2 * i, 2 * i + 1].map((j) => trips.get(claimed.get(`game:${j}`))?.trip) // the west and the east player
+    ball.visible = w?.begin != null && e?.begin != null && w.begin <= t && t < Math.min(w.end, e.end) // a rush ends the game of the partner
+    if (!ball.visible) return
+    const { x, places: [p, q] } = office.games[i], u = (t - w.begin) / HIT, k = Math.floor(u), f = u - k // k: the crossing, f: the part of it
+    const west = [p.x + 0.65, p.z + 0.32], east = [q.x - 0.65, q.z - 0.32], [a, b] = k % 2 ? [east, west] : [west, east]
+    const fb = (x + (k % 2 ? -0.55 : 0.55) - a[0]) / (b[0] - a[0]) // the bounce, 0.55 from the net on the half of the receiver
+    const y = f < fb ? arc(0.96, 0.805, 0.3, f / fb) : arc(0.805, 0.96, 0.15, (f - fb) / (1 - fb)) // 0.805: the ball center on the top (0.77)
+    ball.position.set(a[0] + (b[0] - a[0]) * f, y, a[1] + (b[1] - a[1]) * f)
+  })
+}
+
 // ---- state looks, every frame from the latest status ----
 let moving = false // a worker walks this frame: its badge moves, so declutter() must look again
 const ARM = { working: [1.35, 1.35], blocked: [1.35, 3], done: [2.6, 2.6], idle: [0.2, 0.2], unknown: [0.2, 0.2] }
@@ -642,11 +707,12 @@ function pose(v, t) {
     w.g.position.set(0, 0.5, 0.4)
     w.g.rotation.set(s === 'idle' ? 0.25 : 0, 0, 0)
     w.sit.visible = true
-    w.stand.visible = w.mug.visible = w.plate.visible = false
+    w.stand.visible = w.mug.visible = w.plate.visible = w.paddle.visible = false
     w.arms[0].rotation.x = ARM[s][0] + bob
     w.arms[1].rotation.x = browsing ? 1.15 + 0.02 * Math.sin(t * 1.3 + k) : ARM[s][1] - bob // browsing: the right hand rests on the mouse
   }
   w.arms[1].rotation.z = !walk && browsing ? 0.3 : 0 // browsing: the arm turns out to the mouse
+  w.out = !!walk // on a trip: the click handler makes a walker box
   w.paper.visible = s === 'done'
   w.beacon.visible = s === 'blocked'
   w.beacon.scale.setScalar(1 + 0.25 * Math.sin(t * 8))
@@ -681,7 +747,7 @@ function update(next) {
   ])
   const s = JSON.stringify([rooms, office.terraces, office.desks.map((d) => [d.id, d.x, d.z, d.agent ? d.agent.kind ?? '?' : 0, d.away]), office.subagents.map((s) => [s.id, s.x, s.z, s.rot, s.model])])
   if (lay !== laid) { trips.clear(); claimed.clear(); laid = lay } // a change of the routes ends every trip
-  for (const d of office.desks) if (d.away || !d.agent) endBreak(trips, claimed, d.id) // the worker sits at the meeting table, or the agent quit: no worker, no trip
+  for (const d of office.desks) if (d.away || !d.agent) endBreak(trips, claimed, d.id, last) // the worker sits at the meeting table, or the agent quit: no worker, no trip. last: the frame time, so the game of a partner ends now
   if (s !== sig) {
     build(office)
     if (!sig) frame(office.rooms.find((r) => r.id === office.focus.workspaceId) ?? { x: 0, z: 0, w: office.bounds.w, d: office.bounds.d })
@@ -787,7 +853,7 @@ function open(id) {
   $('panel').hidden = false
   fill()
   renderMessages()
-  if (!DEMO) { // loadMessages() skips a desk that is not claude
+  if (!DEMO) { // loadMessages() skips a desk with no transcript
     loadMessages()
     timer = setInterval(loadMessages, 2000) // one timer: open() clears the old one
   }
@@ -802,7 +868,8 @@ const close = () => {
 
 // ---- last reply and the chat window: the messages come from GET /messages (transcript text: untrusted, textContent only) ----
 let timer = null, msgs = [], msgKey = ''
-const isClaude = () => office.desks.find((x) => x.id === selected)?.agent?.kind === 'claude'
+const CHAT = new Set(['claude', 'codex']) // the agent kinds with a transcript reader in the bridge
+const hasChat = () => CHAT.has(office.desks.find((x) => x.id === selected)?.agent?.kind)
 const atBottom = (e) => e.scrollHeight - e.scrollTop - e.clientHeight < 8
 function renderMessages(err) {
   const d = office.desks.find((x) => x.id === selected)
@@ -825,7 +892,7 @@ function renderMessages(err) {
 }
 async function loadMessages() {
   const id = selected
-  if (DEMO || !isClaude()) return
+  if (DEMO || !hasChat()) return
   let list, err
   try {
     const r = await fetch(`/messages?pane=${encodeURIComponent(id)}`, { headers: { 'x-office-token': TOKEN } })
@@ -858,7 +925,7 @@ function fill() {
   $('focus').disabled = DEMO || !target
   $('say').hidden = !d?.agent // only an agent desk takes a message: never a subagent or a shell
   for (const c of [...$('say').elements, ...$('reply').elements]) c.disabled = DEMO
-  $('last').hidden = d?.agent?.kind !== 'claude' // only a claude desk has a transcript
+  $('last').hidden = !CHAT.has(d?.agent?.kind) // only a claude or codex desk has a transcript
   if ($('last').hidden) $('chat').close() // the agent exited
   if (DEMO) $('lastText').textContent = 'no messages in the demo'
   let rows
@@ -926,7 +993,7 @@ renderer.domElement.addEventListener('click', (e) => {
     ...office.desks.map((d) => [d.id, d.x - 1, d.z - 0.8, d.x + 1, d.z + 0.9]),
     ...office.desks.filter((d) => d.away).map((d) => seated(d.id, d.away)),
     ...office.subagents.map((s) => seated(s.id, s)),
-    ...[...views].filter(([, v]) => v.worker?.stand.visible || v.worker?.plate.visible).map(([id, v]) => (v.worker.g.getWorldPosition(hip), [...sq(id, hip.x, hip.z), true])), // stroll() shows the standing legs or the plate on a trip only
+    ...[...views].filter(([, v]) => v.worker?.out).map(([id, v]) => (v.worker.g.getWorldPosition(hip), [...sq(id, hip.x, hip.z), true])), // pose() sets out for each worker on a trip
   ]) {
     pick.min.set(x0, 0, z0)
     pick.max.set(x1, 1.8, z1)
@@ -963,6 +1030,7 @@ renderer.setAnimationLoop((ms) => {
   ajar.clear()
   for (const v of views.values()) if (v.desk) pose(v, t)
   if (office) disco(t)
+  if (office) rally(t)
   if (office) swing(t - last)
   last = t
   if (moving && t > nextPass) { seen = ''; nextPass = t + 0.25 } // a walking badge: a few passes a second

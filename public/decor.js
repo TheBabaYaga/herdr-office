@@ -238,8 +238,8 @@ const workBench = (g, x, z, rot) => {
   box(o, [0.34, 0.08, 0.26], [-0.8, 0.78, 0.15], BOOKS[4])
   box(o, [0.3, 0.06, 0.24], [0.9, 0.78, -0.2], BOOKS[1])
 }
-// A chess table with two chairs, on a small rug.
-const chessTable = (g, x, z, rot) => {
+// A chess table with two chairs, on a small rug. A game table of the model passes chairs false and draws its own chairs.
+const chessTable = (g, x, z, rot, chairs = true) => {
   const o = at(g, x, z, rot)
   box(o, [1.2, 0.02, 1.9], [0, 0, 0], RUGS[3][1])
   box(o, [0.7, 0.05, 0.7], [0, 0.7, 0], WOOD_D)
@@ -247,6 +247,7 @@ const chessTable = (g, x, z, rot) => {
   box(o, [0.4, 0.04, 0.4], [0, 0, 0], DARK)
   for (let i = 0; i < 16; i++) if ((i + (i >> 2)) % 2) box(o, [0.12, 0.01, 0.12], [-0.18 + (i % 4) * 0.12, 0.75, -0.18 + (i >> 2) * 0.12], CREAM)
   for (const [a, b, c] of [[-0.18, -0.18, WHITE], [0.06, -0.06, WHITE], [0.18, 0.18, DARK], [-0.06, 0.06, DARK]]) box(o, [0.05, 0.1, 0.05], [a, 0.76, b], c)
+  if (!chairs) return
   chair(o, 0, -0.62, 0)
   chair(o, 0, 0.62, 2)
 }
@@ -407,6 +408,7 @@ const lounge = (g, x, z, rot) => {
 
 export function workspaceDecor(g, room) {
   const put = placer(g, room), n = room.number, { w, d } = room
+  gameTables(g, room, put)
   room.pods.forEach((p, i) => {
     const [c1, c2] = RUGS[(n + i) % RUGS.length], x = p.x - room.x + p.w / 2, z = p.z - room.z + p.d / 2
     box(g, [p.w + 0.5, 0.02, p.d + 0.5], [x, 0, z], c1)
@@ -448,6 +450,25 @@ const cafe = (g, x, z, rot) => {
   chair(o, -0.8, 0, 1)
   chair(o, 0.8, 0, 3)
   chair(o, 0, 0.8, 2)
+}
+
+// The game tables of the model (room.games, in world coords). A place is the body of a seated player and stands on a walk rect, so put()
+// would refuse it. Draw each table directly, and add its footprint to put.taken. Call it before the fixed props and the fill.
+// A chess table lies along x: the rug is 1.9 long, and the chairs stand west and east. Each chair stands as in kitchen(): 0.1 behind its
+// place, the back away from the table, so 0.72 from the table center. A ping-pong table has its long side along x.
+function gameTables(g, room, put) {
+  for (const t of room.games ?? []) {
+    const o = new THREE.Group(), x = t.x - room.x, z = t.z - room.z
+    if (t.kind === 'chess') {
+      chessTable(o, x, z, 1, false)
+      for (const p of t.places) chair(at(o, p.x - room.x, p.z - room.z, p.rot), 0, 0.1, 2)
+    } else pingPong(o, x, z, 0)
+    const b = new THREE.Box3().setFromObject(o)
+    // Take the union of the box and the model footprint (GAMES in model.js), so the players at the places stay clear too.
+    const f = t.kind === 'chess' ? 0.95 : 1.75
+    put.taken.push([Math.min(b.min.x, x - f), Math.min(b.min.z, z - 0.6), Math.max(b.max.x, x + f), Math.max(b.max.z, z + 0.6)])
+    g.add(...o.children)
+  }
 }
 
 export function kitchen(g, room) {
@@ -512,6 +533,7 @@ export function party(g, room) {
   booth(g, x, z, room.booth.rot)
   const fz0 = z0 - room.z, fz1 = z1 - room.z
   const put = placer(g, room, [x - 1.8, z - 0.45, x + 1.8, z + 0.45], [x0 - room.x, fz0, x1 - room.x, fz1])
+  gameTables(g, room, put)
   ;[[E, fz0 / 2, 1], [w - E, fz0 / 2, 3], [E, (fz1 + d) / 2, 1], [w - E, (fz1 + d) / 2, 3]].some(([x, z, r]) => put(lounge, x, z, r)) // on a side wall, beside the floor
   plants(put, corners(room), 2)
   furnish(put, room, PARTY)
@@ -617,13 +639,13 @@ export function terrace(g, t) {
 const pot = (g, x, z) => plant(g, x, z)
 const OFFICE = [
   [lounge, 'w'], [piano, 'w'], [aquarium, 'w'], [cabinets, 'w'], [credenza, 'w'], [lockers, 'w'], [vending, 'w'], [arcade, 'w'], [cooler, 'w'],
-  [printer, 'w'], [board16, 'w'], [bike, 'w'], [cafe, 's'], [nook, 's'], [highTable, 's'], [planter, 's'], [lowShelf, 's'], [pingPong, 's'],
-  [foosball, 's'], [chessTable, 's'], [workBench, 's'], [tree, 's'], [coatRack, 's'], [sofaCorner, 'f'], [flipChart, 'f'], [beanBag, 'f', 2],
+  [printer, 'w'], [board16, 'w'], [bike, 'w'], [cafe, 's'], [nook, 's'], [highTable, 's'], [planter, 's'], [lowShelf, 's'],
+  [foosball, 's'], [workBench, 's'], [tree, 's'], [coatRack, 's'], [sofaCorner, 'f'], [flipChart, 'f'], [beanBag, 'f', 2],
   [pot, 's', 2],
 ]
 const PARTY = [
   [bar, 'w'], [arcade, 'w'], [piano, 'w'], [vending, 'w'], [lounge, 'w'], [sofaCorner, 'f'], [drums, 'f'], [highTable, 's'], [foosball, 's'],
-  [pingPong, 's'], [planter, 's'], [tree, 's'], [coatRack, 's'], [beanBag, 'f', 2], [pot, 's', 2],
+  [planter, 's'], [tree, 's'], [coatRack, 's'], [beanBag, 'f', 2], [pot, 's', 2],
 ]
 const KITCHEN = [
   [vending, 'w'], [credenza, 'w'], [lockers, 'w'], [bike, 'w'], [highTable, 's'], [workBench, 's'], [nook, 's'], [planter, 's'], [tree, 's'],

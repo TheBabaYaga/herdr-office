@@ -1,12 +1,12 @@
-# herdhouse: intent
+# herdr-office: intent
 
-This file records what the user wants from herdhouse, and why. The code does not record it. Read this file before you change the office. Do not ask again about a settled decision. Do not add a cut feature again. If this file and the code disagree, ask the user.
+This file records what the user wants from herdr-office, and why. The code does not record it. Read this file before you change the office. Do not ask again about a settled decision. Do not add a cut feature again. If this file and the code disagree, ask the user.
 
 ## Purpose
 
 The user runs coding agents in herdr, a terminal multiplexer. The user wants to see those agents work in a real office, in 3D, in the browser. The office uses the herdr concepts: a workspace is a room, a pane is a desk, and an agent is a worker at that desk. One look tells the user which agent works, which agent waits for the user, and which agent finished.
 
-The office watches. It has two writes to herdr: a focus and a message. A click on "Focus in herdr" moves the herdr focus to that pane and brings WezTerm to the front. The message field in the panel sends a line of text to the agent (decision 21). herdr refuses a message to a blocked agent, so the office never answers a blocked question.
+The office watches. It has two writes to herdr: a focus and a message. A click on "Focus in herdr" moves the herdr focus to that pane and brings the terminal app to the front (decision 29). The message field in the panel sends a line of text to the agent (decision 21). herdr refuses a message to a blocked agent, so the office never answers a blocked question.
 
 `docs/herdr-agent-model.md` has the analysis of herdr. Its section 5 is the first design of the mapping. The table below shows the mapping in the code. Where the two differ, this file wins.
 
@@ -22,7 +22,7 @@ The office watches. It has two writes to herdr: a focus and a message. A click o
 | `working` | The worker types | Strong yellow `#ffd43b`. The screen glows and shows text that types and scrolls. |
 | `blocked` | The worker raises a hand | Red `#fa5252`. A red beacon pulses over the head. |
 | `done` | The worker raises a paper | Teal `#94e2d5`. |
-| `idle` | The worker reclines and browses. Now and then it walks to the kitchen for a coffee or a lunch, or dances in the party room. | Green `#a6e3a1`. The screen shows a fake web page or a video on a green background. See decision 19. |
+| `idle` | The worker reclines and browses. Now and then it walks to the kitchen for a coffee or a lunch, dances in the party room, or plays chess or ping-pong. | Green `#a6e3a1`. The screen shows a fake web page or a video on a green background. See decision 19. |
 | `unknown` | The worker is semi-transparent | Grey `#6c7086`. |
 | Focus (`focused_pane_id`) | A blue spotlight on the desk | The first view frames the room of the focused workspace. |
 | Roll-up | Door light, pod lamp, HUD | Rank: blocked > done > working > idle > unknown. |
@@ -36,7 +36,7 @@ The office watches. It has two writes to herdr: a focus and a message. A click o
 - A drag moves the view. The mouse wheel zooms to the mouse pointer. Labels declutter: a label that covers a more important one hides.
 - A click on a desk, a worker, or a HUD row opens the side panel. The panel shows kind, name, status, room, tab, cwd, title, and pane. A click on a worker on a trip also zooms in and follows that worker (decision 23).
 - The panel of an agent desk has a message field. Enter or "Send" sends the text to that agent. A subagent and a shell desk have no message field.
-- The panel of a claude desk shows the last reply of the agent. "Show all" opens a chat window in the middle of the screen with the conversation history and a field to answer. Esc or the x closes the window (decision 22).
+- The panel of a claude or codex desk shows the last reply of the agent. "Show all" opens a chat window in the middle of the screen with the conversation history and a field to answer. Esc or the x closes the window (decision 22).
 - `?demo` shows a simulated session with four workspaces ("api", "web", "docs", "infra") and one meeting. The focus button and the message field are off in the demo.
 
 ### Meetings
@@ -47,11 +47,11 @@ The office watches. It has two writes to herdr: a focus and a message. A click o
 - A subagent keeps its seat. When it ends, its chair stays empty, and nobody moves.
 - The panel of a subagent has "Focus orchestrator", which focuses the pane of the orchestrator.
 - With no meetings, one empty meeting room stays in the building.
-- For meetings, the bridge reads only metadata from `~/.claude/projects`. The browser gets transcript text only through the chat of a claude desk (decision 22). `CLAUDE.md` lists the files that the bridge reads.
+- For meetings, the bridge reads only metadata from `~/.claude/projects`. The browser gets transcript text only through the chat of a claude or codex desk (decision 22). `CLAUDE.md` lists the files that the bridge reads.
 
 ## Decisions
 
-The user made these decisions between 2026-10-03 and 2026-10-06.
+The user made these decisions between 2026-10-03 and 2026-10-20.
 
 1. The goal, in the user's words: "Analyze how herdr works with the agents ... build a 3D office (can be in threejs) that uses the same concepts where I can see my agents working in a real office." The analysis is in `docs/herdr-agent-model.md`.
 2. Watch, plus a click to focus. A desk click opens a panel, and "Focus in herdr" sends `pane.focus`. The office never prompts agents and never answers blocked questions. Decision 21 changed the first part: the office now sends messages. It still never answers a blocked question.
@@ -73,7 +73,7 @@ The user made these decisions between 2026-10-03 and 2026-10-06.
 15. Workers vary in look (skin, hair, trousers, accessories). The shirt color still shows the agent kind.
 16. Meetings: "Agents that are working together in a workflow should be together in a meeting room." The user chose Claude Code subagents and workflows, not herdr agents that share one repo.
 17. A SketchyBar item for herdr, with colors that the user chose. See "Related".
-18. A focus click also brings WezTerm to the front, in the user's words: "When clicking the focus in herdr button I want you to open up wezterm (which is probably open) so I can see the pane". The bridge runs `open -a WezTerm`, the same as the SketchyBar row click.
+18. A focus click also brings WezTerm to the front, in the user's words: "When clicking the focus in herdr button I want you to open up wezterm (which is probably open) so I can see the pane". The bridge first ran `open -a WezTerm`, the same as the SketchyBar row click. Decision 29 replaced the fixed app.
 19. Idle breaks, in the user's words: "Create it so that idle agents are either running around a bit to the kitchen like in a real office are they act like they're browsing the internet or so the have a bit more entertainment." This approves walks for idle workers only. An idle worker alternates two activities:
     - It browses at the desk. The monitor shows a fake web page or a video, and the worker keeps one hand on the mouse.
     - It walks to a free spot at the kitchen counter, stands there with a mug, and walks back. The first trip starts 5 to 30 s after the idle state starts. A stay lasts 6 to 15 s. Between two trips the worker browses for 20 to 60 s.
@@ -88,9 +88,9 @@ The user made these decisions between 2026-10-03 and 2026-10-06.
     - Only the panel of an agent desk has the field. A subagent and a shell desk have none.
     - The bridge sends the text with `agent.prompt`. herdr types the text and presses Enter.
     - herdr refuses a message to a blocked agent with `agent_blocked`, and the panel shows the error. So the office still never answers a blocked question.
-    - A message does not bring WezTerm to the front.
+    - A message does not bring the terminal to the front.
 22. The last reply and a chat window, in the user's words: "Can we display the last message of an agent when I focus on him? When the message is too big we should be able to click a button or so to view the entire message." The button opens "a new window in the middle of the screen where we can see the message and message history where we can scroll and also be able to answer directly. Pressing esc or the x should close that window again."
-    - The user chose the Claude Code transcripts as the source, not the herdr screen read. So the chat works for claude agents only. The history holds the user prompts and the agent replies, without thinking, tool calls, or tool results.
+    - The user chose the Claude Code transcripts as the source, not the herdr screen read. So the chat works for claude agents only. Decision 30 adds codex agents. The history holds the user prompts and the agent replies, without thinking, tool calls, or tool results.
     - This changes a safety rule: transcript text now goes to the browser. It goes only through `GET /messages`, on request and behind the token, never through the `/events` stream.
     - The bridge finds the transcript from the session id that herdr reports for the pane (`agent_session`). A pane without one gets the newest transcript of its cwd.
     - "When I focus on him" became a click on the desk: the panel opens and shows the last reply. The "Show all" button always shows, because the window also holds the history.
@@ -139,6 +139,25 @@ The user made these decisions between 2026-10-03 and 2026-10-06.
     - A lunch lasts 20 to 40 s. A coffee and a dance keep 6 to 15 s. If the status leaves `idle`, the worker runs back to the desk.
     - The model places the kitchen tables and their chairs, not the decor. A chair stands only on the west or the east side of a table, so no route crosses a table.
     - A lunch walker opens its own door and the kitchen door, like a coffee walker.
+28. Game tables, in the user's words: "If there is like a chess board setup an da ping pong table, I want the agents to be able to use it when they're free". The spec is `docs/superpowers/specs/2026-10-06-game-tables-design.md`.
+    - The user chose: two free workers pair up, the next free worker joins a waiting one (approach A), and the lobby chess table stays decor only. Decision 20 does not change.
+    - Only big rooms get game tables, in the user's words: "Only do it in big rooms, e.g. the current version has a very big room (not the demo variant)". A workspace room or the party room is big when its floor minus its pods is 80 m² or more. The main session chose the 80 after a measurement: the very big rooms of the user's office have 209 and 452 m², and the other rooms 37 to 64 m².
+    - A big room gets a ping-pong table and a chess table if both fit, else the one that fits. The model places them, on either side of the main walk line of the room. The fill pass no longer puts chess or ping-pong in a workspace room or the party room.
+    - A game is a fourth trip kind, next to a coffee, a lunch, and a dance. A worker that picks a game goes to a free table and waits up to 20 s after it arrives. While it waits, the next idle worker that starts a trip joins it, whatever its own pick. If nobody comes, the waiter walks back.
+    - Chess lasts 30 to 60 s, and ping-pong 20 to 40 s. Both players walk back at the end. If the status of one player leaves `idle`, it runs back, and the game of the other ends.
+    - Chess players sit and take turns to move a piece. Ping-pong players stand at the table ends with a paddle, and a white ball flies between them.
+    - In a room with its door in the south wall, that wall can hide a table near it from the camera.
+
+29. Any macOS terminal for the raise, in the user's words: "go with auto-detect ... if it can't be figured out we can show a selector on start up with a choice".
+    - At start, the bridge finds the `__CFBundleIdentifier` of each `herdr` process. herdr does not pass it to its panes, so the bridge cannot read its own environment. One id wins.
+    - With none or many ids, the bridge shows a numbered selector in the terminal: the detected ids, then WezTerm, Ghostty, iTerm, Terminal, kitty, Alacritty, Warp, and "none". Enter picks choice 1. Without a TTY it takes the first id, else WezTerm.
+    - At each click, the bridge detects again. One id wins. With none or many, it uses the start pick. So a move of herdr to another terminal needs no restart.
+    - The bridge reads only that one variable. It never logs or stores the rest of the environment.
+    - The raise brings the app to the front. It does not select the herdr window or the tab. It works on macOS only.
+30. The chat for Codex agents, in the user's words: "Codex agents with herdr, go with option A". The research is `docs/agent-independence.md`.
+    - herdr stays the only source of desks and statuses. herdr already detects Codex panes, so a codex desk already had its status, the focus button, and the message field.
+    - The panel of a codex desk now shows the last reply and the chat window, as for a claude desk. The bridge reads the Codex rollout files. `docs/idr/0001-codex-chat-from-rollout-files.md` records the technical choices.
+    - The office without herdr (options C and D of the research) is not built.
 
 ## Cut on purpose
 
@@ -161,7 +180,7 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 
 - The bar shows an icon and the count of working herdr agents.
 - A click opens a popup with one row per agent, blocked first.
-- A row click runs `herdr agent focus` for that pane and brings WezTerm to the front.
+- A row click runs `herdr agent focus` for that pane and brings WezTerm to the front. This is the SketchyBar item, not the bridge.
 - The user chose bright, high-contrast colors: blocked red, done ("ready") green, working orange, idle blue, unknown grey.
 - The popup has a solid black background. The office does not use these colors.
 
@@ -177,11 +196,13 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 - No test covers the fill pass, because Node cannot load three.js. A scratch check in Node (`docs/decor.md` "Check placement in Node") covered 288 rooms in 33 offices. A test in `test/walk.test.mjs` covers the narrow lanes under a short pod.
 - No test covers the terrace walls, the hedge, the grass, or the garden props, because Node cannot load three.js. A scratch check in Node copied the wall rules of `build()`. In 29 offices it found one wall on each edge, and no wall between two terraces. A placement check covered the props of 31 terraces. The browser check of the terraces is still open.
 - A row with a spare width just under 4 still stretches its rooms, by less than 4 in total. The user did not tune the 4.
-- Nobody tested "Focus in herdr" (with the WezTerm raise) or the SketchyBar row click against the live herdr. The tests use fake sockets and stubs.
+- Nobody tested "Focus in herdr" (with the terminal raise) or the SketchyBar row click against the live herdr. The tests use fake sockets and stubs.
 - The tests cover only the bridge side of a message. One browser check against a fake herdr socket covered the page side.
 - The message field holds one line. "ok" in the panel means that herdr typed the text. It does not prove that the agent started a turn.
 - The chat window shows only the history in the last 512 KB of the transcript. Older messages do not show.
 - A claude pane without a herdr `agent_session` gets the newest transcript of its cwd. If two claude panes share that cwd, both can show the same chat.
+- A codex pane without a herdr `agent_session` gets the newest top-level rollout of its cwd. If two codex panes share that cwd, both show the same chat. A `codex exec` run or an IDE session in the same cwd can also take the chat, because the fallback takes the newest top-level rollout of the cwd. The herdr codex integration is not installed, so this is the normal case.
+- The Codex rollout format is internal to Codex. A Codex update can break the chat of a codex desk.
 - The chat refreshes every 2 s while the panel is open. Replies show as plain text. Markdown does not render.
 - The tests cover the bridge side of the chat. A browser check with a fake herdr socket and a fake projects tree covered the page side.
 - The HUD box can cover labels in the top-left corner.

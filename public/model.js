@@ -69,6 +69,9 @@ const lastRow = (d, p) => d.z + 1.1 >= p.z + p.d - 1e-9
 const kitchenZ = (k) => k.z + 1.9 // the strip in front of the counter. The spots stand 1.35 from the north wall. A walker (0.39 wide) passes 0.55 south of them, clear of a stander (0.15 deep). It is also clear of the leaf of a north door (0.96 deep).
 // The strip between the door and the dance floor: d / 2 - 1.5 from the door wall, so 1.5 or more. The front row of dance spots is 1.0 behind it.
 const partyZ = (r) => r.z + r.d / 2 + sgn(r) * 1.5
+// The main walk line of a room: the line that the door lane meets. In a workspace room, it is the lane of the pod row nearest to the door.
+const mainZ = (r) => r.kind === 'kitchen' ? kitchenZ(r) : r.kind === 'party' ? partyZ(r) : laneZ(r, r.pods.reduce((a, p) => (sgn(r) * (p.z - a.z) > 0 ? p : a)))
+const hits = (a, b) => a[0] < b[2] - 1e-9 && b[0] < a[2] - 1e-9 && a[1] < b[3] - 1e-9 && b[1] < a[3] - 1e-9 // two rects [x0, z0, x1, z1] overlap
 
 // desks: the desks of the room, for the lane below each last-row desk of a south-door room.
 // In the kitchen the strip also reaches each chair, and a lane runs from the strip to each chair.
@@ -91,23 +94,78 @@ function walkRects(r, desks) {
   })
 }
 
-// The way from the seat of a desk to a spot in the room `to` (the kitchen or the party room): [[x, z], ...] with axis-aligned
+// Game tables, in the order of the search. fx: the half width of the footprint (chess: the rug and the chairs with their backs,
+// ping-pong: the players). The footprint of each kind is 1.2 deep. half: a place is this far west and east of the table center.
+// A lane to a place never crosses the table top: the chess top reaches 0.35 from the center, the ping-pong top 1.1.
+const GAMES = [['pingpong', 1.75, 1.55], ['chess', 0.95, 0.62]]
+const BIG = 80, PAD = 0.3 // a big room has this much free floor (m²). PAD: the gap round a table, as in placer() in decor.js
+// The game tables of a big workspace room or a big party room: a ping-pong table and a chess table if both fit, else the one that fits.
+// The search tries centers on a 0.25 grid, nearest to the main walk line first, on both sides of it. A table with its PAD stays inside
+// the room and off the pods, the lamp posts, the door area, the dance floor, the booth, the walk rects, and the other table. The main
+// walk line then reaches the x of each place, and a lane runs from it to each place. These rects go into r.walk. Each lane keeps off the
+// pods, the door area, the dance floor, the booth, and the other table, 0.4 from each lamp post, and 1.0 from each dance spot.
+// The main walk line already crosses the door area and touches the dance floor, so only the lanes get that test. Returns [{ kind, x, z, places }].
+// ponytail: a grid search, 16 centers for each m² and each kind. A table that fits only between two grid points is lost.
+function games(r) {
+  const area = r.pods.reduce((a, p) => a + p.w * p.d, 0)
+  if (!(r.kind === 'party' || (r.kind === 'workspace' && r.pods.length)) || r.w * r.d - area < BIG) return [] // a room with no pods has no main walk line
+  const s = sgn(r), mz = mainZ(r), y = stepX(r), E = 1e-9
+  const zone = [
+    R(r.door.x - 1.2, r.door.z, r.door.x + 1.2, r.door.z - s * 2), // the door area with the open leaf
+    ...(r.kind === 'party' ? [r.floor, [r.booth.x - 1.8, r.booth.z - 0.45, r.booth.x + 1.8, r.booth.z + 0.45]] : []), // with the speakers
+  ]
+  const keep = [
+    ...r.pods.map((p) => [p.x - PAD, p.z - PAD, p.x + p.w + PAD, p.z + p.d + PAD]),
+    ...r.pods.map((p) => [p.x - 0.65, p.z + 0.25, p.x - 0.35, p.z + 0.55]), // the lamp post (LAMP in decor.js), 0.3 wide
+    ...zone,
+  ]
+  // A lane rect reaches LANE to each side of its line. So a lane that misses these rects keeps its line 0.4 from a lamp post, 1.0 from a dance spot.
+  const posts = [...r.pods.map((p) => [p.x - 0.6, p.z + 0.3, p.x - 0.4, p.z + 0.5]), ...(r.spots ?? []).map((q) => [q.x - 0.7, q.z - 0.7, q.x + 0.7, q.z + 0.7])]
+  const at = []
+  for (let i = 0; i * 0.25 <= r.w + E; i++) for (let j = 0; j * 0.25 <= r.d + E; j++) at.push([r.x + i * 0.25, r.z + j * 0.25])
+  at.sort((a, b) => Math.abs(a[1] - mz) - Math.abs(b[1] - mz) || a[0] - b[0])
+  const out = []
+  for (const [kind, fx, half] of GAMES) {
+    const block = [...keep, ...r.walk, ...out.map((g) => g.core)], avoid = [...posts, ...out.map((g) => g.foot)]
+    for (const [x, z] of at) {
+      const f = [x - fx - PAD, z - 0.6 - PAD, x + fx + PAD, z + 0.6 + PAD], px = [x - half, x + half]
+      if (f[0] < r.x - E || f[1] < r.z - E || f[2] > r.x + r.w + E || f[3] > r.z + r.d + E) continue
+      if (block.some((k) => hits(f, k))) continue
+      const line = R(Math.min(y, px[0]) - LANE, mz - LANE, Math.max(y, px[1]) + LANE, mz + LANE), lanes = px.map((q) => R(q - LANE, mz, q + LANE, z))
+      if (hits(f, line) || lanes.some((l) => [...zone, ...r.pods.map((p) => [p.x, p.z, p.x + p.w, p.z + p.d])].some((k) => hits(l, k)))) continue
+      if ([line, ...lanes].some((l) => avoid.some((k) => hits(l, k)))) continue
+      r.walk.push(line, ...lanes)
+      out.push({ kind, x, z, places: [{ x: px[0], z, rot: 3 }, { x: px[1], z, rot: 1 }], foot: f, core: [x - fx, z - 0.6, x + fx, z + 0.6] })
+      break
+    }
+  }
+  return out.map(({ kind, x, z, places }) => ({ kind, x, z, places }))
+}
+
+// The way from the seat of a desk to a spot in the room `to` (the kitchen, the party room, or the room of a game table): [[x, z], ...] with axis-aligned
 // segments. Out of the chair to the side, then to the lane behind the desk row, around the pod on its east side (the lamp post
 // stands on the west side), along the pod row to the door lane, through the door on the free side of the leaf, along the corridor
 // centers (a band corridor joins the others through the cross corridor), then along the strip in front of the counter or the dance floor.
 // A lunch route is a kitchen route to a chair: from the strip it goes straight to the chair point, 0.8 beside the table.
+// A game route goes along the main walk line of the target room to the x of the place, then straight to the place. A desk in the room
+// of the table does not cross the door: it goes along the door lane to the main walk line.
 // ponytail: a room with two pod rows (wider than MAX_ROW) may get a route across the lower pod row. It has no lane between the rows.
 export function route(o, deskId, spot, to = 'kitchen') {
   const d = o.desks.find(k => k.id === deskId), r = o.rooms.find(k => k.id === d.roomId), k = o.rooms.find(k => k.id === to)
   const p = r.pods.find(q => q.id === d.podId), z = laneZ(r, p), lane = d.z + 1.1, e = p.x + p.w + 0.4, x = doorX(r), y = stepX(r)
-  const kz = bandZ(k), zr = Math.abs(bandZ(r) - kz) < 1e-6 ? kz : bandZ(r), X = o.corridors.at(-1), c = X.x + X.w / 2, kx = doorX(k), sz = k.kind === 'party' ? partyZ(k) : kitchenZ(k)
+  const kz = bandZ(k), zr = Math.abs(bandZ(r) - kz) < 1e-6 ? kz : bandZ(r), X = o.corridors.at(-1), c = X.x + X.w / 2, kx = doorX(k), sz = mainZ(k)
   const down = sgn(r) > 0 && lastRow(d, p) // the last desk row of a south door room walks straight down
   // ponytail: the worker stands up inside the chair and slides 0.65 aside through its edge (about 0.4 s at the start and at the end).
   // A clean exit needs a chair that moves, or a first step on the +z side of it.
   const sx = asideX(d) // first aside, past the chair back, then on
-  const pts = [[d.x, d.z + 0.4], [sx, d.z + 0.4], ...(down ? [[sx, z]] : [[sx, lane], [e, lane], [e, z]]), [y, z], [y, stepZ(r)], [x, stepZ(r)], [x, zr]]
-  if (zr !== kz) pts.push([c, zr], [c, kz])
-  pts.push([kx, kz], [kx, stepZ(k)], [stepX(k), stepZ(k)], [stepX(k), sz], [spot.x, sz], [spot.x, spot.z])
+  const pts = [[d.x, d.z + 0.4], [sx, d.z + 0.4], ...(down ? [[sx, z]] : [[sx, lane], [e, lane], [e, z]]), [y, z]]
+  if (r === k) pts.push([y, sz]) // the own room: along the door lane to the main walk line
+  else {
+    pts.push([y, stepZ(r)], [x, stepZ(r)], [x, zr])
+    if (zr !== kz) pts.push([c, zr], [c, kz])
+    pts.push([kx, kz], [kx, stepZ(k)], [stepX(k), stepZ(k)], [stepX(k), sz])
+  }
+  pts.push([spot.x, sz], [spot.x, spot.z])
   const out = []
   for (const q of pts) { // drop repeated points and the middle point of a straight run
     const b = out.at(-1), a = out.at(-2)
@@ -253,6 +311,7 @@ export function buildOffice(snap, meetings = [], prev = null) {
     party.booth = { x: cx, z: zb - s * 1.6, rot: s > 0 ? 0 : 2 }
   }
   for (const r of rooms) if (r.kind === 'workspace' || r === kit || r === party) r.walk = walkRects(r, desks) // decor.js keeps props off them
+  for (const r of rooms) r.games = games(r) // after the walk rects: a table keeps off them, and its lanes join them
 
   // Meeting tables: centered, a chair at the head (the -x end: a back wall, so the orchestrator faces the camera) and
   // along both long sides. A seat is the origin of a desk-like group: it faces -z before rot quarter turns, the table
@@ -288,6 +347,7 @@ export function buildOffice(snap, meetings = [], prev = null) {
     rooms, desks, counts, subagents,
     focus: { workspaceId: snap.focused_workspace_id, tabId: snap.focused_tab_id, paneId: snap.focused_pane_id },
     bounds: { w: W + HALL, d: z }, corridors, terraces,
+    games: rooms.flatMap((r) => r.games.map((g) => ({ room: r.id, ...g }))), // table t is games[t]
     entrance: { x: lobby.x + lobby.w / 2, z }, // in the lobby's outer +z wall
   }
 }
@@ -295,19 +355,22 @@ export function buildOffice(snap, meetings = [], prev = null) {
 // ---- Idle breaks: how long a worker walks and waits. The scene draws it, the model keeps the numbers pure. ----
 
 export const WALK = 1.6, RUN = 4 // world units a second
+export const WAIT = 20 // a worker at a game table waits this long (s) after it arrives. If nobody joins in that time, it walks back
 // How free the arms of a walker are, from the distance to the nearest door center: 0 up to 1.4, 1 from 2.0. An open leaf reaches 0.96
 // into the room, so near a door the arms hang and the mug hand stays low (stroll() in office.js).
 export const calm = (dd) => Math.min(1, Math.max(0, (dd - 1.4) / 0.6))
 // The ids of the rooms whose door the walker of desk d opens, at a = { x, z, phase, room }: its own room and its target room a.room,
 // within 3 of the door center. A runner needs about 0.4 s from 3 to the sweep of the leaf (the door lane, about 1.35 from the center),
 // so the door has time to open. Another door in a corridor stays closed. In the stay the door of the target room closes.
-export const opens = (o, d, a) => a.phase === 'stay' ? [] :
+// A walker to a game table in its own room never leaves the room, so it opens no door.
+export const opens = (o, d, a) => a.phase === 'stay' || a.room === d.roomId ? [] :
   o.rooms.filter((r) => (r.id === d.roomId || r.id === a.room) && Math.hypot(a.x - r.door.x, a.z - r.door.z) < 3).map((r) => r.id)
 export const hash = (s, m = 360) => [...(s ?? '')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % m, 0)
 
 // The browse wait before trip n, the stay, and the lunch stay, in seconds, for one idle stretch. The first trip comes sooner.
-// pick: a number in [0, 1) that picks the first kind of trip n in stepBreak(). Each value has its own index i, so a new value keeps the others.
-// The index 6 of pick gives the two long-idle demo agents a dance, a lunch, and a counter trip. The index 2 held the old party coin.
+// pick: a number in [0, 1) that picks the first kind of trip n in stepBreak(). game: a number in [0, 1) that sets the game time of a
+// waiter (chess 30 to 60 s, ping-pong 20 to 40 s). Each value has its own index i, so a new value keeps the others. The index 2 held
+// the old party coin.
 export function breakPlan(seed, n) {
   const u = (i) => { // a mixed number in [0, 1) for each plan value i
     let h = Math.imul((seed ^ Math.imul(n + 1, 0x9e3779b1)) + i * 0x85ebca6b, 0xc2b2ae35)
@@ -315,7 +378,7 @@ export function breakPlan(seed, n) {
     return ((h ^ (h >>> 13)) >>> 0) / 4294967296
   }
   const [lo, hi] = n ? [20, 60] : [5, 30]
-  return { wait: lo + u(0) * (hi - lo), stay: 6 + u(1) * 9, lunch: 20 + u(3) * 20, pick: u(6) }
+  return { wait: lo + u(0) * (hi - lo), stay: 6 + u(1) * 9, lunch: 20 + u(3) * 20, pick: u(6), game: u(7) }
 }
 
 // The point at distance s on a polyline (s is clamped) and the unit direction of its segment.
@@ -348,9 +411,17 @@ export const pathLen = (path) => path.slice(1).reduce((s, q, i) => s + Math.hypo
 // The trip bookkeeping of one worker, once a frame. trips: desk id -> { n, next, trip }, n is the next trip, next is when it starts
 // and trip is the one that runs now. claimed: '<kind>:<spot index>' -> desk id, so two workers never take one spot.
 // idle: the worker may take a break. spots: the spot count of each kind, { kitchen, lunch, party }: the counter spots, the kitchen
-// chairs, and the dance spots. A missing or 0 count means that the office has no such spot. route(kind, i): the path to spot i of kind.
-// Returns { s, phase, got, trip } for a worker on a trip, or null for a worker at the desk. trip.room is the kind: 'kitchen', 'lunch', or 'party'.
-export function stepBreak(trips, claimed, id, { idle, seed, spots, route }, t) {
+// chairs, and the dance spots. A missing or 0 count means that the office has no such spot. tables: the kind of each game table
+// (office.games), or missing. Table t has the places 2t (west) and 2t + 1 (east), so the kind 'game' has 2 * tables.length places.
+// route(kind, i): the path to spot i of kind.
+// Returns { s, phase, got, play, trip } for a worker on a trip, or null for a worker at the desk. trip.room is the kind: 'kitchen',
+// 'lunch', 'party', or 'game'. play: true while two players play their game.
+// A game trip also has table, partner (the desk id of the other player, or null), and begin and end (the game times, or null).
+// A worker that starts a trip first looks for a waiter: a worker alone at a table, with no rush, in its first WAIT s at the table.
+// It then takes the other place of that table, whatever its pick. The game begins when the later player arrives, and lasts the game
+// time of the waiter. Both stays end at the game end. A waiter that nobody joins stays WAIT s. A rush of one player ends the game of
+// the other: its stay ends now, or at its arrival.
+export function stepBreak(trips, claimed, id, { idle, seed, spots, route, tables = [] }, t) {
   let b = trips.get(id)
   if (!b) {
     if (!idle) return null
@@ -359,20 +430,39 @@ export function stepBreak(trips, claimed, id, { idle, seed, spots, route }, t) {
   if (!b.trip) {
     if (!idle) return trips.delete(id), null
     if (t < b.next) return null
-    const free = (room) => { // a free spot of the kind, from a start that differs for each worker
-      const n = spots[room] ?? 0, i = Array.from({ length: n }, (_, j) => (j + seed) % n).find((j) => !claimed.has(`${room}:${j}`))
+    const count = { ...spots, game: 2 * tables.length }, open = (room, j) => !claimed.has(`${room}:${j}`) && (room !== 'game' || !claimed.has(`game:${j ^ 1}`))
+    const free = (room) => { // a free spot of the kind, from a start that differs for each worker. A free game place has a free table
+      const n = count[room] ?? 0, i = Array.from({ length: n }, (_, j) => (j + seed) % n).find((j) => open(room, j))
       return i === undefined ? null : [room, i]
     }
-    // plan.pick picks the first kind. A full kind sends the worker to the next kind in the order kitchen, lunch, party.
-    const plan = breakPlan(seed, b.n), kinds = ['kitchen', 'lunch', 'party'].filter((k) => spots[k] > 0), first = kinds.splice(Math.floor(plan.pick * kinds.length), 1)
-    const pick = [...first, ...kinds].map(free).find(Boolean)
+    const plan = breakPlan(seed, b.n)
+    let pick = null, mate = null
+    for (let k = 0; k < tables.length && !pick; k++) { // a waiter first: one place of table k is taken, the other is free
+      const [w, e] = [2 * k, 2 * k + 1].map((j) => claimed.get(`game:${j}`))
+      if ((w === undefined) === (e === undefined)) continue
+      const other = trips.get(w ?? e)?.trip
+      if (other?.partner === null && other.rush == null && t < arrive(other) + WAIT) { pick = ['game', w === undefined ? 2 * k : 2 * k + 1]; mate = w ?? e }
+    }
+    if (!pick) { // plan.pick picks the first kind. A full kind sends the worker to the next kind in the order kitchen, lunch, party, game.
+      const kinds = ['kitchen', 'lunch', 'party', 'game'].filter((k) => count[k] > 0), first = kinds.splice(Math.floor(plan.pick * kinds.length), 1)
+      pick = [...first, ...kinds].map(free).find(Boolean)
+    }
     if (!pick) { b.next = t + breakPlan(seed, ++b.n).wait; return null } // no free spot: keep browsing
     const [room, i] = pick, path = route(room, i)
     claimed.set(`${room}:${i}`, id)
-    b.trip = { len: pathLen(path), start: t, stay: room === 'lunch' ? plan.lunch : plan.stay, path, room, spot: `${room}:${i}`, got: false }
+    b.trip = { len: pathLen(path), start: t, stay: room === 'lunch' ? plan.lunch : room === 'game' ? WAIT : plan.stay, path, room, spot: `${room}:${i}`, got: false }
+    if (room === 'game') {
+      const k = i >> 1, game = tables[k] === 'chess' ? 30 + 30 * plan.game : 20 + 20 * plan.game // the game time, if this worker is the waiter
+      Object.assign(b.trip, { table: k, partner: null, begin: null, end: null, game })
+      if (mate !== null) { // the join: both stays end at the game end
+        const other = trips.get(mate).trip, begin = Math.max(arrive(other), arrive(b.trip)), end = begin + other.game
+        Object.assign(other, { partner: id, begin, end, stay: end - arrive(other) })
+        Object.assign(b.trip, { partner: mate, begin, end, stay: end - arrive(b.trip), game: other.game })
+      }
+    }
   }
   const trip = b.trip
-  if (!idle && trip.rush == null) trip.rush = t // the status changed: run back
+  if (!idle && trip.rush == null) { trip.rush = t; quit(trips, id, t) } // the status changed: run back. The game of the partner ends
   const { s, phase } = tripAt(trip, t)
   if (phase === 'done') {
     claimed.delete(trip.spot)
@@ -382,14 +472,24 @@ export function stepBreak(trips, claimed, id, { idle, seed, spots, route }, t) {
     return null
   }
   if (phase === 'stay' && trip.room === 'kitchen') trip.got = true // the mug at the counter. A lunch and a dance get none
-  return { s, phase, got: trip.got, trip }
+  return { s, phase, got: trip.got, play: phase === 'stay' && trip.begin != null && trip.begin <= t && t < trip.end, trip }
 }
 
-// A worker leaves the idle breaks for good (it moves to a meeting seat): drop its state and free its spot, chair, or dance spot
-// (the claimed key in trip.spot).
-export function endBreak(trips, claimed, id) {
+const arrive = (trip) => trip.start + trip.len / WALK // the time when a trip reaches its spot
+// The player id leaves its game at time t: the stay of its partner ends at t, or at the arrival of the partner if that is later.
+// The partner then walks back and waits for nobody. After the game end, both already walk back, so nothing changes: a longer stay
+// would move the partner back toward the table.
+function quit(trips, id, t) {
+  const other = trips.get(trips.get(id)?.trip?.partner)?.trip
+  if (other?.partner === id && t < other.end) Object.assign(other, { end: t, stay: Math.max(0, t - arrive(other)) })
+}
+
+// A worker leaves the idle breaks for good (it moves to a meeting seat): drop its state and free its spot, chair, dance spot, or game
+// place (the claimed key in trip.spot). t: the time now. The game of its partner ends at t.
+export function endBreak(trips, claimed, id, t) {
   const spot = trips.get(id)?.trip?.spot
   if (spot !== undefined) claimed.delete(spot)
+  quit(trips, id, t)
   trips.delete(id)
 }
 

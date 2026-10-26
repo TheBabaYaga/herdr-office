@@ -1,6 +1,6 @@
-# herdhouse docs
+# herdr-office docs
 
-These docs describe the code of herdhouse, with one doc for each source area. `CLAUDE.md` holds the contracts between the files and the safety rules, and `INTENT.md` holds the decisions of the user and the cut features.
+These docs describe the code of herdr-office, with one doc for each source area. `CLAUDE.md` holds the contracts between the files and the safety rules, and `INTENT.md` holds the decisions of the user and the cut features.
 
 ## Which doc to read
 
@@ -10,7 +10,7 @@ These docs describe the code of herdhouse, with one doc for each source area. `C
 | Status ranks, colors, and the roll-up | `docs/model.md` "Status", `docs/office.md` "Pitfalls" (a new status) | `rollup()`, `STATUS_RANK`, `STATUS_COLOR`, `COLOR`, `ARM` |
 | Labels and decluttering | `docs/office.md` "declutter()", "update()", the recipe "A new label" | `label()`, `declutter()`, `update()` (`tags`) |
 | The HUD and the panel | `docs/office.md` "HUD", "Panel". The markup is in `public/index.html` (`#hud`, `#panel`, `#chat`) | `hud()`, `el()`, `setOnline()`, `open()`, `close()`, `fill()`, `act()` |
-| The last reply and the chat window | `docs/office.md` "Panel", `docs/bridge.md` "`messagesIn(text)`", "`readMessages(projects, pane, limit = 100)`", "`GET /messages` branch" | `loadMessages()`, `renderMessages()`, `readMessages()`, `messagesIn()` |
+| The last reply and the chat window | `docs/office.md` "Panel", `docs/bridge.md` "`messagesIn(text)`", "`readMessages(projects, pane, limit = 100)`", "`GET /messages` branch" | `loadMessages()`, `renderMessages()`, `readMessages()`, `messagesIn()`, `readCodexMessages()`, `codexMessagesIn()` |
 | Camera and picking | `docs/office.md` "Camera", "Picking" | `resize()`, `fit()`, `frame()`, `keepInView()`, the canvas `pointerdown` and `click` handlers |
 | The floor plan, the room layout, and the terraces | `docs/model.md` "Pods and desks", "buildOffice(snap, meetings = [], prev = null)". `docs/office.md` "Floors and walls", "Build and bake" | `buildOffice()`, `podLayout()`, `spread()`, `build()`, `inner()`, `outer()`, `stub()` |
 | Kitchen and party trips, and routes | `docs/model.md` "Walk geometry", "route(o, deskId, spot, to = 'kitchen')", "Breaks". `docs/office.md` "Idle breaks" | `route()`, `walkRects()`, `stepBreak()`, `endBreak()`, `tripAt()`, `breakPlan()`, `along()`, `breaks()`, `stroll()` |
@@ -61,6 +61,7 @@ follow -> goal glide -> zoom glide -> controls.update() -> keepInView() -> label
        typing() or browse()                 the screen
        stroll(), opens() -> ajar            the walk or the dance (sets dancing), and the doors to open: its own room and its target room
   -> disco(t)                               the party room parts, on only while a worker dances
+  -> rally(t)                               the ping-pong balls, on only while both players of a table play
   -> swing(t - last)
   -> seen = '' while a worker walks, at most 4 times a second
   -> renderer.render() -> labels.render() -> declutter()
@@ -75,13 +76,13 @@ click on a desk, a seat, or a worker on a trip (not a drag), or a HUD row
   -> "Focus in herdr" button      act(): fetch POST /action, header x-office-token, body { type: 'focus', pane_id }
   -> bridge.mjs handle()          Host check, token check, body check
   -> herdrRequest(sock, 'pane.focus', { pane_id })
-  -> raise(): open -a WezTerm     a failure does not change the reply
+  -> raiser(): detect again, then open -b <bundle id>   one herdr terminal wins, else the start pick. A failure does not change the reply
   -> 200 { ok: true }             #result shows "ok: herdr focused <id>"
 
-the read path (claude desks only, not in the demo)
+the read path (claude and codex desks only, not in the demo)
   -> open(id) -> loadMessages()   fetch GET /messages?pane=<id>, header x-office-token, then each 2000 ms
   -> bridge.mjs handle()          Host check, token check, pane check, snap
-  -> readMessages(claudeDir, pane) the last 512 KB of the transcript, messagesIn()
+  -> readers.get(pane.agent)      claude: readMessages(claudeDir, pane) and messagesIn(). codex: readCodexMessages(codexDir, pane) and codexMessagesIn()
   -> 200 { messages }             #lastText shows the last agent reply. "Show all" opens #chat
 
 the message field (agent desks only), Enter or "Send"; #reply in the chat window works the same
@@ -146,11 +147,11 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - live: the `Set` of objects that `bake()` does not merge, because their look changes after the build.
 - tags: the label elements that `declutter()` checks, highest priority first. `update()` fills it.
 - bake: `bake()` merges the static meshes of a build into one mesh for each material.
-- route: the path `[[x, z], ...]` from the worker seat to a spot in the kitchen or the party room, from `route()` in `model.js`.
+- route: the path `[[x, z], ...]` from the worker seat to a spot in the kitchen, the party room, or at a game table, from `route()` in `model.js`.
 - lane: a strip of floor that a route follows: the lane behind the desk row, the row lane (`laneZ()`), and the door lane (`stepX()`). A walk rect reaches `LANE` (0.3) to each side of a route line.
 - spot: a standing place at the end of a trip, an entry of `room.spots`: in front of the kitchen counter, or a dance spot in the party room. One worker holds a spot at a time (`claimed`).
 - dance spot: a standing place on the dance floor of the party room, an entry of `room.spots` of that room. The spots stand in a front row and a back row, 2.0 apart in a row.
-- trip: one walk to a spot in the kitchen or the party room and back, `trips.get(deskId).trip`. `trip.room` is `kitchen` or `party`, and the coin of `breakPlan()` picks it. Its phases are `out`, `stay`, `back`, `rush`, and `done` (`tripAt()`).
+- trip: one walk to a spot in the kitchen, the party room, or at a game table and back, `trips.get(deskId).trip`. `trip.room` is `kitchen`, `lunch`, `party`, or `game`, and `breakPlan().pick` picks the first kind. A worker that joins a waiter at a game table takes the kind `game`, whatever its pick. Its phases are `out`, `stay`, `back`, `rush`, and `done` (`tripAt()`).
 - rush: the run back at `RUN` (4) when the status leaves `idle` during a trip. `trip.rush` holds the start time of the run.
 - claimed: the `Map` from a spot key `'<room>:<index>'` (for example `'kitchen:0'` or `'party:3'`) to the desk id that holds the spot. `stepBreak()` and `endBreak()` change it.
 - lay: the JSON of the route inputs in `update()`. A change clears `trips` and `claimed`, so every trip ends.
@@ -160,7 +161,7 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - status: the agent state: `blocked`, `done`, `working`, `idle`, or `unknown`, with the ranks 4 to 0 in `STATUS_RANK`.
 - roll-up: the highest-ranked status of a tab or a workspace. The model uses the herdr `agent_status`, and calls `rollup()` only when herdr sends none.
 - focus: the herdr focus in `office.focus` (`workspaceId`, `tabId`, `paneId`) and `desk.focused`. The blue `spot` light marks the focused desk, and "Focus in herdr" sends `pane.focus`.
-- message: one entry of an agent conversation: a user prompt, an agent reply, or a subagent message (a message from another agent, with `from`). The panel fields (`#say`, `#msg`, `#reply`, `#replyMsg`) send a user message as `type: 'prompt'`, and the bridge sends it as `agent.prompt`. `GET /messages` gives the messages of one claude pane.
+- message: one entry of an agent conversation: a user prompt, an agent reply, or a subagent message (a message from another agent, with `from`). The panel fields (`#say`, `#msg`, `#reply`, `#replyMsg`) send a user message as `type: 'prompt'`, and the bridge sends it as `agent.prompt`. `GET /messages` gives the messages of one claude or codex pane.
 
 ## docs/herdr-agent-model.md
 

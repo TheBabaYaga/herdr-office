@@ -20,8 +20,9 @@
 | `sig`, `laid` | the build signature and the last `lay` (route inputs), as JSON | `update()` | page |
 | `views` | id -> view (see "View shapes") | the build and screen functions, `pose()`, `update()` (`v.desk`) | one build |
 | `world`, `live` | the group of one build, and the objects that `bake()` does not merge | `build()` and the build functions | one build |
-| `trips`, `claimed` | desk id -> `{ n, next, trip }`, and the spot key `'<kind>:<index>'` (kind: `kitchen`, `lunch` for a kitchen chair, or `party`) -> desk id | `stepBreak()`, `endBreak()`, `update()` (clears on a `lay` change), `stroll()` (`trip.rot`) | page |
+| `trips`, `claimed` | desk id -> `{ n, next, trip }`, and the spot key `'<kind>:<index>'` (kind: `kitchen`, `lunch` for a kitchen chair, `party`, or `game` for a place at a game table) -> desk id | `stepBreak()`, `endBreak()`, `update()` (clears on a `lay` change), `stroll()` (`trip.rot`) | page |
 | `doors` | room id -> the door angle now | `swing()` | page. A rebuild keeps it |
+| `balls` | table index in `office.games` -> the ball of a ping-pong table (in `live`), or `null` for a chess table | `build()` | one build |
 | `ajar`, `moving`, `dancing` | the room ids whose door a walker opens, whether a worker walked, and whether a worker danced, in this frame | frame loop resets, `pose()` sets (`dancing` through `stroll()`) | one frame |
 | `last` | the time of the last frame in seconds, 0 at first | frame loop | page |
 | `tags` | the label elements, highest priority first | `update()` | one update |
@@ -31,7 +32,7 @@
 | `goal` | the point that the camera target glides to, or `null` | HUD row click, frame loop (from `follow`). Frame loop, `keepInView()`, and pointerdown clear it | until reached |
 | `follow`, `zoomTo`, `tracked` | the desk id of the followed walker, the zoom that the camera glides to, and the world point of the followed worker | click handler (walker hit), frame loop. `open()`, `close()`, and pointerdown clear `follow`. Pointerdown, `wheel`, and the frame loop clear `zoomTo` | until cleared |
 | `selected`, `target`, `down` | the panel id, the pane id to focus or to message, the last pointerdown | `open()`, `fill()`, pointerdown | page |
-| `timer`, `msgs`, `msgKey` | the 2000 ms refresh timer, the messages of the open claude desk, and their JSON | `open()`, `close()`, `loadMessages()`, `renderMessages()` | page |
+| `timer`, `msgs`, `msgKey` | the 2000 ms refresh timer, the messages of the open claude or codex desk, and their JSON | `open()`, `close()`, `loadMessages()`, `renderMessages()` | page |
 
 `COLOR` is `STATUS_COLOR` as `THREE.Color`. `GLASS`, `SKY`, and `glow` are marked by `shared()`. `haloGeo` is one plane for all halos.
 
@@ -45,7 +46,7 @@
 - Subagent view, from `attendee(s)`: `desk` is a fixed `{ status: 'working' }` that `update()` never replaces. It has `screen`, `halo`, `logo` (`false` for `rot` 0 or 1), `phase`, and `worker`, and no `seed`.
 - Later fields: `ctx` and `tex` (`screenCtx()`), `typed` (`typing()`), `shown` (`browse()`).
 
-Worker object, from `worker()`: `g` (the body group, in `live`, at `(0, 0.5, 0.4)` in its parent), `arms` (`[0]` is the -x arm), `sit`, `stand`, `legs` (the hip pivots in `stand`), `mug`, `plate` (a group at the table top in front of the body, made after `mats`, so it never fades), `paper`, `beacon`, `mats`, and `badge`. The part sizes and heights are in `worker()`. Add 0.5 to a `g` y for the world y.
+Worker object, from `worker()`: `g` (the body group, in `live`, at `(0, 0.5, 0.4)` in its parent), `arms` (`[0]` is the -x arm), `sit`, `stand`, `legs` (the hip pivots in `stand`), `mug`, `plate` (a group at the table top in front of the body, made after `mats`, so it never fades), `paddle` (a group in `arms[1]`, made after `mats`), `paper`, `beacon`, `mats`, and `badge`. `pose()` adds `out`: true while the worker is on a trip. The part sizes and heights are in `worker()`. Add 0.5 to a `g` y for the world y.
 
 The face of a worker is on local -z. At a desk the camera sees its back and its +x side. At the head seat (`rot` 3) it faces +x, toward the camera, so a flat mark that reads correctly at a desk reads mirrored there.
 
@@ -53,7 +54,7 @@ The face of a worker is on local -z. At a desk the camera sees its back and its 
 
 At start, the module makes the renderers, the scene, the camera, and the handlers, then starts the frame loop. The data source block at the end of the file makes the first `update()`.
 
-The update path, the frame order, and the click path are in `docs/README.md` "Data flow". `update()` is the only caller of `build()`. The frame loop is the only caller of `pose()`, `disco()`, `swing()`, `keepInView()`, and `declutter()`.
+The update path, the frame order, and the click path are in `docs/README.md` "Data flow". `update()` is the only caller of `build()`. The frame loop is the only caller of `pose()`, `disco()`, `rally()`, `swing()`, `keepInView()`, and `declutter()`.
 
 ## Functions
 
@@ -84,7 +85,7 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
      - the -x edge (the last room of the row) and the +x edge (the cross corridor), always.
      - the -z edge, when `z` is more than 0. A terrace in the row behind shares the span from the larger x of the two to `W`. That span gets no wall, so the two terraces make one courtyard.
      - the +z edge, only when the band corridor is in front. Else the rooms or the terrace of the next row draw it, or the south stub stands there.
-  5. The outer walls, then `desk()` for each desk and `attendee()` for each subagent.
+  5. The outer walls, then `desk()` for each desk and `attendee()` for each subagent, then `balls`: a hidden white ball (0.07, in `live`) for each ping-pong table of `office.games`.
   6. `bake()`, the sun, and the shadow flags. A material with `depthWrite` false (the glass, a light beam, a halo) casts no shadow.
 - `bake()`: skips each object in `live` with its subtree. It merges the meshes of each material with 2 or more meshes into one mesh, and marks its geometry `userData.merged`.
 
@@ -93,7 +94,8 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 - `desk(d)`: the desk, the monitor, the `screen` (in `live`), the keyboard and mouse for an agent, the chair, and `clutter()`. With `d.away`, `seatAt(d.away)` makes the head seat, the worker sits there, and the desk screen stays black. Sets the desk view.
 - `seatAt(s)`: a group at the seat, turned `s.rot` quarter turns, with a laptop, a `screen` and a `halo` (in `live`), and a `logo` when `s.rot > 1`. The chair comes from `meeting()` in `decor.js`.
 - `attendee(s)`: `seatAt(s)` and a worker with the shirt of the model family. It has its own family match, with `'subagent'` as the fallback. Sets the subagent view.
-- `worker(parent, d)`: builds the worker in `g`. Each part gets its own material (`lit()` or `fresh()`), so `pose()` can set the opacity per worker. The look comes from `hash(d.terminalId ?? d.id, 1e9)` through the local mixer `r(n, i)`, and the shirt from `shirt(d.agent.kind)` only. It collects `mats` last.
+- `worker(parent, d)`: builds the worker in `g`. Each part gets its own material (`lit()` or `fresh()`), so `pose()` can set the opacity per worker. The look comes from `hash(d.terminalId ?? d.id, 1e9)` through the local mixer `r(n, i)`, and the shirt from `shirt(d.agent.kind)` only. It collects `mats`, then makes `plate` and `paddle` with cached colors. Only an idle worker shows them, so they never fade.
+- The `paddle` group turns with the right arm. It holds a handle (0.05 x 0.08 x 0.05) past the hand and a blade (0.2 x 0.03 x 0.2) across the arm at 0.58 to 0.61 from the shoulder, both `#b06a4f`. So the blade faces forward when the arm points forward.
 
 ### Screens
 
@@ -103,8 +105,13 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 ### Idle breaks
 
-- `breaks(v, t)`: calls `stepBreak()` with the counts of the kitchen spots, the party spots (0 without a party room), and the kitchen `chairs` (`lunch`), and a route for each trip kind. A lunch route goes to `kitchen.chairs[i]` in the room `kitchen`. Then it calls `along()`. It returns where the worker is on its trip, or `null` at the desk (always for a subagent). Its `room` is the target room id: `kitchen` for a lunch trip, because `opens()` takes a room id. `a.trip.room` keeps the kind. `pose()` passes this result to `opens()`.
-- `stroll(w, d, a, t)`: poses a worker on a trip, as `CLAUDE.md` "Scene conventions" describes. The arm swing and the mug hand use `calm()` of the nearest door. In the stay of a party trip, it adds the dance and sets `dancing`. In the stay of a lunch trip, it puts the body group on the chair point (`chairs[i]` from the `lunch:<i>` key in `trip.spot`) at y 0.5, turns it to `rot` quarter turns, shows `sit` and `plate`, and hides `stand`. The left arm rests at 1.2. The right arm rests at 1.2, and in each bite it goes to 2.0 and back in 1 s (a sine). A bite starts every 3 to 5 s, and the period and the phase come from `hash(d.id)`. In each other phase it hides `plate`. The click handler makes a walker box when `stand` or `plate` shows, so a click on a seated eater also opens its panel and follows it.
+- `breaks(v, t)`: calls `stepBreak()` with the counts of the kitchen spots, the party spots (0 without a party room), and the kitchen `chairs` (`lunch`), `tables` (the kind of each table in `office.games`), and a route for each trip kind. A lunch route goes to `kitchen.chairs[i]` in the room `kitchen`. Game place `i` is `places[i & 1]` of table `office.games[i >> 1]`, and its route goes to the room of that table. Then it calls `along()`. It returns where the worker is on its trip, or `null` at the desk (always for a subagent). Its `room` is the target room id, because `opens()` takes a room id: `kitchen` for a lunch trip, and `office.games[trip.table].room` for a game trip. `a.trip.room` keeps the kind. `pose()` passes this result to `opens()`.
+- `stroll(w, d, a, t)`: poses a worker on a trip, as `CLAUDE.md` "Scene conventions" describes. The arm swing and the mug hand use `calm()` of the nearest door. In the stay of a party trip, it adds the dance and sets `dancing`. In the stay of a lunch trip, it puts the body group on the chair point (`chairs[i]` from the `lunch:<i>` key in `trip.spot`) at y 0.5, turns it to `rot` quarter turns, shows `sit` and `plate`, and hides `stand`. The left arm rests at 1.2. The right arm rests at 1.2, and in each bite it goes to 2.0 and back in 1 s (a sine). A bite starts every 3 to 5 s, and the period and the phase come from `hash(d.id)`. In each other phase it hides `plate`.
+- `stroll()` in the stay of a game trip: it puts the body group on the place (`places[side]`, side from the `game:<i>` key, `i & 1`, 0 for west) at y 0.5, with no 0.4 offset, and turns it to `rot` quarter turns. Chess shows `sit`, ping-pong shows `stand` and `paddle`. A waiter, and a player after the game end, keep both arms at 0. While `play`:
+  - Chess: both arms rest at 1.2 on the table. A turn lasts 3 to 5 s, `3 + hash(String(trip.begin), 200) / 100`, so both players get the same turns. Turn `k` counts from `begin`, and the west player moves when `k` is even. The player in turn reaches with the right arm to 1.5 and back in 1.2 s (a sine), and leans 0.2 forward. The lean uses the Euler order `YXZ`, so it turns the body about its own x axis.
+  - Ping-pong: the left arm rests at 0.3. The right arm is `1.4 + 0.1 * max(0, cos(pi * dt / 0.6))`, with `dt` the time from the nearest hit of this player. So it goes to 1.5 at the hit. Below 1.4 the blade goes into the table top (0.72 to 0.77), so the arm never goes lower during a game. The stroke is a turn of the body about y, added to the heading: `0.35 * sin(pi * dt / 0.6)` within 0.3 s of the hit (back before it, through after it), and a cosine back to the start between two hits. It is 0 at the hit. The west player hits at `begin + 2 * HIT * n`, the east player `HIT` s later.
+  - Each arm angle stays at 1.5 or less. `stroll()` hides `paddle` in each other phase, and the desk branch of `pose()` hides it too.
+- `rally(t)`: runs once a frame after `disco()`. For each ball in `balls`, it reads the trips of the two places of its table through `claimed` and `trips`. The ball shows while both trips have `begin`, and `begin <= t < min(end)`. A rush ends the game of the partner, so the ball then hides. Crossing `k` counts from `begin` in steps of `HIT` (0.8 s), and an even `k` flies east. A crossing starts at the hit point of the hitter: 0.65 from its place toward the table, 0.32 to its right (`+z` for west, `-z` for east), and 0.96 high. That is the blade at the right arm angle 1.5. The ball moves in a straight line in x and z. It bounces 0.55 past the net, on the half of the receiver, at the ball center height 0.805 (the top is at 0.77). The first arc rises 0.3 over its chord and clears the net. The second arc rises 0.15 to the hit point of the receiver. So each rally of two crossings bounces once on each half. `arc(y0, y1, h, s)` gives the height.
 - `swing(dt)`: turns each door toward `OPEN` when `ajar` has its room id, else toward 0, at a speed set by `SWING`. It writes `doors` and `hinge.rotation.y`.
 - `opens()` in `model.js` gives the doors that one walker opens: its own room door and the door of its target room. See `docs/model.md` "Breaks".
 
@@ -125,7 +132,7 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 2. `typed` (working, not walking) calls `typing()` and shows the halo and the `logo`. `browsing` (idle, not walking, not away) calls `browse()`.
 3. The screen gets `v.tex` while `typed` or `browsing`, else `COLOR[status]`, or `SHELL` for a shell desk.
 4. A view with no worker stops here.
-5. On a walk: `stroll()`, `moving = true`, and the ids from `opens()` go into `ajar`. At the desk: reset the position and rotation, show `sit`, hide `stand`, `mug`, and `plate`, and set the arms from `ARM`.
+5. On a walk: `stroll()`, `moving = true`, and the ids from `opens()` go into `ajar`. At the desk: reset the position and rotation, show `sit`, hide `stand`, `mug`, `plate`, and `paddle`, and set the arms from `ARM`. In both cases, `w.out = !!walk`.
 6. In both cases: `paper` for `done`, `beacon` for `blocked`, and opacity 0.35 for `unknown`. So a run back shows these parts.
 
 ### declutter()
@@ -138,7 +145,7 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 `update(next)` order:
 
 1. Store `office`, and build `lay` and the signature `s`. `CLAUDE.md` "Scene conventions" lists what each holds. No status, label, or focus goes into either.
-2. On a `lay` change, clear `trips` and `claimed`. Call `endBreak()` for each desk with `away` or with no agent.
+2. On a `lay` change, clear `trips` and `claimed`. Call `endBreak()` for each desk with `away` or with no agent, with `last` (the time of the last frame) as `t`, so the game of its partner ends now.
 3. On a `sig` change, `build()`. After the first build only, `frame()` the focused workspace room or the whole building.
 4. Set the door lights, the signs, the pod lamps, `v.desk`, and the badges in place.
 5. Fill `tags`: agent badges at `10 + STATUS_RANK[status]`, subagent badges at 12, door signs at `STATUS_RANK[r.status] ?? 0`. A stable sort puts the highest first. Then `seen = ''`.
@@ -159,12 +166,12 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 ### Panel
 
-- `open(id)`: sets `selected`, clears `follow`, `#result`, `#chatResult`, and both inputs, closes `#chat`, clears the timer and the messages, shows `#panel`, and calls `fill()`. For a claude desk (not in the demo) it calls `loadMessages()` at once and starts one `setInterval` of 2000 ms, also for a desk that is not claude (`loadMessages()` then returns at once). `close()` clears `follow` and the timer, closes `#chat`, and hides the panel. The `#msg` clear stops a half-typed message from going to another desk.
-- `fill()`: finds the desk or subagent with the id `selected`, else it calls `close()`. For a subagent, `target` is its orchestrator desk id. The button is disabled when `DEMO` is set or `target` is empty. It shows the `#say` form only for a desk with an agent, and disables both forms when `DEMO` is set. It shows `#last` only for a desk whose agent kind is `claude`, and closes `#chat` when `#last` turns hidden. In the demo, `#lastText` says "no messages in the demo". It never changes the input values, never fetches, and never renders the log, because it runs on each update. It writes the local `rows` object as `dt` and `dd` through `el()`.
+- `open(id)`: sets `selected`, clears `follow`, `#result`, `#chatResult`, and both inputs, closes `#chat`, clears the timer and the messages, shows `#panel`, and calls `fill()`. For a claude or codex desk (not in the demo) it calls `loadMessages()` at once and starts one `setInterval` of 2000 ms, also for a desk with no transcript (`loadMessages()` then returns at once). `close()` clears `follow` and the timer, closes `#chat`, and hides the panel. The `#msg` clear stops a half-typed message from going to another desk.
+- `fill()`: finds the desk or subagent with the id `selected`, else it calls `close()`. For a subagent, `target` is its orchestrator desk id. The button is disabled when `DEMO` is set or `target` is empty. It shows the `#say` form only for a desk with an agent, and disables both forms when `DEMO` is set. It shows `#last` only for a desk whose agent kind is in `CHAT` (`claude` or `codex`), and closes `#chat` when `#last` turns hidden. In the demo, `#lastText` says "no messages in the demo". It never changes the input values, never fetches, and never renders the log, because it runs on each update. It writes the local `rows` object as `dt` and `dd` through `el()`.
 - `act(body, done, out = $('result'))`: `POST /action` with `body` and the header `x-office-token: TOKEN`. `out` shows `done` on success, else the error. It returns `r.ok`.
 - The focus button handler: `act({ type: 'focus', pane_id: target }, ...)`.
 - The `#say` submit handler: skips an empty message, then calls `act({ type: 'prompt', pane_id: target, text }, ...)`. On success it clears `#msg` if the text did not change during the request.
-- `loadMessages()`: for a claude desk, `GET /messages?pane=<id>` with the header `x-office-token: TOKEN`. It drops a reply when the pane is no longer `selected`. On success it stores the list. On an error it shows the error in `#lastText` and keeps the messages and the log.
+- `loadMessages()`: for a desk where `hasChat()` is true (a claude or codex desk), `GET /messages?pane=<id>` with the header `x-office-token: TOKEN`. It drops a reply when the pane is no longer `selected`. On success it stores the list. On an error it shows the error in `#lastText` and keeps the messages and the log.
 - `renderMessages(err)`: `#lastText` gets the text of the last `agent` message. `#chatLog` gets one `.msg` element for each message: a role line (`you`, the agent name, or `subagent · <from>`) and the text. The three roles have three border colors. `#lastText` changes only when its text changes, and shows `...` until the first agent reply. It re-renders only when the list changed, so the scroll position and a selection stay. It keeps the log at the bottom when the log was at the bottom.
 - `#chatOpen` calls `showModal()` on `#chat`, sets `#chatWho`, scrolls the log to the bottom, and focuses `#replyMsg`. `#chatClose` and Esc close it. The Escape handler closes the panel only when `#chat` is not open.
 - The `#reply` submit handler works like `#say`: it calls `act()` with `type: 'prompt'` and `$('chatResult')`, clears `#replyMsg` on success, and calls `loadMessages()`.
@@ -174,7 +181,7 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 ### Picking
 
 - The pointerdown handler stores `down` and clears `goal`, `follow`, and `zoomTo`. A `wheel` event clears `zoomTo`, so the zoom glide never fights the user's zoom.
-- The click handler ignores a drag over 4 px. It casts a ray against one box for each desk, each away head seat, each subagent seat, and each worker on a trip, and opens the nearest hit. The desk and seat boxes come from the model, because `bake()` merged the desk meshes. The box of a worker on a trip is at the world position of its group. The handler reads it only when `stand` is visible, and does not call `breaks()`. A new clickable object needs its own box.
+- The click handler ignores a drag over 4 px. It casts a ray against one box for each desk, each away head seat, each subagent seat, and each worker on a trip, and opens the nearest hit. The desk and seat boxes come from the model, because `bake()` merged the desk meshes. The box of a worker on a trip is at the world position of its group. The handler makes it for each worker with `out` set (by `pose()`), so a seated lunch eater and a seated chess player get one too. It does not call `breaks()`. A new clickable object needs its own box.
 - A walker box has a sixth element, `true`. When the nearest hit is a walker box, the handler sets `follow` and `zoomTo` (1.5 times the zoom, at most `controls.maxZoom`) after `open()`, because `open()` clears `follow`.
 
 ### Frame loop and data source
@@ -193,7 +200,7 @@ Two agents in one region need a split by function.
 | desk | `desk()`, `seatAt()`, `attendee()`, `deskChair` | worker, pose, picking (seat offset) |
 | worker | `worker()`, `shirt()`, `SHIRT` | pose, breaks, update, `test/walk.test.mjs` |
 | screens | `screenCtx()`, `typing()`, `browse()`, `rnd()`, `glow`, `haloGeo`, `IDLE`, `INK`, `PIC` | pose, build |
-| breaks | `breaks()`, `stroll()`, `trips`, `claimed` | update, pose, `model.js`, `test/walk.test.mjs` |
+| breaks | `breaks()`, `stroll()`, `rally()`, `arc()`, `balls`, `HIT`, `trips`, `claimed` | update, pose, `model.js`, `test/walk.test.mjs` |
 | doors | `swing()`, `doors`, `ajar`, `OPEN`, `SWING` | build (`door()`), pose, frame loop, `model.js`, `test/walk.test.mjs` |
 | party | `partyLights()`, `disco()`, `kick()`, `DISCO`, `BEAT`, `dancing` | build (the call after `door(r)`), breaks (`stroll()` sets `dancing`), frame loop, `decor.js` `party()` (the speaker rect) |
 | pose | `pose()`, `ARM`, `moving` | screens, breaks, doors, frame loop |
@@ -289,6 +296,7 @@ A change to the door leaf, the open angle, or the door speed:
 - `swing()` reads `hinge` for each room, so a room without `door()` makes it throw each frame. It must run after the `pose()` loop, or it sees an empty `ajar` and closes each door.
 - `disco()` must run after the `pose()` loop, or it always sees `dancing` false and the party room stays dark.
 - Keep `SWING` under about 0.4 s. A runner at `RUN` 4 needs about 0.41 s from 3 (where `opens()` starts) to the door lane at about 1.35. No test checks this timing.
+- `stroll()` and `rally()` share `HIT` and the hit point. The ball meets the blade only while the paddle size, the arm length 0.5, the top angle 1.5, the body turn 0 at the hit, and the ball offsets 0.65, 0.32, and 0.96 agree. Change them together. The blade clears the table top only at an arm angle of about 1.38 or more (at 1.4, its lowest point is 0.798). A lower rest angle puts the paddle into the table.
 - `test/walk.test.mjs` copies numbers from this file: the door posts at 0.6, the leaf tip, the arm length 0.5, the 0.7 swing, the mug size and offset, and `0.1 + 1.1 * calm`. Change them together.
 - Text from outside the page goes into the DOM through `textContent` only (`el()`, `update()`, `hud()`, `fill()`). Never use `innerHTML`.
 - Keep the demo guard in `fill()` (`DEMO || !target`).

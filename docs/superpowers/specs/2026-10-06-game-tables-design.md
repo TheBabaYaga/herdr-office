@@ -1,6 +1,6 @@
 # Game tables: idle workers play chess and ping-pong
 
-Date: 2026-10-06. Status: approved in chat, waiting for review of this file.
+Date: 2026-10-06. Status: approved by the user and built. The rulings during the build are marked "Changed during the build".
 
 ## Request
 
@@ -12,6 +12,7 @@ The user chose these answers:
 |---|---|
 | How do the workers play? | Two free workers pair up. |
 | Where do the game tables stand? | Big rooms, as now, fixed by the model. |
+| Which rooms are big? | "Only do it in big rooms, e.g. the current version has a very big room (not the demo variant)". |
 | The lobby chess table? | Decor only. Decision 20 does not change. |
 | Which pairing approach? | A: a waiter calls the next free worker. |
 
@@ -28,13 +29,13 @@ INTENT.md gets this as decision 28.
 
 ### Which rooms get a game table
 
-- A workspace room or the party room gets one game table if its floor minus its pods is 37 m² or more, and the search below finds a place. The fill pass gives its first prop at this size.
-- `hash(room.id)` picks the kind: `chess` or `pingpong`.
+- A workspace room or the party room is big if its floor minus its pods is 80 m² or more. A big room gets a ping-pong table and a chess table if both fit, else the one that fits, else none.
+- The first rule (37 m², the size of the first fill prop) gave a table to almost every room. A measurement then showed that a table on the far side of the main walk line almost never fits. The user then named the very big rooms of the live office. Their free floor is 209 m² and 452 m². The other rooms of that office have 37 to 64 m².
 - The lobby, the kitchen, and the meeting room get no game table.
 
 ### The table and its places
 
-- `buildOffice()` gives each such room `game: { kind, x, z, places: [{ x, z, rot }, { x, z, rot }] }`, in world coords.
+- `buildOffice()` gives each room `games: [{ kind, x, z, places: [{ x, z, rot }, { x, z, rot }] }]`, in world coords. It is `[]` in a room with no game table.
 - A place is the pivot of a player, where its route ends. `rot` is in quarter turns, and the player faces -z before the turn (`rotation.y = rot * PI / 2`), as with the kitchen `chairs`.
 - `places[0]` is on the west side (`rot` 3, faces +x). `places[1]` is on the east side (`rot` 1, faces -x). Both are at the table z.
 - Chess: a table of 0.7 x 0.7 on a rug. The places are 0.62 west and east of the center. `decor.js` draws each chair 0.1 behind its place, as in the kitchen. The rug turns so the chairs stand west and east.
@@ -46,12 +47,13 @@ INTENT.md gets this as decision 28.
 - The main walk line of a room is the line that the door lane meets in the room:
   - In a workspace room, it is the lane (`laneZ()`) of the pod row nearest to the door.
   - In the party room, it is the strip (`partyZ()`).
-- The table stands on the far side of that line, away from the door.
-- The search tries places on a grid. A place is good when all of these hold:
+- The table can stand on either side of that line: between the line and the door wall, or on the far side. In a deep room with one pod row, the door side has the most free floor.
+- The search tries places on a grid, on both sides. A place is good when all of these hold:
   - The table, its chairs or players, and a pad of 0.3 are inside the room.
   - They do not touch a pod (with the pad of `placer()`), the door area, the open leaf, or the lamp post of a pod.
   - In the party room, they do not touch the dance floor, the booth, or the speakers.
-  - A straight lane from the main walk line to each place is free of pods and of the table.
+  - They do not touch an existing walk rect of the room, or another game table.
+  - A straight lane from the main walk line to each place is free of pods and of the table. It keeps 0.4 from each lamp post and 1.0 from each dance spot.
 - The model adds to `room.walk`:
   - the main walk line, long enough to reach the x of each place, and
   - a lane from that line to each place.
@@ -62,7 +64,7 @@ INTENT.md gets this as decision 28.
 - `route(o, deskId, place, to)` takes `to` as the id of any workspace room, the kitchen, or the party room.
 - In the target room, the route goes through the door, to the main walk line, along it to the x of the place, then to the place. In the kitchen and the party room, this is the same as now.
 - A worker whose own room has the game table does not go through a door. It goes from its desk to the door lane, along the door lane to the main walk line, then to the place.
-- `opens()` does not change. A walker opens its own door and the door of `a.room`. The lobby and meeting doors stay closed.
+- `opens()`: a walker opens its own door and the door of `a.room`. Changed during the build: a walker to a game table in its own room opens no door. The lobby and meeting doors stay closed.
 
 ## 2. Trip and pairing (`model.js`)
 
@@ -72,7 +74,7 @@ INTENT.md gets this as decision 28.
 
 ### Kinds and pick
 
-- The kinds are `['kitchen', 'lunch', 'party', 'game']`. The pick counts only the kinds with a free place. For `game`, a free place is a place at a table where nobody is.
+- The kinds are `['kitchen', 'lunch', 'party', 'game']`. The pick counts the kinds that have places, and a full kind sends the worker to the next kind, as before. Changed during the build: this spec first said that the pick counts only the kinds with a free place, but that rule broke an old test. For `game`, a free place is a place at a table where nobody is.
 - `spots.game` is the place count (two for each table). Place `2t` and place `2t + 1` belong to table `t`. The claimed key is `game:<i>`.
 
 ### The waiter
@@ -133,7 +135,7 @@ INTENT.md gets this as decision 28.
 
 ### Decor
 
-- `decor.js` draws each game table from `room.game`, without `put()`, because its places are on walk rects. It puts the footprint in `put.taken`.
+- `decor.js` draws each game table from `room.games`, without `put()`, because its places are on walk rects. It puts the footprint in `put.taken`.
 - Chess and ping-pong leave the fill pools of the workspace rooms and the party room. The lobby keeps its chess table as decor only.
 - The two paddles that lie on the ping-pong table stay as decor.
 
@@ -147,7 +149,7 @@ Each test must fail before the code exists.
 
 ### `test/model.test.mjs`, in every floor plan
 
-- A room gets a game table only if its floor minus its pods is 37 m² or more.
+- A room gets a game table only if its floor minus its pods is 80 m² or more. It gets at most one table of each kind.
 - A table and its places stay inside the room, with the clearances in "The main walk line and the search".
 - The lobby, the kitchen, and the meeting room get no game table.
 
@@ -173,4 +175,4 @@ Each test must fail before the code exists.
 
 ## Open risk
 
-In the demo, possibly no room reaches 37 m² of free floor in a place where a table fits. Then the demo shows no game. If that happens, the main session tells the user before it changes the demo data.
+In the demo, only the party room is big (112 m²). A measurement shows that its door-side band holds a chess table and a ping-pong table. In a party room with its door in the south wall, the south wall can hide the tables from the camera.

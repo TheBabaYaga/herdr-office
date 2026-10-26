@@ -103,6 +103,27 @@ function garden() {
   return s
 }
 
+// Workspaces from a list of [label, tabs]. A tab is its pane count: the panes stand side by side, or for a negative count, in one column.
+function plan(spec) {
+  const s = { version: '0.0.0', protocol: 20, focused_workspace_id: 'w1', focused_tab_id: 'w1:t1', focused_pane_id: 'w1:p1', workspaces: [], tabs: [], panes: [], layouts: [], agents: [] }
+  spec.forEach(([label, tabs], i) => {
+    const ws = `w${i + 1}`
+    s.workspaces.push({ workspace_id: ws, number: i + 1, label })
+    tabs.forEach((n, j) => {
+      const tab = `${ws}:t${j + 1}`, k = Math.abs(n), rects = {}
+      s.tabs.push({ tab_id: tab, workspace_id: ws, number: j + 1, label: 'main' })
+      for (let m = 0; m < k; m++) {
+        const p = pane(`${ws}:p${s.panes.length + 1}`, tab, { agent: 'claude', agent_status: 'idle' })
+        s.panes.push(p)
+        s.agents.push(agent(p, 'claude', 'idle', s.agents.length + 1))
+        rects[p.pane_id] = n < 0 ? rect(0, (m * 40) / k, 100, 40 / k) : rect((m * 100) / k, 0, 100 / k, 40)
+      }
+      s.layouts.push(layout(ws, tab, rects, Object.keys(rects)[0]))
+    })
+  })
+  return s
+}
+
 const EPS = 1e-9
 const overlap = (a, b) => a.x < b.x + b.w - EPS && b.x < a.x + a.w - EPS && a.z < b.z + b.d - EPS && b.z < a.z + a.d - EPS
 const inside = (p, c) => p.x > c.x && p.x < c.x + c.w && p.z > c.z && p.z < c.z + c.d
@@ -159,6 +180,7 @@ function assertPlan(o, snap, meetings = []) {
   }
   assertSpacing(o.desks)
   assertKitchen(o)
+  assertGames(o)
 }
 
 // The kitchen tables for a lunch: a table top is 0.9 x 0.9 round (x, z). A chair stands 0.8 west (rot 3, faces +x) or 0.8 east
@@ -189,6 +211,66 @@ function assertKitchen(o) {
   chairs.forEach((a, i) => chairs.slice(i + 1).forEach(b => assert.ok(a.table === b.table || Math.hypot(a.x - b.x, a.z - b.z) >= 0.85 - EPS, 'chairs of two tables keep 0.85 apart')))
   // The camera looks along (1, 1, 1), and the east wall is 2.6 high. A seated torso (0.8 high) shows only 1.8 or more from that wall.
   if (s < 0 && k.w >= 8.6) for (const c of chairs) assert.ok(k.x + k.w - c.x >= 1.8 - EPS, `the chair at x ${c.x} is ${(k.x + k.w - c.x).toFixed(2)} from the east wall`)
+}
+
+// The game tables: only in a big workspace room or a big party room (80 m² or more of free floor), at most one of each kind.
+// Each table keeps a pad of 0.3 from the walls, the pods, the lamp posts, the door area, the dance floor, the booth, and the other table.
+// It stands off each walk rect of the room, except the lanes of its own places. A lane 0.6 wide or less runs to each place.
+const LAMP = [-0.5, 0.4] // the pod lamp post from the pod corner, as in decor.js
+const inRect = (p, [x0, z0, x1, z1]) => p.x >= x0 - EPS && p.x <= x1 + EPS && p.z >= z0 - EPS && p.z <= z1 + EPS
+const free = (r) => r.w * r.d - r.pods.reduce((s, p) => s + p.w * p.d, 0)
+// The footprint of a table with a pad: chess 1.9 x 1.2 (the rug, the chairs at 0.72 and their backs), ping-pong 3.5 x 1.2 (players).
+const foot = (g, pad) => { const fx = g.kind === 'chess' ? 0.95 : 1.75; return [g.x - fx - pad, g.z - 0.6 - pad, g.x + fx + pad, g.z + 0.6 + pad] }
+function assertGames(o) {
+  for (const r of o.rooms) {
+    assert.ok(Array.isArray(r.games), `${r.id}: games is a list`)
+    if (!r.games.length) continue
+    assert.ok(r.kind === 'workspace' || r.kind === 'party', `${r.id}: a ${r.kind} room gets no game table`)
+    assert.ok(free(r) >= 80 - EPS, `${r.id}: ${free(r)} m² free is less than 80`)
+    assert.ok(new Set(r.games.map((g) => g.kind)).size === r.games.length, `${r.id}: two tables of one kind`)
+    const old = r.walk.filter((w) => !r.games.some((g) => g.places.some((p) => inRect(p, w)))) // the walk rects without the lanes of the games
+    for (const g of r.games) {
+      const half = g.kind === 'chess' ? 0.62 : 1.55, f = foot(g, 0.3), core = foot(g, 0)
+      assert.deepEqual(g.places.map((p) => p.rot), [3, 1])
+      close(g.places[0].x, g.x - half, 'west place'); close(g.places[1].x, g.x + half, 'east place')
+      for (const p of g.places) close(p.z, g.z, 'place z')
+      assert.ok(f[0] >= r.x - EPS && f[2] <= r.x + r.w + EPS && f[1] >= r.z - EPS && f[3] <= r.z + r.d + EPS, `${r.id}: the table is inside`)
+      for (const p of r.pods) {
+        assert.ok(!hits(f, [p.x - 0.3, p.z - 0.3, p.x + p.w + 0.3, p.z + p.d + 0.3]), `${r.id}: the table hits pod ${p.id}`)
+        const lx = p.x + LAMP[0], lz = p.z + LAMP[1]
+        assert.ok(!hits(f, [lx - 0.15, lz - 0.15, lx + 0.15, lz + 0.15]), `${r.id}: the table hits the lamp of ${p.id}`)
+      }
+      const s = r.door.side === 'south' ? 1 : -1
+      assert.ok(!hits(f, [r.door.x - 1.2, Math.min(r.door.z, r.door.z - s * 2), r.door.x + 1.2, Math.max(r.door.z, r.door.z - s * 2)]), `${r.id}: the table is in the door area`)
+      for (const w of old) assert.ok(!hits(core, w), `${r.id}: the ${g.kind} table stands on the walk rect ${w}`)
+      for (const h of r.games) if (h !== g) assert.ok(!hits(f, foot(h, 0)), `${r.id}: two tables touch`)
+      if (r.kind === 'party') {
+        assert.ok(!hits(f, r.floor), `${r.id}: the table is on the dance floor`)
+        assert.ok(!hits(f, [r.booth.x - 1.8, r.booth.z - 0.45, r.booth.x + 1.8, r.booth.z + 0.45]), `${r.id}: the table hits the booth or a speaker`)
+      }
+      for (const p of g.places) {
+        const lane = r.walk.find((w) => inRect(p, w) && w[2] - w[0] <= 0.6 + EPS)
+        assert.ok(lane, `${r.id}: no lane to the place at ${p.x}`)
+        // The lane keeps off the pods, the other table with its pad, the door area, the dance floor, and the booth. Its center line keeps
+        // 0.4 from each lamp post and 1.0 from each dance spot.
+        const at = `${r.id}: the lane to the ${g.kind} place at ${p.x.toFixed(2)}`
+        for (const q of r.pods) {
+          assert.ok(!hits(lane, [q.x, q.z, q.x + q.w, q.z + q.d]), `${at} crosses pod ${q.id}`)
+          const lx = q.x + LAMP[0], lz = q.z + LAMP[1]
+          assert.ok(!hits(lane, [lx - 0.1, lz - 0.1, lx + 0.1, lz + 0.1]), `${at} passes the lamp of ${q.id}`)
+        }
+        for (const h of r.games) if (h !== g) assert.ok(!hits(lane, foot(h, 0.3)), `${at} crosses the ${h.kind} table`)
+        assert.ok(!hits(lane, [r.door.x - 1.2, Math.min(r.door.z, r.door.z - s * 2), r.door.x + 1.2, Math.max(r.door.z, r.door.z - s * 2)]), `${at} is in the door area`)
+        if (r.kind === 'party') {
+          assert.ok(!hits(lane, r.floor), `${at} crosses the dance floor`)
+          assert.ok(!hits(lane, [r.booth.x - 1.8, r.booth.z - 0.45, r.booth.x + 1.8, r.booth.z + 0.45]), `${at} crosses the booth or a speaker`)
+          for (const q of r.spots) assert.ok(!hits(lane, [q.x - 0.7, q.z - 0.7, q.x + 0.7, q.z + 0.7]), `${at} passes the dance spot at ${q.x}`)
+        }
+      }
+    }
+  }
+  for (const r of o.rooms) if (r.kind === 'lobby' || r.kind === 'kitchen' || r.kind === 'meeting') assert.deepEqual(r.games, [])
+  assert.deepEqual(o.games.map((g) => g.room), o.rooms.flatMap((r) => r.games.map(() => r.id)))
 }
 
 // The party room fills the row with the most spare width (the first on a tie), if that width is 7 or more. The spare width is the
@@ -589,4 +671,26 @@ test('demo meeting: the lead and subagents that finish and restart', () => {
   assert.ok(ids.size > 8, 'agents finish and new ones take the seats')
   assert.ok(new Set(demoMeetings(0)[0].agents.map(a => a.model)).size >= 3, 'mixed models')
   assert.deepEqual(demoMeetings(7), demoMeetings(7), 'deterministic')
+})
+
+test('the demo party room gets a ping-pong table and a chess table', () => {
+  const o = buildOffice(demoSnapshot(0), demoMeetings(0))
+  assertGames(o)
+  assert.deepEqual(o.games.map((g) => [g.room, g.kind]), [['party', 'pingpong'], ['party', 'chess']])
+})
+
+test('a deep workspace room with one pod row gets a table on the door side of its main walk line', () => {
+  // api has one pod of 3 desks side by side. web has 6 desks in one column, so the row is 16.2 deep.
+  const s = plan([['api', [3]], ['web', [-6]]]), o = buildOffice(s), r = o.rooms.find((r) => r.label === 'api')
+  assertPlan(o, s)
+  assert.ok(free(r) >= 80 && r.pods.length === 1 && r.door.side === 'south', `api: ${free(r)} m² free, ${r.door.side} door`)
+  assert.deepEqual(r.games.map((g) => g.kind), ['pingpong', 'chess'])
+  for (const g of r.games) assert.ok(g.z - 0.6 > r.pods[0].z + r.pods[0].d + 0.4, `the ${g.kind} table at z ${g.z} is between the row lane and the door wall`)
+})
+
+test('a big room with no free place for a table gets none', () => {
+  const s = plan([['api', [1, 1, 1, 1, 1, 1, 1, 1]]]), o = buildOffice(s), r = o.rooms[0] // 8 pods in one row, 6 deep
+  assertPlan(o, s)
+  assert.ok(free(r) >= 80, `${free(r)} m² free`)
+  assert.deepEqual(r.games, [])
 })

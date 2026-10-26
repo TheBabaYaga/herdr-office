@@ -1,11 +1,11 @@
 # bridge.mjs: the herdr bridge
 
-`bridge.mjs` is the local HTTP server of herdhouse. It polls the herdr socket, reads Claude Code subagent metadata from `~/.claude/projects`, and streams both to the page over SSE. It also serves `public/`, sends two writes to herdr (`pane.focus` and `agent.prompt`), and answers `GET /messages` with the conversation of one claude pane. For the herdr wire protocol, read `docs/herdr-agent-model.md` section 3.
+`bridge.mjs` is the local HTTP server of herdr-office. It polls the herdr socket, reads Claude Code subagent metadata from `~/.claude/projects`, and streams both to the page over SSE. It also serves `public/`, sends two writes to herdr (`pane.focus` and `agent.prompt`), and answers `GET /messages` with the conversation of one claude or codex pane. For the herdr wire protocol, read `docs/herdr-agent-model.md` section 3.
 
 ## When to read this doc
 
-- A change to a herdr request, the poll, the SSE stream, a guard, or the start (port, socket path, WezTerm raise).
-- A change to `GET /messages`, `readMessages()`, or `messagesIn()`.
+- A change to a herdr request, the poll, the SSE stream, a guard, or the start (port, socket path, terminal raise).
+- A change to `GET /messages`, `readMessages()`, `messagesIn()`, `readCodexMessages()`, or `codexMessagesIn()`.
 - A new field in `meetings`, a new `POST /action` type, or a new static file type.
 - A failed test in `test/bridge.test.mjs`. Also read `docs/testing.md`.
 
@@ -14,16 +14,17 @@
 | Name | Holds | Written by |
 |---|---|---|
 | `cwds`, `models` | transcript path to its first `"cwd"`, and to its last `claude-*` id | `cwdOf()`, `modelIn()`, hits only |
+| `metas` | the rollout path to `{ cwd, top }` of its first line | `codexMeta()`, only for a complete first line |
 | `clients` | the open `/events` responses | `/events` branch, `res` `close`, `close()` |
 | `last` | the last SSE payload, or `null` | `send()`, the end of `poll()` |
 | `snap` | the last good snapshot, or `null` after a failed cycle or when the loop stops | `poll()` |
 | `polling`, `meetings`, `readAt` | the loop flag, the last `readMeetings()` result, and its time | `poll()` |
 
-`cwds` and `models` live for the process, with no eviction. The rest live inside `startBridge()`.
+`cwds`, `models`, and `metas` live for the process, with no eviction. The rest live inside `startBridge()`.
 
 ## Flow
 
-At start, the `import.meta.main` block awaits `startBridge()` with `socketPath()`, `Number(PORT) || 4747`, `public/`, `~/.claude/projects`, and a `raise` that runs `execFile('open', ['-a', 'WezTerm'])` with no shell. `PORT=0` gives 4747, not a free port. Each start makes a new token. The bridge sends no `session.snapshot` request before the first `/events` client.
+At start, the `import.meta.main` block awaits `startBridge()` with `socketPath()`, `Number(PORT) || 4747`, `public/`, `~/.claude/projects`, `codexDir` (`$CODEX_HOME/sessions`, else `~/.codex/sessions`), and `raiser(terminal)` as the `raise`. The block first finds `terminal` with `detectTerminals()`: `pgrep -x herdr`, then `ps eww -o command= -p <pid>` for each pid, and `bundleIdsIn()` keeps only the valid `__CFBundleIdentifier` values (never the rest of the environment). One id wins and the bridge logs `herdr-office: terminal <id>`. With none or many, `pickTerminal()` shows a numbered selector on a TTY (the detected ids, a fixed list of 7 terminals, and "none"), else it takes the first id, else WezTerm. "none" gives no `raise`. At each raise, `raiser()` runs `detectTerminals()` again, then `execFile('open', ['-b', id])` with no shell. One id wins, else it opens `terminal`, the start pick. So a move of herdr to another terminal needs no restart. The raise works on macOS only and does not select the herdr window or tab. `PORT=0` gives 4747, not a free port. Each start makes a new token. The bridge sends no `session.snapshot` request before the first `/events` client.
 
 `handle()`, for each HTTP request:
 
@@ -88,17 +89,38 @@ A pure parser for the `GET /messages` data. It reads JSONL text and returns `[{ 
 - A leading `[harness: ...]` line, and the empty line after it, never shows. This holds for each block, and again for the first line of a hand-back report.
 - The block text is the first string of `result`, `summary`, `message`, or `content` of a JSON body. With a `failureReason`, the first line is `failed: <failureReason>`. A hand-back (`[Subagent hand-back]`) gives only the lines after the line that ends with `The report follows:`, with up to 2 leading spaces removed. Else the text is the trimmed body. A block with no text is skipped.
 
+### `codexMessagesIn(text)`
+
+A pure parser for the Codex rollout JSONL text. It returns `[{ role, text }]` in file order. `role` is `user` or `agent`.
+
+- It skips a line that does not parse. It keeps only a line with `type === 'response_item'` and `payload.type === 'message'`. Codex writes these in both history modes (`legacy` and `paginated`).
+- The role `user` gives `user`, and `assistant` gives `agent`. Each other role (`developer`, `system`) goes. Each `event_msg` goes, because the entries `user_message`, `agent_message`, and `item_completed` repeat the same messages.
+- The text is the `text` of each `input_text` or `output_text` block, joined with `\n`. Images, reasoning, tool calls, and tool output have no such block, so they go.
+- A user block that starts, after spaces, with an injected tag or with `# AGENTS.md instructions` goes. The tags are `environment_context`, `user_instructions`, `image`, `skill`, `turn_aborted`, `user_shell_command`, `subagent_notification`, `agent_message_board_notification`, `codex_internal_context`, `goal_context`, `external_*`, `recommended_plugins`, and `hook_prompt`. A message with no text left goes.
+- The list comes from the injected context fragments of Codex 0.161.0 (tag `rust-v0.161.0`). A new Codex version can add a tag.
+
 ### `readMessages(projects, pane, limit = 100)`
 
 1. A pane without `agent === 'claude'` gives `null`.
 2. With `agent_session.kind === 'id'` and a uuid value, it looks for `<id>.jsonl` in the cwd folder (`foreground_cwd || cwd`), then in each folder of `projects` (it lists `projects` only when the cwd folder has no such file). A valid id that is not found gives `null`, with no fallback. It uses a regular file only (`open()` on a FIFO never returns).
 3. A missing or bad `agent_session` (null, another kind, a value that is not a uuid) uses `newestIn(dir, cwd)`: the newest transcript of the cwd folder whose `cwdOf()` equals the cwd. `readMeetings()` uses the same helper.
-4. It reads the last 512 KB with `chunk()`, starting one byte early. When the read starts after byte 0, it drops the text up to and including the first `\n`. If the extra byte is a newline, the first line of the window is whole and stays. Else that line is partial and goes. Older history is not shown.
+4. It reads the last 512 KB with `tailOf(file)` (it uses `chunk()`), starting one byte early. When the read starts after byte 0, it drops the text up to and including the first `\n`. If the extra byte is a newline, the first line of the window is whole and stays. Else that line is partial and goes. Older history is not shown.
 5. It returns `messagesIn(tail).slice(-limit)`. No transcript, or a read error anywhere in the lookup or the read, gives `null`.
+
+### `readCodexMessages(sessions, pane, limit = 100)`
+
+`sessions` is the Codex sessions folder (`$CODEX_HOME/sessions`). Its rollouts are in `YYYY/MM/DD/rollout-*.jsonl`.
+
+1. A pane without `agent === 'codex'` gives `null`.
+2. With `agent_session.kind === 'id'` and a uuid value, it takes the file in `rollouts(sessions)` whose name ends with `-<id>.jsonl`. A valid id that is not found gives `null`, with no fallback.
+3. Else it takes the first rollout, newest first, whose `codexMeta()` has `cwd` equal to `foreground_cwd || cwd` and `top === true`. `codexMeta()` reads the first line (up to 256 KB) of the rollout. `top` is false when `payload.source` is an object, because an object (for example a subagent thread) is not a top-level session. A rollout whose first line is not complete is skipped and not cached.
+4. It returns `codexMessagesIn(await tailOf(file)).slice(-limit)`. Any error gives `null`.
+
+`rollouts()` lists the date folders, keeps regular files only (`open()` on a FIFO never returns), and sorts them by mtime.
 
 ### `startBridge(options)`
 
-The options are `sock`, `port` (on `127.0.0.1`), `publicDir`, `pollMs` (500), `token` (`crypto.randomUUID()`), `claudeDir` (`null` gives `meetings: []`), `meetMs` (2000, the shortest time between two meeting reads), and `raise` (runs after a successful `pane.focus`).
+The options are `sock`, `port` (on `127.0.0.1`), `publicDir`, `pollMs` (500), `token` (`crypto.randomUUID()`), `claudeDir` (`null` gives `meetings: []`, and 503 on `GET /messages` for a claude pane), `codexDir` (`null`: a codex pane gets 503 on `GET /messages`), `meetMs` (2000, the shortest time between two meeting reads), and `raise` (runs after a successful `pane.focus`).
 
 It returns `{ url, token, close }`. `close()` clears `clients` and closes the server. A cycle that runs then finishes, and the loop stops.
 
@@ -114,9 +136,11 @@ It replies 200 `text/event-stream` with `cache-control: no-store`, and adds `res
 
 1. Token check, the same as for `POST /action`. Else 403.
 2. `pane` must match `^w[0-9A-Za-z]+:p[0-9A-Za-z]+$`. Else 400.
-3. `claudeDir` of `null` gives 503 `no claude directory`. No `snap` gives 503 `no snapshot yet`.
-4. A pane that is not in `snap.panes` gives 404.
-5. `readMessages()` gives `null`: 404 `{ error: 'no transcript' }`. Else 200 `{ messages }`.
+3. No `snap` gives 503 `no snapshot yet`.
+4. A pane that is not in `snap.panes` gives 404 `no such pane`.
+5. The `readers` map (a `Map`) has no reader for `pane.agent`: 404 `no transcript`. The map holds `claude` (`claudeDir`, `readMessages()`) and `codex` (`codexDir`, `readCodexMessages()`).
+6. The reader has a `null` folder: 503 `no transcript directory`.
+7. The reader gives `null`: 404 `{ error: 'no transcript' }`. Else 200 `{ messages }`.
 
 The branch sends no request to herdr. The page caller is `loadMessages()` in `public/office.js`.
 
@@ -127,7 +151,7 @@ The branch sends no request to herdr. The page caller is `loadMessages()` in `pu
 3. The body must be `{ type: 'focus', pane_id }` or `{ type: 'prompt', pane_id, text }`. `pane_id` must match `^w[0-9A-Za-z]+:p[0-9A-Za-z]+$`. `text` must be a string with at least one non-space character (the local `say`). Else 400.
 4. A focus calls `herdrRequest(sock, 'pane.focus', { pane_id })`. A prompt calls `herdrRequest(sock, 'agent.prompt', { target: pane_id, text })`. A rejection gives 502 with its message. herdr rejects a prompt to a blocked agent with `agent_blocked`.
 5. A prompt returns 200 `{ ok: true }` here. It does not call `raise`.
-6. `raise?.()` inside a `try`/`catch`, with no `await`. A throw logs and does not change the reply.
+6. `raise?.()` inside a `try`/`catch`, with no `await`. A throw logs and does not change the reply. The `raiser()` promise never rejects.
 7. 200 `{ ok: true }`.
 
 A rejected request sends nothing to herdr. The page callers are `$('focus').onclick` and `$('say').onsubmit` in `public/office.js`. Both post through `act()`.
@@ -145,7 +169,7 @@ A rejected request sends nothing to herdr. The page callers are `$('focus').oncl
 | `agents[].model` | meta `model` (it can be an alias such as `sonnet`), else `modelIn()` |
 | `agents[].workflow`, `runId` | `<name>` of `workflows/scripts/<name>-<runId>.js`, and the run folder name |
 | `error` (offline) | the `Error.message` of the failed cycle. It can hold the socket path. The page does not show it. |
-| `GET /messages` reply | `messages[]`: the user prompts, agent replies, and subagent messages of one claude pane (`role`, `text`, and `from` for a subagent), behind the token. It is the only route that sends transcript text. |
+| `GET /messages` reply | `messages[]`: the user prompts, agent replies, and subagent messages of one claude or codex pane (`role`, `text`, and `from` for a subagent), behind the token. It is the only route that sends transcript text. |
 | `POST /action` reply | `{ ok: true }` or `{ error }`, shown with `textContent`. A 502 `error` is the `herdrRequest()` message, so it can also hold the socket path. |
 
 A plain subagent has `phase`, `workflow`, and `runId` set to `null`. The `/events` stream holds no transcript text: `cwdOf()` gives a cwd only, and `modelIn()` gives a `claude-*` id only. The `plainTail()` text goes only into `modelIn()`. Transcript text goes out only in a `GET /messages` reply. Never copy page output into a repo file. The rules for a new field are in CLAUDE.md "Safety rules".
@@ -197,5 +221,5 @@ Add a field to the SSE message:
 - With `claudeDir` set, a snapshot with no `agents` array throws in each cycle that reads meetings. The page then shows offline about every `meetMs`.
 - `send()` compares the full JSON, so a timestamp field sends a message every `pollMs`. It drops a slow client only on a changed message.
 - Only the Host check guards `GET /events` and the static files. A `json()` reply has `cache-control: no-store` and no `x-frame-options`. A new HTML route must set both.
-- `raise` must be synchronous, or catch its own errors. In Node 25, an unhandled rejection ends the process.
+- `raise` must be synchronous, or catch its own errors. In Node 25, an unhandled rejection ends the process. `raiser()` catches its own: a failed detection logs and opens nothing.
 - The traversal guard checks the path string only. `readFile()` follows a symlink inside `public/`.

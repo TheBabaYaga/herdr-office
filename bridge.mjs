@@ -7,6 +7,8 @@ import { readFile, readdir, stat, open } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { promisify } from 'node:util'
+import readline from 'node:readline/promises'
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -56,7 +58,7 @@ export function herdrRequest(sock, method, params = {}, timeoutMs = 3000) {
 // ---- Claude Code subagents, from the local transcript folder (~/.claude/projects) ----
 // Reads only folder listings, meta.json files, journal.jsonl, the first 32 KB of a session transcript (for its cwd)
 // and the last 32 KB of a plain subagent transcript (for its end marker). Sends no transcript text.
-// The one exception is readMessages(): the user prompts and agent replies of one pane, for GET /messages.
+// The two exceptions are readMessages() and readCodexMessages(): the user prompts and agent replies of one pane, for GET /messages.
 const ls = (d) => readdir(d).catch(() => [])
 const readJson = (f) => readFile(f, 'utf8').then((t) => Object(JSON.parse(t))).catch(() => ({}))
 async function chunk(file, from, size = 32768) {
@@ -202,6 +204,24 @@ export function messagesIn(text) {
   return out
 }
 
+// Codex rollout JSONL text to [{ role: 'user' | 'agent', text }]. Reads only response_item messages, because event_msg repeats them.
+// Drops developer texts, reasoning, tool calls, tool output, and the texts that Codex injects as user messages.
+const CODEX_WRAPPER = /^\s*(<\/?(environment_context|user_instructions|image|skill|turn_aborted|user_shell_command|subagent_notification|agent_message_board_notification|codex_internal_context|goal_context|external_\w+|recommended_plugins|hook_prompt)\b|# AGENTS\.md instructions)/
+export function codexMessagesIn(text) {
+  const out = []
+  for (const l of text.split('\n')) {
+    let e = null
+    try { e = JSON.parse(l) } catch { continue }
+    const p = e?.payload
+    if (e?.type !== 'response_item' || p?.type !== 'message' || (p.role !== 'user' && p.role !== 'assistant') || !Array.isArray(p.content)) continue
+    const t = p.content
+      .filter((b) => (b?.type === 'input_text' || b?.type === 'output_text') && typeof b.text === 'string' && !(p.role === 'user' && CODEX_WRAPPER.test(b.text)))
+      .map((b) => b.text).join('\n')
+    if (t.trim()) out.push({ role: p.role === 'user' ? 'user' : 'agent', text: t })
+  }
+  return out
+}
+
 // The last messages of the transcript of a snapshot pane, or null.
 export async function readMessages(projects, pane, limit = 100) {
   if (pane?.agent !== 'claude') return null
@@ -226,20 +246,84 @@ export async function readMessages(projects, pane, limit = 100) {
       if (id) file = path.join(dir, `${id}.jsonl`)
     }
     if (!file) return null
-    const size = (await stat(file)).size
-    // ponytail: only the last 512 KB is read. Older history is not shown.
-    // Read one byte before the window. When it is a newline, the first line of the window is whole and stays.
-    const from = Math.max(0, size - 524288)
-    let tail = await chunk(file, Math.max(0, from - 1), 524289)
-    if (from > 0) tail = tail.slice(tail.indexOf('\n') + 1)
-    return messagesIn(tail).slice(-limit)
+    return messagesIn(await tailOf(file)).slice(-limit)
   } catch {
     return null
   }
 }
 
-export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypto.randomUUID(), claudeDir = null, meetMs = 2000, raise = null }) {
+// The last 512 KB of a transcript, from the start of its first whole line.
+async function tailOf(file) {
+  const size = (await stat(file)).size
+  // ponytail: only the last 512 KB is read. Older history is not shown.
+  // Read one byte before the window. When it is a newline, the first line of the window is whole and stays.
+  const from = Math.max(0, size - 524288)
+  let tail = await chunk(file, Math.max(0, from - 1), 524289)
+  if (from > 0) tail = tail.slice(tail.indexOf('\n') + 1)
+  return tail
+}
+
+// The Codex rollouts, newest first, as [[file, mtimeMs], ...]. They live in sessions/YYYY/MM/DD/.
+// ponytail: this stats every rollout on each call. Fine for a few thousand files. Add a cache by folder mtime if a call gets slow.
+async function rollouts(sessions) {
+  const out = []
+  for (const y of await ls(sessions)) for (const m of await ls(path.join(sessions, y))) for (const d of await ls(path.join(sessions, y, m))) {
+    const dd = path.join(sessions, y, m, d)
+    for (const f of await ls(dd)) {
+      if (!/^rollout-.+\.jsonl$/.test(f)) continue
+      const st = await stat(path.join(dd, f)).catch(() => null)
+      if (st?.isFile()) out.push([path.join(dd, f), st.mtimeMs])
+    }
+  }
+  return out.sort((a, b) => b[1] - a[1])
+}
+// ponytail: one entry per rollout, never evicted. A rollout only grows at its end, so a whole first line is final.
+// This holds also for a line that does not parse or is not session_meta: it caches null. A read without a newline or a read error is not cached.
+const metas = new Map() // rollout -> { cwd, top }
+async function codexMeta(file) {
+  if (metas.has(file)) return metas.get(file)
+  try {
+    const head = await chunk(file, 0, 262144)
+    const nl = head.indexOf('\n')
+    if (nl < 0) return null
+    let e = null
+    try { e = JSON.parse(head.slice(0, nl)) } catch {}
+    const meta = e?.type === 'session_meta' ? { cwd: e.payload?.cwd, top: typeof e.payload?.source === 'string' } : null
+    metas.set(file, meta)
+    return meta
+  } catch {
+    return null
+  }
+}
+
+// The last messages of the Codex rollout of a snapshot pane, or null. sessions is $CODEX_HOME/sessions.
+export async function readCodexMessages(sessions, pane, limit = 100) {
+  if (pane?.agent !== 'codex') return null
+  try {
+    const as = pane.agent_session
+    const all = await rollouts(sessions)
+    let file = null
+    if (as?.kind === 'id' && UUID.test(as.value)) {
+      // A valid id that is not found gives null. Only a missing or bad id takes the cwd fallback.
+      file = all.find(([f]) => f.endsWith(`-${as.value}.jsonl`))?.[0]
+    } else {
+      const cwd = pane.foreground_cwd || pane.cwd
+      for (const [f] of all) {
+        const m = await codexMeta(f)
+        if (m?.cwd === cwd && m.top) { file = f; break }
+      }
+    }
+    if (!file) return null
+    return codexMessagesIn(await tailOf(file)).slice(-limit)
+  } catch {
+    return null
+  }
+}
+
+export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypto.randomUUID(), claudeDir = null, codexDir = null, meetMs = 2000, raise = null }) {
   publicDir = path.resolve(publicDir)
+  // A Map, because pane.agent comes from outside and a plain object has keys like "constructor".
+  const readers = new Map([['claude', [claudeDir, readMessages]], ['codex', [codexDir, readCodexMessages]]])
   const clients = new Set()
   let last = null // the last SSE payload; null while nobody listens
   let polling = false
@@ -321,7 +405,7 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
         return json(res, 502, { error: e.message })
       }
       if (say) return json(res, 200, { ok: true }) // the user stays in the browser
-      try { raise?.() } catch (e) { console.error(`herdhouse: raise: ${e.message}`) } // bring the terminal to the front, so the user sees the pane
+      try { raise?.() } catch (e) { console.error(`herdr-office: raise: ${e.message}`) } // bring the terminal to the front, so the user sees the pane
       return json(res, 200, { ok: true })
     }
 
@@ -340,11 +424,14 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
       if (!tokenOk(req)) return json(res, 403, { error: 'bad token' })
       const id = url.searchParams.get('pane') ?? ''
       if (!PANE.test(id)) return json(res, 400, { error: 'expected ?pane=w<id>:p<id>' })
-      if (!claudeDir) return json(res, 503, { error: 'no claude directory' })
       if (!snap) return json(res, 503, { error: 'no snapshot yet' })
       const pane = snap.panes?.find((p) => p.pane_id === id)
       if (!pane) return json(res, 404, { error: 'no such pane' })
-      const messages = await readMessages(claudeDir, pane)
+      const reader = readers.get(pane.agent)
+      if (!reader) return json(res, 404, { error: 'no transcript' })
+      const [dir, read] = reader
+      if (!dir) return json(res, 503, { error: 'no transcript directory' })
+      const messages = await read(dir, pane)
       return messages ? json(res, 200, { messages }) : json(res, 404, { error: 'no transcript' })
     }
 
@@ -375,14 +462,59 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
   })
 }
 
+// The distinct bundle ids in `ps eww` texts. It reads only __CFBundleIdentifier, never the rest of the environment.
+export function bundleIdsIn(texts) {
+  const ids = texts.map((t) => /__CFBundleIdentifier=(\S+)/.exec(t)?.[1]).filter((id) => id && /^[A-Za-z0-9.-]+$/.test(id))
+  return [...new Set(ids)]
+}
+
+const TERMINALS = [
+  ['WezTerm', 'com.github.wez.wezterm'], ['Ghostty', 'com.mitchellh.ghostty'], ['iTerm', 'com.googlecode.iterm2'],
+  ['Terminal', 'com.apple.Terminal'], ['kitty', 'net.kovidgoyal.kitty'], ['Alacritty', 'org.alacritty'], ['Warp', 'dev.warp.Warp-Stable'],
+]
+
+// The bundle ids of the terminals that run a herdr client. Fixed arguments, no shell.
+async function detectTerminals() {
+  const run = promisify(execFile)
+  try {
+    const pids = (await run('pgrep', ['-x', 'herdr'])).stdout.split(/\s+/).filter((p) => /^\d+$/.test(p))
+    const texts = await Promise.all(pids.map((p) => run('ps', ['eww', '-o', 'command=', '-p', p]).then((r) => r.stdout, () => '')))
+    return bundleIdsIn(texts)
+  } catch { return [] } // pgrep exits 1 when nothing matches
+}
+
+// One id to raise, or null for none. One detected id wins. Else ask on a TTY, or take the first guess.
+export async function pickTerminal(found, { input = process.stdin, output = process.stdout } = {}) {
+  if (found.length === 1) return found[0]
+  if (!input.isTTY) return found[0] ?? TERMINALS[0][1]
+  const opts = [...found.map((id) => [id, id]), ...TERMINALS.filter(([, id]) => !found.includes(id))]
+  const rl = readline.createInterface({ input, output })
+  output.write('herdr-office: which terminal runs herdr?\n')
+  opts.forEach(([name, id], i) => output.write(`  ${i + 1}) ${name === id ? id : `${name} (${id})`}\n`))
+  output.write(`  ${opts.length + 1}) none (no raise)\n`)
+  const answer = (await rl.question('choice [1]: ')).trim()
+  rl.close()
+  const n = answer === '' ? 1 : Number(answer)
+  return opts[n - 1]?.[1] ?? null
+}
+
+// The raise: it detects the terminal again at each call, so a move of herdr to another terminal needs no restart.
+// One herdr terminal wins, else it opens `fallback` (the start pick). Fixed arguments, no shell.
+// It never throws and never rejects, because `startBridge()` does not await it. A failed open does not change the reply.
+export function raiser(fallback, detect = detectTerminals, open = (id) => execFile('open', ['-b', id], (e) => e && console.error(`herdr-office: open ${id}: ${e.message}`))) {
+  return () => detect().then((found) => open(found.length === 1 ? found[0] : fallback)).catch((e) => console.error(`herdr-office: raise: ${e.message}`))
+}
+
 if (import.meta.main) {
+  const terminal = await pickTerminal(await detectTerminals())
+  console.log(`herdr-office: terminal ${terminal ?? 'none'}`)
   const { url } = await startBridge({
     sock: socketPath(),
     port: Number(process.env.PORT) || 4747,
     publicDir: fileURLToPath(new URL('public', import.meta.url)),
     claudeDir: path.join(os.homedir(), '.claude', 'projects'),
-    // Fixed arguments only. A failed open does not change the reply, because the focus already worked.
-    raise: () => execFile('open', ['-a', 'WezTerm'], (e) => e && console.error(`herdhouse: open WezTerm: ${e.message}`)),
+    codexDir: path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'sessions'),
+    raise: terminal && raiser(terminal), // "none" in the selector means no raise
   })
-  console.log(`herdhouse: ${url}`)
+  console.log(`herdr-office: ${url}`)
 }
