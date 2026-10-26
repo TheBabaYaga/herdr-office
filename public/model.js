@@ -209,6 +209,25 @@ export function flash(plan, s) {
   return f ? f.power : 0
 }
 
+// The snow of one terrace { x, z, w, d }: [{ x, z, phase }], one flake for each 2 m², spread by fixed steps, 0.3 in from each edge.
+export function snowflakes(t) {
+  const n = Math.round(t.w * t.d / 2)
+  return Array.from({ length: n }, (_, i) => ({
+    x: t.x + 0.3 + ((i * 0.7549) % 1) * (t.w - 0.6),
+    z: t.z + 0.3 + ((i * 0.5698) % 1) * (t.d - 0.6),
+    phase: (i * 0.618) % 1,
+  }))
+}
+
+// The place { x, y, z } of one flake at s seconds: it falls from 2.6 to 0 at 0.3 a second, then starts again, and drifts 0.1 in x.
+export function flakeAt(f, s) {
+  return {
+    x: f.x + 0.1 * Math.sin(s + 6 * f.phase),
+    y: 2.6 * (1 - ((0.3 * s / 2.6 + f.phase) % 1)),
+    z: f.z,
+  }
+}
+
 // meetings: Claude Code sessions with running subagents, as the bridge sends them: [{ sessionId, cwd, agents: [...] }].
 // prev: the previous office, so a subagent keeps its seat.
 export function buildOffice(snap, meetings = [], prev = null) {

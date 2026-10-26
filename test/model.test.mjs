@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { STATUS_RANK, STATUS_COLOR, rollup, buildOffice, demoSnapshot, demoMeetings, season } from '../public/model.js'
+import { STATUS_RANK, STATUS_COLOR, rollup, buildOffice, demoSnapshot, demoMeetings, season, snowflakes, flakeAt } from '../public/model.js'
 
 // Synthetic snapshot. All values are made up.
 const area = { x: 10, y: 2, width: 100, height: 40 }
@@ -701,4 +701,49 @@ test('season() gives halloween from 24 Oct to 1 Nov and winter from 1 Dec to 6 J
     [on(10, 23), on(10, 24), on(11, 1), on(11, 2), on(11, 30), on(12, 1), on(12, 31), on(1, 1), on(1, 6), on(1, 7)],
     [null, 'halloween', 'halloween', null, null, 'winter', 'winter', 'winter', 'winter', null],
   )
+})
+
+const TERRACE = { x: 14, z: 7.4, w: 5.6, d: 7.4 }
+
+test('snowflakes() gives half the terrace area in flakes, each 0.3 or more inside the edges', () => {
+  const fl = snowflakes(TERRACE)
+  assert.equal(fl.length, 21)
+  for (const f of fl) {
+    assert.ok(f.x >= TERRACE.x + 0.3 - 1e-9 && f.x <= TERRACE.x + TERRACE.w - 0.3 + 1e-9)
+    assert.ok(f.z >= TERRACE.z + 0.3 - 1e-9 && f.z <= TERRACE.z + TERRACE.d - 0.3 + 1e-9)
+  }
+})
+
+test('snowflakes() spreads the flakes over the terrace and gives the same flakes each call', () => {
+  const fl = snowflakes(TERRACE)
+  const mx = TERRACE.x + TERRACE.w / 2
+  const mz = TERRACE.z + TERRACE.d / 2
+  const quarters = [0, 0, 0, 0]
+  for (const f of fl) quarters[(f.x < mx ? 0 : 1) + (f.z < mz ? 0 : 2)]++
+  assert.ok(quarters.every(q => q >= 4), `quarters ${quarters}`)
+  for (let i = 0; i < fl.length; i++)
+    for (let j = i + 1; j < fl.length; j++)
+      assert.ok(Math.hypot(fl[i].x - fl[j].x, fl[i].z - fl[j].z) >= 0.5, `flakes ${i} and ${j} are too close`)
+  assert.deepEqual(snowflakes(TERRACE), fl)
+})
+
+test('flakeAt() falls from 2.6 at 0.3 m/s, then starts again', () => {
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} vs ${b}`)
+  const f = { x: 15, z: 8, phase: 0 }
+  near(flakeAt(f, 0).y, 2.6)
+  near(flakeAt(f, 1).y, 2.3)
+  near(flakeAt(f, 0.5 + 26 / 3).y, flakeAt(f, 0.5).y)
+})
+
+test('flakeAt() keeps each flake between the ground and 2.6, and 0.18 or more inside the terrace edges', () => {
+  for (const f of snowflakes(TERRACE)) {
+    for (let k = 0; k <= 200; k++) {
+      const p = flakeAt(f, k / 10)
+      assert.ok(p.y > 0 && p.y <= 2.6, `y ${p.y}`)
+      assert.ok(Math.abs(p.x - f.x) <= 0.1 + 1e-9, `drift ${p.x - f.x}`)
+      assert.equal(p.z, f.z)
+      assert.ok(p.x >= TERRACE.x + 0.18 && p.x <= TERRACE.x + TERRACE.w - 0.18, `x ${p.x}`)
+      assert.ok(p.z >= TERRACE.z + 0.3 - 1e-9 && p.z <= TERRACE.z + TERRACE.d - 0.3 + 1e-9, `z ${p.z}`)
+    }
+  }
 })
