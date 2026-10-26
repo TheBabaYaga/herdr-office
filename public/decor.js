@@ -22,6 +22,7 @@ export function box(parent, [w, h, d], [x, y, z], color) {
 export const WOOD = '#b5835a', WOOD_D = '#8f6243', CREAM = '#efe4cf'
 const WHITE = '#f4f1ea', DARK = '#3b3a40', GREY = '#9a9ca0', TEAL = '#5f8a8b'
 const GREENS = ['#4f7a3a', '#6b9a48', '#8dbb5a'], POTS = ['#c0673f', '#5b5f66']
+export const SNOW = '#eef3f8' // snow on the ground and on the caps. Task 3 uses it in office.js.
 const BOOKS = ['#b0503f', '#4f6f8f', '#c9a24a', '#5f8a5b', '#8a6a86', '#d8cfb8']
 const RUGS = [['#7c5d4a', '#a8826a'], ['#55706b', '#7b968f'], ['#6c6788', '#8f8aa8'], ['#8f7340', '#b2955e']]
 const E = 0.2 // a prop's back against a wall sits this far from the room edge
@@ -668,12 +669,26 @@ const waiting = (g, x, z, rot) => {
   lounge(o, 0, 0.12)
 }
 
+// Winter tree: four tiers, two ornaments on the +z and +x face of each tier, a brass star (not yellow, so it never reads as `working`).
+const xmasTree = prop([
+  [[0.5, 0.2, 0.5], [0, 0, 0], POTS[1]], [[0.16, 0.2, 0.16], [0, 0.2, 0], WOOD_D],
+  ...[1.3, 1, 0.7, 0.4].flatMap((w, i) => {
+    const y = 0.4 + i * 0.45, c = [WHITE, '#c9ccd3', '#8b5cf6', '#4a6fa8'][i]
+    return [
+      [[w, 0.45, w], [0, y, 0], GREENS[0]],
+      ...[-1, 1].flatMap((s) => [[[0.08, 0.08, 0.08], [s * w / 4, y + 0.05, w / 2 - 0.02], c], [[0.08, 0.08, 0.08], [w / 2 - 0.02, y + 0.05, s * w / 4], c]]),
+    ]
+  }),
+  [[0.2, 0.2, 0.2], [0, 2.2, 0], '#d8b45c'],
+])
+
 // The building entrance is in the middle of the lobby's south wall. The reception faces it.
 export function lobby(g, room, season) {
   const { w, d } = room, put = placer(g, room, [w / 2 - 1, d - 2, w / 2 + 1, d])
   put(reception, w / 2 + 0.6, d - 3.2, 0)
   ;[d / 2 + 0.4, d / 2, d - 1.6].some((z) => put(waiting, E, z, 1))
   if (season === 'halloween') for (const x of [w / 2 - 1.1, w / 2 + 2.3]) put(pumpkin, x, d - 3, 0)
+  if (season === 'winter') [[1, 1], [w - 1, 1], [1, d - 1]].some(([x, z]) => put(xmasTree, x, z, 0))
   plants(put, corners(room), 2)
   furnish(put, room, LOBBY)
   if (season === 'halloween') return candleSpot(g, room, put)
@@ -710,7 +725,15 @@ const pond = prop([
 // hedge on an open north edge. This draws a wood deck 1 in from each edge, so the grass shows round it. Then trees in the back corners,
 // a parasol table in the middle, loungers beside it, a bench, a pond, bushes in the front corners (low, so the camera sees in), and
 // the fill pass with TERRACE and the strip round with GARDEN.
-export function terrace(g, t) {
+// Snow: a cap on the top of each green block 0.1 high or more (tree crowns, bushes, planters). The cap is 0.04 wider, so no face is shared.
+function snow(g) {
+  g.updateMatrixWorld(true)
+  const greens = new Set(GREENS.map(shared)), tops = []
+  g.traverse((o) => o.isMesh && greens.has(o.material) && tops.push(new THREE.Box3().setFromObject(o)))
+  for (const b of tops) if (b.max.y - b.min.y >= 0.1) box(g, [b.max.x - b.min.x + 0.04, 0.05, b.max.z - b.min.z + 0.04], [(b.min.x + b.max.x) / 2 - g.position.x, b.max.y, (b.min.z + b.max.z) / 2 - g.position.z], SNOW)
+}
+
+export function terrace(g, t, season) {
   const { w, d } = t, put = placer(g, t)
   box(g, [w - 2, 0.03, d - 2], [w / 2, 0, d / 2], WOOD_D)
   for (const z of steps(1.05, d - 1.35, 0.35)) box(g, [w - 2.1, 0.05, 0.3], [w / 2, 0, z + 0.15], WOOD) // the boards along x, over the 0.04 table base of a parasol
@@ -721,6 +744,7 @@ export function terrace(g, t) {
   ;[[w / 4, d / 2], [(3 * w) / 4, d / 2]].some(([x, z]) => put(pond, x, z))
   for (const x of [0.75, w - 0.75]) put(bush, x, d - 0.75)
   furnish(put, t, TERRACE, GARDEN)
+  if (season === 'winter') snow(g)
 }
 
 // The pools of furnish(): [make, how, max]. A filler (a plant, a bean bag) can come twice.
