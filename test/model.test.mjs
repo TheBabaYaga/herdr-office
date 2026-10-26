@@ -735,14 +735,15 @@ test('flakeAt() falls from 2.6 at 0.3 m/s, then starts again', () => {
   near(flakeAt(f, 0.5 + 26 / 3).y, flakeAt(f, 0.5).y)
 })
 
-test('flakeAt() keeps each flake between the ground and 2.6, and 0.18 or more inside the terrace edges', () => {
+test('flakeAt() keeps each flake between the ground and 2.6, and 0.2 or more inside the terrace edges', () => {
   for (const f of snowflakes(TERRACE)) {
     for (let k = 0; k <= 200; k++) {
       const p = flakeAt(f, k / 10)
       assert.ok(p.y > 0 && p.y <= 2.6, `y ${p.y}`)
       assert.ok(Math.abs(p.x - f.x) <= 0.1 + 1e-9, `drift ${p.x - f.x}`)
       assert.equal(p.z, f.z)
-      assert.ok(p.x >= TERRACE.x + 0.18 && p.x <= TERRACE.x + TERRACE.w - 0.18, `x ${p.x}`)
+      // the rail and the stub cap reach 0.17 into a terrace, and half a flake is 0.03
+      assert.ok(p.x >= TERRACE.x + 0.2 - 1e-9 && p.x <= TERRACE.x + TERRACE.w - 0.2 + 1e-9, `x ${p.x}`)
       assert.ok(p.z >= TERRACE.z + 0.3 - 1e-9 && p.z <= TERRACE.z + TERRACE.d - 0.3 + 1e-9, `z ${p.z}`)
     }
   }
