@@ -167,9 +167,6 @@ The user made these decisions between 2026-10-03 and 2026-10-26.
     - Exception to decision 25 ("No prop glows"): the candle flames may glow, in orange only, with a soft halo and a warm pool on the floor. There is no three.js light, and no color near working yellow or blocked red.
     - The lightning is the one flash in the office. A strike comes after 20 to 60 s, with one or two soft flashes. It has no sound (decision 6 cut sound).
     - With "reduce motion" on, no lightning shows, and the flames flicker at half strength.
-33. Winter props, from issue TheBabaYaga/herdhouse#11 (the winter part of the proposal). The issue says: "A tree in the lobby, with ornaments and a star on top.", "Snow on the terrace grass, the hedge, and the garden trees.", and "Snowflakes that fall slowly over each terrace." It sets the dates, 1 December to 6 January, and the switch `?season=winter`.
-    - The tree has white, silver, violet, and blue ornaments and a brass star, so no ornament reads as a status color. Nothing glows, and no light is added.
-    - The snow covers the terrace grass, the hedge, and each green block of the garden. The flakes fall at 0.3 a second, and at half that speed with reduce motion.
 
 ## Cut on purpose
 
@@ -198,7 +195,10 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 
 ## Open items and known limits
 
-- The open questions of issue 11: more seasons, and the date ranges of the seasons. A flake falls through a parasol canopy or a tree crown, because the flakes ignore the props. The demo has no terrace, so `?demo&season=winter` shows only the tree.
+- The open questions of issue 11: more seasons, and the date ranges of the seasons.
+- The winter props of issue TheBabaYaga/herdhouse#11 are built and wait for the user's approval. The issue says: "A tree in the lobby, with ornaments and a star on top.", "Snow on the terrace grass, the hedge, and the garden trees.", and "Snowflakes that fall slowly over each terrace." The technical choices are in `docs/idr/0002-winter-decor.md`. After approval, a decision 33 records them.
+- Open for the user: with reduce motion, the flakes fall at half speed (the rule of the Halloween flames). The lightning, which moves across the screen, stops with reduce motion instead.
+- A flake passes through each garden prop (the trees, the bushes, the planters, the loungers, the bench, and the parasol canopy). The demo has no terrace, so `?demo&season=winter` shows only the tree.
 - A floor pool of a candelabra can spill a little past a wall or the building edge.
 - A stack of halos can make a flame look a little more yellow than orange.
 - No Node test covers `night()`, `candles()`, `lightning()`, or `candleSpot()`, because Node cannot load three.js. Browser checks and a scratch ray test covered them.
