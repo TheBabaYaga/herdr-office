@@ -451,6 +451,33 @@ export function season(date) {
   return null
 }
 
+// [minute, dir, sun, sunPower, ambient, ground, ambientPower, window, windowGlow, background]
+const KEYS = [
+  [360, [10, 1, 2], '#a9bce8', 0, '#7f8fb8', '#2e2622', 1.5, '#1d2540', '#141c33', '#0b0d1a'], // 06:00 the night ends
+  [480, [10, 3, 3], '#ffc58a', 1.8, '#ffe6c8', '#6e5a4c', 1.7, '#a9d5ef', '#55819e', '#181825'], // 08:00 a low warm sun from the east
+  [780, [0, 10, 4], '#ffe4bd', 2.6, '#fff1dc', '#7a6250', 2, '#a9d5ef', '#55819e', '#181825'], // 13:00 a high sun from the south
+  [900, [-4, 10, 5], '#ffdcae', 2.4, '#fff1dc', '#7a6250', 2, '#a9d5ef', '#55819e', '#181825'], // 15:00 the reference day look (decision 9)
+  [1080, [-10, 5, 2], '#ff9a50', 2, '#ffb47a', '#6a4a3a', 1.6, '#f2b58a', '#8a5a40', '#181825'], // 18:00 a low orange sun from the west
+  [1260, [-10, 1, 1], '#a9bce8', 0, '#7f8fb8', '#2e2622', 1.5, '#1d2540', '#141c33', '#0b0d1a'], // 21:00 the night starts
+]
+
+// The light of the day at min (minutes since local midnight): the sun, the sky, the windows, and the background.
+// It blends the KEYS rows in a cycle (after 21:00 comes 06:00 of the next day). Numbers and dir mix linearly, colors per sRGB channel.
+export function daylight(min) {
+  let m = ((min % 1440) + 1440) % 1440
+  if (m < 360) m += 1440
+  const i = KEYS.findLastIndex((k) => k[0] <= m)
+  const a = KEYS[i], b = KEYS[i + 1] || [KEYS[0][0] + 1440, ...KEYS[0].slice(1)]
+  const t = (m - a[0]) / (b[0] - a[0])
+  const num = (x, y) => x + (y - x) * t
+  const col = (x, y) => '#' + [1, 3, 5].map((j) => Math.round(num(parseInt(x.slice(j, j + 2), 16), parseInt(y.slice(j, j + 2), 16))).toString(16).padStart(2, '0')).join('')
+  return {
+    dir: a[1].map((v, j) => num(v, b[1][j])), sun: col(a[2], b[2]), sunPower: num(a[3], b[3]),
+    ambient: col(a[4], b[4]), ground: col(a[5], b[5]), ambientPower: num(a[6], b[6]),
+    window: col(a[7], b[7]), windowGlow: col(a[8], b[8]), background: col(a[9], b[9]),
+  }
+}
+
 // The Halloween ghosts of a building { w, d }: 3 closed loops of 8 points { x, z, hover }, 1 or more from each outer wall.
 // hover: the seconds at the point (2 to 5). The seed comes from the bounds and the ghost index, so the same bounds give the same ghosts.
 export const ghosts = ({ w, d }) => [0, 1, 2].map((i) => {

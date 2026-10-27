@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { STATUS_RANK, STATUS_COLOR, rollup, buildOffice, demoSnapshot, demoMeetings, season, ghosts, ghostAt, snowflakes, flakeAt, twinkle, outdoors } from '../public/model.js'
+import { STATUS_RANK, STATUS_COLOR, rollup, buildOffice, demoSnapshot, demoMeetings, season, daylight, ghosts, ghostAt, snowflakes, flakeAt, twinkle, outdoors } from '../public/model.js'
 
 // Synthetic snapshot. All values are made up.
 const area = { x: 10, y: 2, width: 100, height: 40 }
@@ -877,4 +877,18 @@ test('twinkle() stays in 0.225..0.475 with amp 0.5', () => {
 test('twinkle() peaks at 0.6 and repeats after 2 PI / 1.5 s', () => {
   assert.ok(Math.abs(twinkle(Math.PI / 2, 0) - 0.6) < 1e-9)
   assert.ok(Math.abs(twinkle(0.7, 1.3) - twinkle(0.7, 1.3 + 2 * Math.PI / 1.5)) < 1e-9)
+})
+
+test('daylight() keeps the old look at 15:00, has no sun at night, and never jumps', () => {
+  assert.deepEqual(daylight(900), { dir: [-4, 10, 5], sun: '#ffdcae', sunPower: 2.4, ambient: '#fff1dc', ground: '#7a6250', ambientPower: 2, window: '#a9d5ef', windowGlow: '#55819e', background: '#181825' })
+  const [x, y, z] = daylight(780).dir
+  assert.ok(y / Math.hypot(x, y, z) > 0.9, 'a high sun at 13:00')
+  for (const m of [1260, 1380, 0, 180, 360]) assert.equal(daylight(m).sunPower, 0, `no sun at minute ${m}`)
+  const rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16))
+  for (let m = 0; m < 1440; m++) {
+    const a = daylight(m), b = daylight(m + 1) // m + 1 = 1440 checks 23:59 -> 00:00
+    assert.ok(Math.abs(a.sunPower - b.sunPower) < 0.05 && Math.abs(a.ambientPower - b.ambientPower) < 0.05, `power step at minute ${m}`)
+    for (const k of ['sun', 'ambient', 'ground', 'window', 'windowGlow', 'background'])
+      assert.ok(rgb(a[k]).every((c, i) => Math.abs(c - rgb(b[k])[i]) <= 3), `${k} step at minute ${m}`)
+  }
 })
