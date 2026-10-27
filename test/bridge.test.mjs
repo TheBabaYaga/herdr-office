@@ -167,6 +167,36 @@ test('GET / injects the token, static files serve, traversal is blocked', async 
   }
 })
 
+test('GET / and static files come from readStatic, with the same guards', async () => {
+  const files = new Map([['index.html', '<meta name="office-token" content="__OFFICE_TOKEN__">'], ['app.js', 'export {}']])
+  const seen = []
+  const readStatic = (rel) => {
+    seen.push(rel)
+    if (!files.has(rel)) throw new Error('no asset')
+    return Buffer.from(files.get(rel))
+  }
+  const b = await startBridge({ sock: 'none.sock', port: 0, publicDir: '/virtual/public', readStatic, token: 'tok-abc' })
+  const port = portOf(b)
+  try {
+    const home = await request(port, 'GET', '/')
+    assert.equal(home.status, 200)
+    assert.ok(home.body.includes('content="tok-abc"'))
+    assert.equal(home.headers['cache-control'], 'no-store')
+    assert.equal(home.headers['x-frame-options'], 'DENY')
+    assert.ok(seen.includes('index.html'))
+    const js = await request(port, 'GET', '/app.js')
+    assert.equal(js.status, 200)
+    assert.match(js.headers['content-type'], /^text\/javascript/)
+    assert.equal((await request(port, 'GET', '/missing.js')).status, 404)
+    for (const p of ['/../secret.js', '/%2e%2e/secret.js', '/..%2fsecret.js', '/%2e%2e%2fsecret.js', '/%2E%2E%2Fsecret.js']) {
+      assert.notEqual((await request(port, 'GET', p)).status, 200, p)
+    }
+    assert.ok(seen.every((r) => !r.startsWith('..') && !r.startsWith('/')), seen.join())
+  } finally {
+    await b.close()
+  }
+})
+
 test('startBridge makes a random token when none is given', async () => {
   const b = await startBridge({ sock: 'none.sock', port: 0, publicDir: pub })
   try {

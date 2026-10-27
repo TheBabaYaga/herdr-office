@@ -44,6 +44,7 @@ At start, the `import.meta.main` block awaits `startBridge()` with `socketPath()
 ### Static branch of `handle()`
 
 - It joins `decodeURIComponent(pathname)` to `publicDir`. It blocks an extension that is not in `TYPES`, and a path outside `publicDir + path.sep`. Each error gives 404.
+- It then calls `readStatic(rel)`. `rel` is the path below `publicDir`, with `/` separators and no leading `/`, for example `index.html`. A throw or a rejection gives 404.
 - `new URL()` removes `..` and `%2e%2e`. An encoded slash stays encoded until the decode, so only the `startsWith` guard blocks `/..%2f`.
 - An HTML file gets the token in place of `__OFFICE_TOKEN__`. A 200 reply sets `cache-control: no-store` and `x-frame-options: DENY`.
 
@@ -120,7 +121,7 @@ A pure parser for the Codex rollout JSONL text. It returns `[{ role, text }]` in
 
 ### `startBridge(options)`
 
-The options are `sock`, `port` (on `127.0.0.1`), `publicDir`, `pollMs` (500), `token` (`crypto.randomUUID()`), `claudeDir` (`null` gives `meetings: []`, and 503 on `GET /messages` for a claude pane), `codexDir` (`null`: a codex pane gets 503 on `GET /messages`), `meetMs` (2000, the shortest time between two meeting reads), and `raise` (runs after a successful `pane.focus`).
+The options are `sock`, `port` (on `127.0.0.1`), `publicDir`, `pollMs` (500), `token` (`crypto.randomUUID()`), `claudeDir` (`null` gives `meetings: []`, and 503 on `GET /messages` for a claude pane), `codexDir` (`null`: a codex pane gets 503 on `GET /messages`), `meetMs` (2000, the shortest time between two meeting reads), `raise` (runs after a successful `pane.focus`), and `readStatic` (`(rel) => Buffer | Promise<Buffer>`, reads one page file. The default reads `path.join(publicDir, rel)` from disk. The single executable passes a reader of its embedded assets).
 
 It returns `{ url, token, close }`. `close()` clears `clients` and closes the server. A cycle that runs then finishes, and the loop stops.
 

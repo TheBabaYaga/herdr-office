@@ -320,8 +320,9 @@ export async function readCodexMessages(sessions, pane, limit = 100) {
   }
 }
 
-export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypto.randomUUID(), claudeDir = null, codexDir = null, meetMs = 2000, raise = null }) {
+export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypto.randomUUID(), claudeDir = null, codexDir = null, meetMs = 2000, raise = null, readStatic = null }) {
   publicDir = path.resolve(publicDir)
+  readStatic ??= (rel) => readFile(path.join(publicDir, rel))
   // A Map, because pane.agent comes from outside and a plain object has keys like "constructor".
   const readers = new Map([['claude', [claudeDir, readMessages]], ['codex', [codexDir, readCodexMessages]]])
   const clients = new Set()
@@ -439,7 +440,7 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
       const file = path.join(publicDir, pathname === '/' ? 'index.html' : decodeURIComponent(pathname))
       const type = TYPES[path.extname(file)]
       if (!type || !file.startsWith(publicDir + path.sep)) throw new Error('blocked')
-      let body = await readFile(file)
+      let body = await readStatic(path.relative(publicDir, file).split(path.sep).join('/'))
       if (type.startsWith('text/html')) body = String(body).replaceAll('__OFFICE_TOKEN__', token)
       res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store', 'x-frame-options': 'DENY' }).end(body)
     } catch {
