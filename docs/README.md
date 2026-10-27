@@ -15,7 +15,7 @@ These docs describe the code of herdr-office, with one doc for each source area.
 | The floor plan, the room layout, and the terraces | `docs/model.md` "Pods and desks", "buildOffice(snap, meetings = [], prev = null)". `docs/office.md` "Floors and walls", "Build and bake" | `buildOffice()`, `podLayout()`, `spread()`, `build()`, `inner()`, `outer()`, `stub()` |
 | Kitchen and party trips, and routes | `docs/model.md` "Walk geometry", "route(o, deskId, spot, to = 'kitchen')", "Breaks". `docs/office.md` "Idle breaks" | `route()`, `walkRects()`, `stepBreak()`, `endBreak()`, `tripAt()`, `breakPlan()`, `along()`, `breaks()`, `stroll()` |
 | Doors | `docs/office.md` "Floors and walls" (`door()`), "Idle breaks" (`swing()`), the recipe for the door leaf. `docs/model.md` "Breaks" (`opens()`). `docs/testing.md` "Change when a door opens" | `door()`, `swing()`, `opens()`, `calm()` |
-| Seasonal decor | `docs/decor.md` "Seasonal props". `docs/model.md` "season(date)". `docs/office.md` "Frame loop and data source" (`SEASON`, the minute timer) | `season()`, `SEASON`, `pumpkin()`, `bat()`, `web()` |
+| Seasonal decor | `docs/decor.md` "Seasonal props". `docs/model.md` "season(date)", "snowflakes(t), flakeAt(f, s)", "outdoors(bounds)". `docs/office.md` "Frame loop and data source" (`SEASON`, the minute timer), "Winter snow". `INTENT.md` decisions 31 and 34 | `season()`, `SEASON`, `pumpkin()`, `bat()`, `web()`, `xmasTree`, `snow()`, `snowflakes()`, `flakeAt()`, `snowfall()` |
 | The Halloween night and the ghosts | `docs/office.md` "Halloween night". `docs/model.md` "candleSpots(o), lightningPlan(rand), flash(plan, s)" and "rng(s), ghosts(bounds), ghostAt(g, s)". `docs/decor.md` "Seasonal props" (`candleSpot()`). `docs/testing.md` "The Halloween night tests". `INTENT.md` decisions 31 to 33 | `night()`, `candelabra()`, `candles()`, `lightning()`, `ghost()`, `haunt()`, `candleSpots()`, `lightningPlan()`, `flash()`, `ghosts()`, `ghostAt()`, `candleSpot()` |
 | Decor and props | `docs/decor.md` | `box()`, `placer()`, `workspaceDecor()`, `kitchen()`, `meeting()`, `lobby()`, `terrace()`, `plant()`, `clutter()` |
 | The bridge: poll, SSE, action, guards | `docs/bridge.md` "Flow", "`startBridge(options)`", "`GET /events` branch", "`GET /messages` branch", "`POST /action` branch" | `startBridge()`, `handle()`, `poll()`, `send()`, `herdrRequest()`, `socketPath()` |
@@ -64,8 +64,10 @@ follow -> goal glide -> zoom glide -> controls.update() -> keepInView() -> label
        stroll(), opens() -> ajar            the walk or the dance (sets dancing), and the doors to open: its own room and its target room
   -> disco(t)                               the party room parts, on only while a worker dances
   -> rally(t)                               the ping-pong balls, on only while both players of a table play
+  -> snowfall(t)                            the winter flakes, at half speed with reduce motion
   -> candles(t)                             the candle flicker (Halloween night)
   -> haunt(t)                               the ghosts float (Halloween), at half speed with reduce motion, and show a clicked balloon for 2 s
+  -> bulbLights(t)                          the tree bulb halos twinkle (winter), at half swing with reduce motion
   -> lightning(t)                           the night flash, off with reduce motion
   -> swing(t - last)
   -> seen = '' while a worker walks, at most 4 times a second

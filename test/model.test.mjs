@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { STATUS_RANK, STATUS_COLOR, rollup, buildOffice, demoSnapshot, demoMeetings, season, ghosts, ghostAt } from '../public/model.js'
+import { STATUS_RANK, STATUS_COLOR, rollup, buildOffice, demoSnapshot, demoMeetings, season, ghosts, ghostAt, snowflakes, flakeAt, twinkle, outdoors } from '../public/model.js'
 
 // Synthetic snapshot. All values are made up.
 const area = { x: 10, y: 2, width: 100, height: 40 }
@@ -767,4 +767,114 @@ test('ghostAt() hovers at each point for its hover time, facing the leg it came 
       close(a.z, c.z, `loop z at ${u}`)
     }
   }
+})
+
+const TERRACE = { x: 14, z: 7.4, w: 5.6, d: 7.4 }
+
+test('snowflakes() gives one flake for each cell of a grid of about 2 m² cells, each 0.3 or more inside the edges', () => {
+  const fl = snowflakes(TERRACE)
+  assert.equal(fl.length, 20)
+  assert.ok(Math.abs(fl.length - TERRACE.w * TERRACE.d / 2) <= TERRACE.w * TERRACE.d / 20)
+  for (const f of fl) {
+    assert.ok(f.x >= TERRACE.x + 0.3 - 1e-9 && f.x <= TERRACE.x + TERRACE.w - 0.3 + 1e-9)
+    assert.ok(f.z >= TERRACE.z + 0.3 - 1e-9 && f.z <= TERRACE.z + TERRACE.d - 0.3 + 1e-9)
+  }
+})
+
+test('snowflakes() spreads the flakes over the terrace and gives the same flakes each call', () => {
+  const fl = snowflakes(TERRACE)
+  const mx = TERRACE.x + TERRACE.w / 2
+  const mz = TERRACE.z + TERRACE.d / 2
+  const quarters = [0, 0, 0, 0]
+  for (const f of fl) quarters[(f.x < mx ? 0 : 1) + (f.z < mz ? 0 : 2)]++
+  assert.ok(quarters.every(q => q >= 4), `quarters ${quarters}`)
+  assert.deepEqual(snowflakes(TERRACE), fl)
+})
+
+test('the outdoor flakes form no lattice and do not fall in rows', () => {
+  const fl = snowflakes(outdoors({ w: 35, d: 22 })[0])
+  const offsets = new Set(), phases = new Set()
+  for (const f of fl) {
+    let best = null, dist = Infinity
+    for (const g of fl) {
+      const e = Math.hypot(f.x - g.x, f.z - g.z)
+      if (g !== f && e < dist) { dist = e; best = g }
+    }
+    offsets.add(`${(best.x - f.x).toFixed(2)},${(best.z - f.z).toFixed(2)}`)
+    phases.add(Math.abs(f.phase - best.phase).toFixed(2))
+  }
+  assert.ok(offsets.size >= 0.8 * fl.length, `offsets ${offsets.size} of ${fl.length}`)
+  assert.ok(phases.size >= 30, `phase differences ${phases.size}`)
+})
+
+test('flakeAt() falls from 2.6 at 0.3 m/s, then starts again', () => {
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} vs ${b}`)
+  const f = { x: 15, z: 8, phase: 0 }
+  near(flakeAt(f, 0).y, 2.6)
+  near(flakeAt(f, 1).y, 2.3)
+  near(flakeAt(f, 0.5 + 26 / 3).y, flakeAt(f, 0.5).y)
+})
+
+test('flakeAt() keeps each flake between the ground and 2.6, and 0.2 or more inside the terrace edges', () => {
+  for (const f of snowflakes(TERRACE)) {
+    for (let k = 0; k <= 200; k++) {
+      const p = flakeAt(f, k / 10)
+      assert.ok(p.y > 0 && p.y <= 2.6, `y ${p.y}`)
+      assert.ok(Math.abs(p.x - f.x) <= 0.1 + 1e-9, `drift ${p.x - f.x}`)
+      assert.equal(p.z, f.z)
+      // the rail and the stub cap reach 0.17 into a terrace, and half a flake is 0.03
+      assert.ok(p.x >= TERRACE.x + 0.2 - 1e-9 && p.x <= TERRACE.x + TERRACE.w - 0.2 + 1e-9, `x ${p.x}`)
+      assert.ok(p.z >= TERRACE.z + 0.3 - 1e-9 && p.z <= TERRACE.z + TERRACE.d - 0.3 + 1e-9, `z ${p.z}`)
+    }
+  }
+})
+
+test('outdoors() gives 4 rects round the slab, with no overlap and the area of the band', () => {
+  const b = { w: 35, d: 22 }, P = 0.3, M = 20.5
+  const slab = [-P, -P, b.w + P, b.d + P]
+  const rs = outdoors(b)
+  assert.equal(rs.length, 4)
+  const hit = (a, [x0, z0, x1, z1]) => a.x < x1 && a.x + a.w > x0 && a.z < z1 && a.z + a.d > z0
+  for (const [i, r] of rs.entries()) {
+    assert.ok(!hit(r, slab), `rect ${i} overlaps the slab`)
+    for (const [j, q] of rs.entries()) if (j > i) assert.ok(!hit(r, [q.x, q.z, q.x + q.w, q.z + q.d]), `rects ${i} and ${j} overlap`)
+  }
+  const area = rs.reduce((n, r) => n + r.w * r.d, 0)
+  assert.ok(Math.abs(area - ((b.w + 2 * P + 2 * M) * (b.d + 2 * P + 2 * M) - (b.w + 2 * P) * (b.d + 2 * P))) < 1e-9)
+  assert.deepEqual(outdoors(b), rs)
+})
+
+test('outdoors() snow stays 0.2 or more outside the slab at every time', () => {
+  const b = { w: 35, d: 22 }, P = 0.3
+  for (const r of outdoors(b)) {
+    for (const f of snowflakes(r)) {
+      for (let k = 0; k <= 40; k++) {
+        const p = flakeAt(f, k / 2)
+        const out = Math.max(-P - p.x, p.x - (b.w + P), -P - p.z, p.z - (b.d + P))
+        assert.ok(out >= 0.2 - 1e-9, `flake at ${p.x}, ${p.z} is ${out} from the slab`)
+      }
+    }
+  }
+})
+
+test('twinkle() stays in 0.1..0.6 and swings the full range with amp 1', () => {
+  let lo = 1, hi = 0
+  for (const ph of [0, 2, 4]) for (let k = 0; k <= 200; k++) {
+    const v = twinkle(ph, k * 0.05)
+    assert.ok(v >= 0.1 - 1e-9 && v <= 0.6 + 1e-9, `${v}`)
+    lo = Math.min(lo, v); hi = Math.max(hi, v)
+  }
+  assert.ok(lo < 0.12 && hi > 0.58, `${lo} ${hi}`)
+})
+
+test('twinkle() stays in 0.225..0.475 with amp 0.5', () => {
+  for (let k = 0; k <= 200; k++) {
+    const v = twinkle(1, k * 0.05, 0.5)
+    assert.ok(v >= 0.225 - 1e-9 && v <= 0.475 + 1e-9, `${v}`)
+  }
+})
+
+test('twinkle() peaks at 0.6 and repeats after 2 PI / 1.5 s', () => {
+  assert.ok(Math.abs(twinkle(Math.PI / 2, 0) - 0.6) < 1e-9)
+  assert.ok(Math.abs(twinkle(0.7, 1.3) - twinkle(0.7, 1.3 + 2 * Math.PI / 1.5)) < 1e-9)
 })

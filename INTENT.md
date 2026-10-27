@@ -51,7 +51,7 @@ The office watches. It has two writes to herdr: a focus and a message. A click o
 
 ## Decisions
 
-The user made these decisions between 2026-10-03 and 2026-10-26.
+The user made these decisions between 2026-10-03 and 2026-10-27.
 
 1. The goal, in the user's words: "Analyze how herdr works with the agents ... build a 3D office (can be in threejs) that uses the same concepts where I can see my agents working in a real office." The analysis is in `docs/herdr-agent-model.md`.
 2. Watch, plus a click to focus. A desk click opens a panel, and "Focus in herdr" sends `pane.focus`. The office never prompts agents and never answers blocked questions. Decision 21 changed the first part: the office now sends messages. It still never answers a blocked question.
@@ -179,6 +179,11 @@ The user made these decisions between 2026-10-03 and 2026-10-26.
     - An easter egg, in the user's words: "When I click on a ghost, can there appear a text balloon with like "boohooo" as a fun easter egg". A click on a ghost shows a speech balloon with `Boohooo!` above its head for 2 s. The balloon floats with the ghost. A new click on the same ghost starts the 2 s again.
     - A click on a ghost opens no panel. A desk in front of a ghost gets the click and opens its panel. The balloon sends nothing to the bridge or to herdr.
     - The balloon is near-white with dark text and a small tail that points down to the ghost. It has no animation, so reduce motion does not change it.
+34. Winter decor, from issue TheBabaYaga/herdhouse#11. The user approved it on 27 October 2026, when the user asked to merge the winter branch into main and close issue 11. The technical choices are in `docs/idr/0002-winter-decor.md`.
+    - From 1 December to 6 January (or `?season=winter`). The issue asks for "A tree in the lobby, with ornaments and a star on top.", "Snow on the terrace grass, the hedge, and the garden trees.", and "Snowflakes that fall slowly over each terrace."
+    - The user also asked for Christmas trees in place of some room trees, at random, and for snow outside the office.
+    - The bulbs of a Christmas tree glow with a halo and a slow twinkle. The user asked: "Can the christmas tree light bulbs give a small light effect?"
+    - Each worker wears a knit sweater in off-white or navy, over the unchanged shirt color. The user asked: "Can we also let the agents where like christmas styled sweaters or so". This is an exception to decision 25, like the candle flames of decision 32.
 
 ## Cut on purpose
 
@@ -207,7 +212,9 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 
 ## Open items and known limits
 
-- The open questions of issue 11: more seasons, and the date ranges of the seasons. Winter has no props yet.
+- The open questions of issue 11: more seasons, and the date ranges of the seasons.
+- Open for the user: with reduce motion, the flakes fall at half speed (the rule of the Halloween flames). The lightning, which moves across the screen, stops with reduce motion instead.
+- A flake passes through each garden prop (the trees, the bushes, the planters, the loungers, the bench, and the parasol canopy). The demo has no terrace, but `?demo&season=winter` shows the tree and the snow outside the building.
 - A floor pool of a candelabra can spill a little past a wall or the building edge.
 - A stack of halos can make a flame look a little more yellow than orange.
 - No Node test covers `night()`, `candles()`, `lightning()`, or `candleSpot()`, because Node cannot load three.js. Browser checks and a scratch ray test covered them.
@@ -221,7 +228,7 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 - In a room full of pods (two pod rows, about 30 x 13), most fill props are thin props. In the test room with 9 tabs (30.6 x 13.3), the free floor went from 31% to 37%, and the props from 6 to 24. A test room with two rows of 4 pods (29.1 x 13.3) went from 29% to 34%, and also from 6 to 24 props. The band along the corridor side is about 0.5 deep after the gap, so it stays empty. Few groups of the floor round fit between the lanes there.
 - A party room in a long, shallow row is mostly the dance floor and the strip. Only a few small props fit beside it.
 - No test covers the fill pass, because Node cannot load three.js. A scratch check in Node (`docs/decor.md` "Check placement in Node") covered 288 rooms in 33 offices. A test in `test/walk.test.mjs` covers the narrow lanes under a short pod.
-- No test covers the terrace walls, the hedge, the grass, or the garden props, because Node cannot load three.js. A scratch check in Node copied the wall rules of `build()`. In 29 offices it found one wall on each edge, and no wall between two terraces. A placement check covered the props of 31 terraces. The browser check of the terraces is still open.
+- No test covers the terrace walls, the hedge, the grass, or the garden props, because Node cannot load three.js. A scratch check in Node copied the wall rules of `build()`. In 29 offices it found one wall on each edge, and no wall between two terraces. A placement check covered the props of 31 terraces. A browser check against a fake herdr socket with a terrace covered the grass, the hedge, the garden, and the snow. No browser check covered the half speed of the snow with reduce motion.
 - A row with a spare width just under 4 still stretches its rooms, by less than 4 in total. The user did not tune the 4.
 - Nobody tested "Focus in herdr" (with the terminal raise) or the SketchyBar row click against the live herdr. The tests use fake sockets and stubs.
 - The tests cover only the bridge side of a message. One browser check against a fake herdr socket covered the page side.

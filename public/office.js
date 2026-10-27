@@ -2,8 +2,8 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, lightningPlan, flash, ghosts, ghostAt, hash, season, route, along, calm, opens, stepBreak, endBreak } from './model.js'
-import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, party, terrace, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
+import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, lightningPlan, flash, ghosts, ghostAt, snowflakes, flakeAt, twinkle, rng, outdoors, hash, season, route, along, calm, opens, stepBreak, endBreak } from './model.js'
+import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, party, terrace, SNOW, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
 
 const $ = (id) => document.getElementById(id)
 const DEMO = new URLSearchParams(location.search).has('demo')
@@ -175,6 +175,7 @@ function build(office, season) {
     world.traverse((o) => {
       o.element?.remove()
       if (o.geometry?.userData.merged) o.geometry.dispose()
+      if (o.isInstancedMesh) o.dispose() // frees the instance buffer
       if (o.material && !o.material.userData.shared) { if (!o.material.map?.userData.shared) o.material.map?.dispose(); o.material.dispose() }
     })
     scene.remove(world)
@@ -184,7 +185,8 @@ function build(office, season) {
   views.clear()
   live.clear()
   night(season === 'halloween')
-  flames = []; pools = []
+  winter = season === 'winter'
+  flames = []; pools = []; bulbs = []
   const { w: BW, d: BD } = office.bounds, X = office.corridors.at(-1), W = X.x // X: the cross corridor
   box(world, [BW + 0.6, 0.4, BD + 0.6], [BW / 2, -0.5, BD / 2], C.slab)
   // Corridors: light wood, a runner down each one, a plant in each dead end. The runners meet in the cross corridor.
@@ -226,7 +228,7 @@ function build(office, season) {
   // no +x wall away from the cross corridor, and a south row draws no +z wall, so the terrace draws these. Two terraces back to back
   // share their edge with no wall: one courtyard. A first-row terrace gets a hedge on its north edge (below), and a last-row one keeps the stub.
   for (const t of office.terraces) {
-    floor(t, FLOOR.grass, C.grass)
+    floor(t, FLOOR.grass, season === 'winter' ? SNOW : C.grass)
     const g = new THREE.Group()
     g.position.set(t.x, 0, t.z)
     world.add(g)
@@ -245,6 +247,7 @@ function build(office, season) {
   if (open) {
     outer('x', 0, W, BW, [W, BW])
     run('x', 0, open.x + T / 2, W - T / 2, 0, 0.9, C.hedge, T + 0.06)
+    if (season === 'winter') run('x', 0, open.x + T / 2, W - T / 2, 0.9, 0.05, SNOW, T + 0.1) // snow on the hedge
   }
   stub('z', BW, 0, BD, [])
   const { x: ex } = office.entrance
@@ -262,8 +265,17 @@ function build(office, season) {
     live.add(b)
     return b
   })
+  flakes = season === 'winter' ? [...office.terraces, ...outdoors(office.bounds)].flatMap(snowflakes) : []
+  flakeMesh = null
+  if (flakes.length) { // one mesh for all flakes: snowfall() writes the matrices
+    flakeMesh = new THREE.InstancedMesh(flakeGeo, flakeMat, flakes.length)
+    flakeMesh.frustumCulled = false // the instances move, so the bounding sphere goes stale
+    world.add(flakeMesh)
+    live.add(flakeMesh)
+  }
   if (season === 'halloween') for (const s of candleSpots(office)) candelabra(s.x, s.z, s.axis, 3.2)
   spooks = season === 'halloween' ? ghosts(office.bounds).map((p, i) => Object.assign(ghost(p), { until: spooks[i]?.until ?? 0 })) : [] // a rebuild keeps a shown balloon
+  lightBulbs()
   bake()
   // The sun shines in through the west windows. Its shadow box holds the whole building.
   const R = Math.hypot(BW, BD) / 2 + 2
@@ -277,6 +289,7 @@ function build(office, season) {
 let flames = [] // { flame, halo, ph, y }
 let pools = [] // { mesh, ph }: a flat additive circle on the floor
 let dark = false // the night is on
+let winter = false // the winter knit sweaters are on: build() sets it, worker() reads it
 function night(on) {
   dark = on
   ambient.color.set(on ? '#7f8fb8' : '#fff1dc'); ambient.groundColor.set(on ? '#2e2622' : '#7a6250'); ambient.intensity = on ? 1.1 : 2
@@ -330,6 +343,29 @@ function candles(t) {
     f.halo.material.opacity = 0.25 + 0.2 * n
   }
   for (const p of pools) p.mesh.material.opacity = 0.22 + 0.12 * (0.5 + (wob(t * 0.8, p.ph) - 0.5) * amp)
+}
+// ---- Winter tree bulbs: decor.js marks the bulb meshes with userData.bulb. Each gets one additive halo in front of its face (no three.js Light). ----
+let bulbs = [] // { halo, ph }
+function lightBulbs() {
+  world.updateMatrixWorld(true)
+  const seeds = new Map(), p = new THREE.Vector3(), q = new THREE.Vector3()
+  const found = []
+  world.traverse((o) => { if (o.isMesh && o.material.userData.bulb) found.push(o) })
+  for (const m of found) {
+    m.getWorldPosition(p); m.parent.getWorldPosition(q) // q: the tree. The tree stands at rot 0, so a bulb faces +z or +x.
+    const key = `${q.x},${q.z}`
+    if (!seeds.has(key)) seeds.set(key, rng(hash(key, 1e9)))
+    const zFace = Math.abs(p.z - q.z) > Math.abs(p.x - q.x)
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: blob, color: m.material.color, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.35, depthWrite: false }))
+    halo.scale.set(0.35, 0.35, 1)
+    halo.position.set(p.x + (zFace ? 0 : 0.06), p.y, p.z + (zFace ? 0.06 : 0))
+    world.add(halo); live.add(halo)
+    bulbs.push({ halo, ph: seeds.get(key)() * 6.28 })
+  }
+}
+function bulbLights(t) {
+  const amp = CALM.matches ? 0.5 : 1 // reduce motion: half the swing
+  for (const b of bulbs) b.halo.material.opacity = twinkle(b.ph, t, amp)
 }
 const NIGHT_SKY = new THREE.Color('#141c33'), FLASH_SKY = new THREE.Color('#9fb4e0'), NIGHT_BG = new THREE.Color('#0b0d1a'), FLASH_BG = new THREE.Color('#2a3150')
 let strike = null // { start, plan }: the next strike or the one in progress
@@ -451,6 +487,15 @@ function worker(parent, d) {
   live.add(g)
   const color = shirt(d.agent.kind), lit = (c) => fresh(c, THREE.MeshLambertMaterial) // own materials: opacity changes per worker
   box(g, [0.5, 0.55, 0.3], [0, 0, 0], lit(color))
+  // Winter: a knit sweater over the shirt. The shirt color stays. The knit is off-white, or navy on a light shirt. One material for all knit parts.
+  const knit = winter && lit(new THREE.Color(color).getHSL({}, THREE.SRGBColorSpace).l >= 0.8 ? '#2f3b52' : '#f4f1ea')
+  if (knit) {
+    box(g, [0.52, 0.05, 0.32], [0, 0, 0], knit) // hem
+    box(g, [0.52, 0.07, 0.32], [0, 0.33, 0], knit) // chest band
+    box(g, [0.52, 0.03, 0.32], [0, 0.53, 0], knit) // yoke: the camera looks down on it, the chair back hides the rest of the back
+    for (const x of [-0.18, -0.06, 0.06, 0.18]) box(g, [0.05, 0.05, 0.32], [x, 0.43, 0], knit) // dots on the back and the front
+    for (const z of [-0.075, 0.075]) box(g, [0.52, 0.05, 0.05], [0, 0.43, z], knit) // dots on the sides
+  }
   // Look from the pane id: the same worker always looks the same. Shirt stays the agent kind.
   const h = hash(d.terminalId ?? d.id, 1e9), r = (n, i) => { // r: a mixed pick of 0..n-1, one stream per feature i
     let x = Math.imul(h + i * 0x9e3779b1, 0x85ebca6b)
@@ -496,6 +541,10 @@ function worker(parent, d) {
     a.position.set(s * 0.32, 0.5, 0)
     g.add(a)
     box(a, [0.14, 0.5, 0.14], [0, -0.5, 0], lit(color))
+    if (knit) {
+      box(a, [0.16, 0.06, 0.16], [0, -0.5, 0], knit) // cuff
+      box(a, [0.16, 0.05, 0.16], [0, -0.2, 0], knit) // ring round the upper arm
+    }
     return a
   })
   const paper = box(g, [0.5, 0.6, 0.04], [0, 0.9, -0.3], lit('#f5f5f5'))
@@ -782,6 +831,22 @@ function rally(t) {
     const y = f < fb ? arc(0.96, 0.805, 0.3, f / fb) : arc(0.805, 0.96, 0.15, (f - fb) / (1 - fb)) // 0.805: the ball center on the top (0.77)
     ball.position.set(a[0] + (b[0] - a[0]) * f, y, a[1] + (b[1] - a[1]) * f)
   })
+}
+
+// ---- the snow: each flake falls from its start height to the ground and starts again ----
+let flakes = [] // the flakes of the terraces and of outdoors(), in winter only. build() makes them.
+let flakeMesh = null // one InstancedMesh for all flakes
+const flakeGeo = new THREE.BoxGeometry(0.06, 0.06, 0.06) // one for all builds: build() never disposes it
+const flakeMat = shared(new THREE.MeshLambertMaterial({ color: '#ffffff' }))
+const flakeM = new THREE.Matrix4()
+function snowfall(t) {
+  if (!flakeMesh) return
+  const s = CALM.matches ? t / 2 : t // reduce motion: half the speed
+  flakes.forEach((f, i) => {
+    const p = flakeAt(f, s)
+    flakeMesh.setMatrixAt(i, flakeM.setPosition(p.x, p.y + 0.03, p.z)) // p.y is the base of the flake
+  })
+  flakeMesh.instanceMatrix.needsUpdate = true
 }
 
 // ---- state looks, every frame from the latest status ----
@@ -1138,8 +1203,10 @@ renderer.setAnimationLoop((ms) => {
   for (const v of views.values()) if (v.desk) pose(v, t)
   if (office) disco(t)
   if (office) rally(t)
+  snowfall(t)
   candles(t)
   haunt(t)
+  bulbLights(t)
   lightning(t)
   if (office) swing(t - last)
   last = t

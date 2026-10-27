@@ -24,6 +24,8 @@
 | `trips`, `claimed` | desk id -> `{ n, next, trip }`, and the spot key `'<kind>:<index>'` (kind: `kitchen`, `lunch` for a kitchen chair, `party`, or `game` for a place at a game table) -> desk id | `stepBreak()`, `endBreak()`, `update()` (clears on a `lay` change), `stroll()` (`trip.rot`) | page |
 | `doors` | room id -> the door angle now | `swing()` | page. A rebuild keeps it |
 | `balls` | table index in `office.games` -> the ball of a ping-pong table (in `live`), or `null` for a chess table | `build()` | one build |
+| `flakes` | each flake from `snowflakes()` for the terraces and for `outdoors(office.bounds)`. `[]` except in winter. Instance `i` of `flakeMesh` shows flake `i`. `snowfall()` reads it | `build()` | one build |
+| `flakeMesh` | one `InstancedMesh` of white boxes of 0.06, in `live`, with `frustumCulled = false`. `null` outside winter. Its geometry and material are shared. `build()` calls `dispose()` on it | `build()` | one build |
 | `ajar`, `moving`, `dancing` | the room ids whose door a walker opens, whether a worker walked, and whether a worker danced, in this frame | frame loop resets, `pose()` sets (`dancing` through `stroll()`) | one frame |
 | `last` | the time of the last frame in seconds, 0 at first | frame loop | page |
 | `tags` | the label elements, highest priority first | `update()` | one update |
@@ -55,7 +57,7 @@ The face of a worker is on local -z. At a desk the camera sees its back and its 
 
 At start, the module makes the renderers, the scene, the camera, and the handlers, then starts the frame loop. The data source block at the end of the file makes the first `update()`.
 
-The update path, the frame order, and the click path are in `docs/README.md` "Data flow". `update()` is the only caller of `build()`. The frame loop is the only caller of `pose()`, `disco()`, `rally()`, `swing()`, `keepInView()`, and `declutter()`.
+The update path, the frame order, and the click path are in `docs/README.md` "Data flow". `update()` is the only caller of `build()`. The frame loop is the only caller of `pose()`, `disco()`, `rally()`, `snowfall()`, `swing()`, `keepInView()`, and `declutter()`.
 
 ## Functions
 
@@ -70,9 +72,9 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 ### Floors and walls
 
-- `floor()`: a floor box with a cloned `FLOOR` texture and a new material, which the next rebuild disposes. `FLOOR.grass` is the terrace floor, tinted `C.grass`, a dark plain green far from the idle green.
+- `floor()`: a floor box with a cloned `FLOOR` texture and a new material, which the next rebuild disposes. `FLOOR.grass` is the terrace floor, tinted `C.grass`, a dark plain green far from the idle green. In winter, `build()` tints it `SNOW`.
 - `run()` puts one box on a wall line, and `pieces()` gives the solid spans around the gaps.
-- `outer()` draws the far walls (west, north) with windows, and `stub()` the cut camera-side walls (east, south, with the entrance). The north wall skips a first-row terrace: `run()` draws a low hedge there (0.9 high, `T + 0.06` thick, `C.hedge`), and the cross corridor keeps its piece of the wall.
+- `outer()` draws the far walls (west, north) with windows, and `stub()` the cut camera-side walls (east, south, with the entrance). The north wall skips a first-row terrace: `run()` draws a low hedge there (0.9 high, `T + 0.06` thick, `C.hedge`, and in winter a `SNOW` cap 0.05 high and `T + 0.1` thick on top), and the cross corridor keeps its piece of the wall.
 - `inner()`: a glass inner wall. Its comment says why the header stays thin.
 - `door(r)`: the posts, the lintel, the transom, the status `light`, and a `hinge` group with the leaf and the knob. The hinge starts at `doors.get(r.id) ?? 0`, so a rebuild keeps an open door open. The leaf and the knob use cached colors. Sets the room view.
 
@@ -86,7 +88,7 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
      - the -x edge (the last room of the row) and the +x edge (the cross corridor), always.
      - the -z edge, when `z` is more than 0. A terrace in the row behind shares the span from the larger x of the two to `W`. That span gets no wall, so the two terraces make one courtyard.
      - the +z edge, only when the band corridor is in front. Else the rooms or the terrace of the next row draw it, or the south stub stands there.
-  5. The outer walls, then `desk()` for each desk and `attendee()` for each subagent, then `balls`: a hidden white ball (0.07, in `live`) for each ping-pong table of `office.games`. With Halloween, `candelabra(s.x, s.z, s.axis, 3.2)` for each spot of `candleSpots(office)`, then `spooks`: one `ghost()` for each loop of `ghosts(office.bounds)`, with `until` from the old ghost at the same index (else 0). In another season, `spooks` is `[]`.
+  5. The outer walls, then `desk()` for each desk and `attendee()` for each subagent, then `balls`: a hidden white ball (0.07, in `live`) for each ping-pong table of `office.games`. In winter, `flakes`: each flake of `snowflakes()` for the terraces and for `outdoors(office.bounds)`, shown by one `InstancedMesh` (`flakeMesh`, in `live`). With Halloween, `candelabra(s.x, s.z, s.axis, 3.2)` for each spot of `candleSpots(office)`, then `spooks`: one `ghost()` for each loop of `ghosts(office.bounds)`, with `until` from the old ghost at the same index (else 0). In another season, `spooks` is `[]`. Then `lightBulbs()`.
   6. `bake()`, the sun, and the shadow flags. A material with `depthWrite` false (the glass, a light beam, a halo) casts no shadow.
 - `bake()`: skips each object in `live` with its subtree. It merges the meshes of each material with 2 or more meshes into one mesh, and marks its geometry `userData.merged`.
 
@@ -95,7 +97,7 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 - `desk(d)`: the desk, the monitor, the `screen` (in `live`), the keyboard and mouse for an agent, the chair, and `clutter()`. With `d.away`, `seatAt(d.away)` makes the head seat, the worker sits there, and the desk screen stays black. Sets the desk view.
 - `seatAt(s)`: a group at the seat, turned `s.rot` quarter turns, with a laptop, a `screen` and a `halo` (in `live`), and a `logo` when `s.rot > 1`. The chair comes from `meeting()` in `decor.js`.
 - `attendee(s)`: `seatAt(s)` and a worker with the shirt of the model family. It has its own family match, with `'subagent'` as the fallback. Sets the subagent view.
-- `worker(parent, d)`: builds the worker in `g`. Each part gets its own material (`lit()` or `fresh()`), so `pose()` can set the opacity per worker. The look comes from `hash(d.terminalId ?? d.id, 1e9)` through the local mixer `r(n, i)`, and the shirt from `shirt(d.agent.kind)` only. It collects `mats`, then makes `plate` and `paddle` with cached colors. Only an idle worker shows them, so they never fade.
+- `worker(parent, d)`: builds the worker in `g`. Each part gets its own material (`lit()` or `fresh()`), so `pose()` can set the opacity per worker. The look comes from `hash(d.terminalId ?? d.id, 1e9)` through the local mixer `r(n, i)`, and the shirt from `shirt(d.agent.kind)` only. In winter (the `winter` flag, set by `build()`), it adds 13 knit boxes of one own material before `mats`, so they fade with the body: a hem, a chest band, a yoke, six dots, and a cuff and a ring in each arm group. The knit is off-white, or navy when the shirt lightness in sRGB is 0.8 or more. It collects `mats`, then makes `plate` and `paddle` with cached colors. Only an idle worker shows them, so they never fade.
 - The `paddle` group turns with the right arm. It holds a handle (0.05 x 0.08 x 0.05) past the hand and a blade (0.2 x 0.03 x 0.2) across the arm at 0.58 to 0.61 from the shoulder, both `#b06a4f`. So the blade faces forward when the arm points forward.
 
 ### Screens
@@ -116,6 +118,10 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 - `swing(dt)`: turns each door toward `OPEN` when `ajar` has its room id, else toward 0, at a speed set by `SWING`. It writes `doors` and `hinge.rotation.y`.
 - `opens()` in `model.js` gives the doors that one walker opens: its own room door and the door of its target room. See `docs/model.md` "Breaks".
 
+### Winter snow
+
+`snowfall(t)` runs each frame. For each entry of `flakes` it writes the matrix of that instance of `flakeMesh` with `flakeAt(f, s)`, where `s` is `t`, or `t / 2` with reduce motion (`CALM`). It adds 0.03 to `y`, because `flakeAt()` gives the base of the box. Then it sets `instanceMatrix.needsUpdate`. Without `flakeMesh` it does nothing. A flake ignores the parasol canopies and the tree crowns, so it can pass through one.
+
 ### Halloween night
 
 The night is on only with `season === 'halloween'`. Without it, `night(false)` sets the normal values, and `CLAUDE.md` "Scene conventions" lists both sets.
@@ -125,7 +131,9 @@ The night is on only with `season === 'halloween'`. Without it, `night(false)` s
 - `candelabra(x, z, axis, poolSize)`: an iron base, a post, a bar along `axis`, three candles, and a `pool()`. The corridor candelabra come from `candleSpots()` (pool 3.2). The room candelabra come from the spot that the `DECOR` function returns (pool 2.6).
 - `pool(x, z, size)`: a flat additive circle at y 0.04, in `live` and in `pools`. All pools share `poolGeo`, and all halos and pools share the texture `blob`. `glowMat()` makes the material of each, so the materials are not shared and `build()` disposes them. The shared `map` stays.
 - `candles(t)`: runs each frame. Each flame gets a height and a color between `#ff6a1a` and `#ffae42` from `wob(t, phase)` (the phase comes from the position), and the halo and the pool follow. With reduce motion (`CALM`), the flicker has half strength.
-- `lightning(t)`: runs each frame after `candles(t)` and `haunt(t)`. At night, without reduce motion, it takes `lightningPlan()` into `strike` (the start is `t` plus the wait) and reads `flash(plan, t - start)`. It writes the ambient intensity (1.1 plus 1.2 times the power), the `SKY` emissive, and the background each frame, so the values return to the night values between flashes. It clears `strike` 1 s after the start. When `dark` is false or `CALM` matches, it clears `strike`. If a strike was in progress at night, it first writes the night values once, then nothing.
+- `lightBulbs()`: runs in `build()` before `bake()`. It finds each mesh with `material.userData.bulb`, and adds one additive halo sprite 0.06 in front of its face (+z or +x, the tree stands at rot 0). The halo is in `live` and in `bulbs` (`{ halo, ph }`). `ph` comes from `rng` seeded with the tree position.
+- `bulbLights(t)`: runs each frame after `haunt(t)`. It sets each halo opacity with `twinkle(ph, t, amp)`. `amp` is 0.5 with reduce motion (`CALM`). With no tree, `bulbs` is empty.
+- `lightning(t)`: runs each frame after `candles(t)`, `haunt(t)`, and `bulbLights(t)`. At night, without reduce motion, it takes `lightningPlan()` into `strike` (the start is `t` plus the wait) and reads `flash(plan, t - start)`. It writes the ambient intensity (1.1 plus 1.2 times the power), the `SKY` emissive, and the background each frame, so the values return to the night values between flashes. It clears `strike` 1 s after the start. When `dark` is false or `CALM` matches, it clears `strike`. If a strike was in progress at night, it first writes the night values once, then nothing.
 - `ghost(path)`: a group in `world` and in `live`, with its base at y 0 and its eyes on the +z face. It is 1.2 high: a jagged hem of 12 teeth in a checker (0.14 square, 0.1 or 0.2 high), a body 0.56 x 0.75 x 0.42, two smaller layers for the round top, and two black eyes at y 0.78. All parts use cached colors (`SHEET` `#f4f4f8`, eyes `#1a1a1a`), so `build()` disposes nothing of it. It also makes the balloon: `label(g, 'boo', [0, 1.5, 0])` with the text `Boohooo!`. Its CSS2DObject (the last child of `g`) gets `center` (0.5, 1), so the bottom edge of the balloon is on the point, and it starts hidden. It returns `{ g, path, rot: null, boo, until: 0 }`.
 - `haunt(t)`: runs each frame after `candles(t)`. For each entry of `spooks`, it reads `ghostAt(path, s)`, with `s = t / 2` when `CALM` matches, else `s = t`. It sets the group position and eases `rot` 0.1 of the shortest way toward `atan2(dx, dz)` each frame. On the first frame after a build it sets `rot` at once, so a rebuild does not turn a ghost. It sets `boo.visible` to `t < until`. With no ghosts it does nothing.
 - A ghost is opaque. A see-through ghost looks like an `unknown` worker, which fades to opacity 0.35. A ghost has no view and no badge. Its one label is the balloon, and it is not in `tags`, so `declutter()` never hides it. A rebuild makes new ghosts, and each new ghost takes `until` from the old ghost with the same index. So a shown balloon stays for its full 2 s.
@@ -202,7 +210,7 @@ The night is on only with `season === 'halloween'`. Without it, `night(false)` s
 
 ### Frame loop and data source
 
-- Season: `update()` computes `se = SEASON ?? season(new Date())`, puts it last in `sig`, and calls `build(office, se)` when `sig` changes. `?season=halloween` shows the Halloween props on any date. Another value, for example `?season=none` or `?season=winter`, shows none in this version. A `setInterval` of 60 s calls `update(office)`, because the live stream sends nothing while herdr does not change, and the date can change at midnight.
+- Season: `update()` computes `se = SEASON ?? season(new Date())`, puts it last in `sig`, and calls `build(office, se)` when `sig` changes. `?season=halloween` shows the Halloween props on any date. `?season=winter` shows the winter props on any date. Another value, for example `?season=none`, shows none. A `setInterval` of 60 s calls `update(office)`, because the live stream sends nothing while herdr does not change, and the date can change at midnight.
 - Demo (`?demo`): disables the focus button and the message field, and calls `update()` with `demoSnapshot()` and `demoMeetings()` at once and each 1000 ms.
 - Live: `es.onmessage` calls `setOnline()`, and `update()` only when `m.snapshot` is set. An offline message keeps the old scene, dimmed.
 - `es.onerror` sets `es.onopen` to `location.reload()`, so the page gets the new token of a restarted bridge. A herdr outage with a live bridge sends an offline message, and the page does not reload.
@@ -217,7 +225,7 @@ Two agents in one region need a split by function.
 | desk | `desk()`, `seatAt()`, `attendee()`, `deskChair` | worker, pose, picking (seat offset) |
 | worker | `worker()`, `shirt()`, `SHIRT` | pose, breaks, update, `test/walk.test.mjs` |
 | screens | `screenCtx()`, `typing()`, `browse()`, `rnd()`, `glow`, `haloGeo`, `IDLE`, `INK`, `PIC` | pose, build |
-| breaks | `breaks()`, `stroll()`, `rally()`, `arc()`, `balls`, `HIT`, `trips`, `claimed` | update, pose, `model.js`, `test/walk.test.mjs` |
+| breaks | `breaks()`, `stroll()`, `rally()`, `snowfall()`, `arc()`, `balls`, `flakes`, `HIT`, `trips`, `claimed` | update, pose, `model.js`, `test/walk.test.mjs` |
 | doors | `swing()`, `doors`, `ajar`, `OPEN`, `SWING` | build (`door()`), pose, frame loop, `model.js`, `test/walk.test.mjs` |
 | party | `partyLights()`, `disco()`, `kick()`, `DISCO`, `BEAT`, `dancing` | build (the call after `door(r)`), breaks (`stroll()` sets `dancing`), frame loop, `decor.js` `party()` (the speaker rect) |
 | night | `night()`, `candle()`, `candelabra()`, `pool()`, `candles()`, `lightning()`, `ghost()`, `haunt()`, `flames`, `pools`, `dark`, `strike`, `CALM`, `blob`, `poolGeo`, `glowMat()`, `SHEET`, `spooks` | build (the calls), frame loop, picking (`spooks`), `decor.js` (`candleSpot()`), `model.js` |
