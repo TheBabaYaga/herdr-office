@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, lightningPlan, flash, hash, season, route, along, calm, opens, stepBreak, endBreak } from './model.js'
+import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, lightningPlan, flash, ghosts, ghostAt, hash, season, route, along, calm, opens, stepBreak, endBreak } from './model.js'
 import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, party, terrace, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
 
 const $ = (id) => document.getElementById(id)
@@ -263,6 +263,7 @@ function build(office, season) {
     return b
   })
   if (season === 'halloween') for (const s of candleSpots(office)) candelabra(s.x, s.z, s.axis, 3.2)
+  spooks = season === 'halloween' ? ghosts(office.bounds).map((p, i) => Object.assign(ghost(p), { until: spooks[i]?.until ?? 0 })) : [] // a rebuild keeps a shown balloon
   bake()
   // The sun shines in through the west windows. Its shadow box holds the whole building.
   const R = Math.hypot(BW, BD) / 2 + 2
@@ -340,6 +341,34 @@ function lightning(t) { // the sky flashes at a random time, at night only, neve
   SKY.emissive.copy(NIGHT_SKY).lerp(FLASH_SKY, p)
   scene.background.copy(NIGHT_BG).lerp(FLASH_BG, p)
   if (t > strike.start + 1) strike = null
+}
+// The Halloween ghosts float through walls, rooms, desks, and workers, and nobody reacts. They are opaque, because a see-through body
+// reads as an unknown worker (opacity 0.35). Not in views. The click handler gives each ghost a box: a hit shows its balloon, no panel.
+const SHEET = '#f4f4f8'
+let spooks = [] // { g, path, rot, boo, until }: the group of each ghost (in live), its loop, its heading, its balloon, and the balloon end. build() makes them.
+function ghost(path) { // a sheet with a jagged hem and two black eyes, 1.2 high. The eyes face +z before the turn. y 0 is the base.
+  const g = new THREE.Group()
+  world.add(g); live.add(g)
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) { const h = (i + j) % 2 ? 0.1 : 0.2; box(g, [0.14, h, 0.14], [0.14 * i - 0.21, 0.2 - h, 0.14 * j - 0.14], SHEET) } // the hem: teeth in a checker
+  box(g, [0.56, 0.75, 0.42], [0, 0.2, 0], SHEET)
+  box(g, [0.44, 0.15, 0.34], [0, 0.95, 0], SHEET)
+  box(g, [0.28, 0.1, 0.2], [0, 1.1, 0], SHEET)
+  for (const s of [-1, 1]) box(g, [0.08, 0.12, 0.02], [s * 0.1, 0.78, 0.215], '#1a1a1a')
+  label(g, 'boo', [0, 1.5, 0]).textContent = 'Boohooo!' // the easter egg balloon: a click on the ghost shows it for 2 s
+  const boo = g.children.at(-1) // label() returns the div, and its CSS2DObject is the last child
+  boo.center.set(0.5, 1) // the bottom edge on the point: the tail points down to the head
+  boo.visible = false
+  return { g, path, rot: null, boo, until: 0 }
+}
+function haunt(t) { // each ghost floats on its loop and turns to face the way it floats. Reduce motion: half the speed.
+  const s = CALM.matches ? t / 2 : t
+  for (const sp of spooks) {
+    const p = ghostAt(sp.path, s), to = Math.atan2(p.dx, p.dz)
+    sp.rot = sp.rot == null ? to : sp.rot + (to - sp.rot - Math.round((to - sp.rot) / TAU) * TAU) * 0.1 // the shortest way round
+    sp.g.position.set(p.x, p.y, p.z)
+    sp.g.rotation.y = sp.rot
+    sp.boo.visible = t < sp.until // until: the click time plus 2 s, on the clock of the frame time
+  }
 }
 
 // Merge every static box into one mesh per material: tens of draw calls instead of thousands.
@@ -1065,17 +1094,19 @@ renderer.domElement.addEventListener('click', (e) => {
   const sq = (id, x, z) => [id, x - 0.45, z - 0.45, x + 0.45, z + 0.45]
   const seated = (id, s) => sq(id, s.x + 0.4 * Math.sin((s.rot * Math.PI) / 2), s.z + 0.4 * Math.cos((s.rot * Math.PI) / 2))
   let best = null, near = Infinity, walker = false
-  for (const [id, x0, z0, x1, z1, walks = false] of [
+  for (const [id, x0, z0, x1, z1, walks = false, y0 = 0, y1 = 1.8] of [
     ...office.desks.map((d) => [d.id, d.x - 1, d.z - 0.8, d.x + 1, d.z + 0.9]),
     ...office.desks.filter((d) => d.away).map((d) => seated(d.id, d.away)),
     ...office.subagents.map((s) => seated(s.id, s)),
     ...[...views].filter(([, v]) => v.worker?.out).map(([id, v]) => (v.worker.g.getWorldPosition(hip), [...sq(id, hip.x, hip.z), true])), // pose() sets out for each worker on a trip
+    ...spooks.map((sp) => { const { x, y, z } = sp.g.position; return [sp, x - 0.28, z - 0.28, x + 0.28, z + 0.28, false, y, y + 1.2] }), // a ghost: its sheet, from its base
   ]) {
-    pick.min.set(x0, 0, z0)
-    pick.max.set(x1, 1.8, z1)
+    pick.min.set(x0, y0, z0)
+    pick.max.set(x1, y1, z1)
     const t = ray.ray.intersectBox(pick, hit) && hit.distanceTo(ray.ray.origin)
     if (t !== null && t < near) { near = t; best = id; walker = walks }
   }
+  if (best?.boo) { best.until = performance.now() / 1000 + 2; return } // a ghost: the balloon for 2 s (haunt() shows it), no panel
   if (best) open(best)
   if (walker) { follow = best; zoomTo = Math.min(controls.maxZoom, camera.zoom * 1.5) } // after open(): it clears follow
 })
@@ -1108,6 +1139,7 @@ renderer.setAnimationLoop((ms) => {
   if (office) disco(t)
   if (office) rally(t)
   candles(t)
+  haunt(t)
   lightning(t)
   if (office) swing(t - last)
   last = t

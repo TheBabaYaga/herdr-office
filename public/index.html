@@ -25,6 +25,8 @@
   .offline canvas, .offline #labels { filter: brightness(0.35) grayscale(1); }
   .sign { background: #1e1e2e; border: 2px solid var(--c); padding: 0 6px; font-weight: bold; white-space: nowrap; }
   .badge { background: #11111bd0; border-left: 3px solid var(--c); padding: 0 4px; font-size: 0.85em; white-space: nowrap; }
+  .boo { background: #f8f8fb; color: #1e1e2e; border-radius: 10px; padding: 2px 8px; font-weight: bold; white-space: nowrap; }
+  .boo::after { content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px; border: 6px solid transparent; border-top-color: #f8f8fb; border-bottom: 0; }
   .box { position: fixed; top: 12px; background: #1e1e2ef0; border: 1px solid #45475a; padding: 10px; max-height: calc(100% - 44px); overflow: auto; }
   #hud { left: 12px; width: 280px; }
   #panel { right: 12px; width: min(320px, calc(100% - 46px)); }
