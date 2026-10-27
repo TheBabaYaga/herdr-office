@@ -62,7 +62,7 @@ In a decor function, `placer()` makes the taken rects once. The order of the `pu
 - `prop(parts)`: a maker `(g, x, z, rot)` from `[[w, h, d], [x, y, z], color]` boxes.
 - `seat(c)` (exported): a swivel chair maker, back on local -z. It is not a meeting seat in `room.seats`.
 - `corners(room)`: the points 0.75 in from each room corner.
-- `rng(seed)`: a seeded random number in [0, 1) for each call (mulberry32). `steps(a, b, s)`: `a`, `a + s`, ... up to `b`.
+- `rng(seed)`: imported from `model.js`. A seeded random number in [0, 1) for each call (mulberry32). `steps(a, b, s)`: `a`, `a + s`, ... up to `b`.
 - `legs(x, z, h, c)`: four leg boxes at `(±x, ±z)` for `prop()` data.
 
 Wall props (`printer`, `board(w)`, `tv`, `fridge`, `cooler`, `sofa`, `lounge`, `counter(L)`, `logo`, `waiting`, and the fill props `piano`, `aquarium`, `cabinets`, `credenza`, `lockers`, `vending`, `arcade`, `bike`, `bar`) have their back at local z 0, so put them at `E`. Other props are centered, so put them at `E` plus half their depth.
@@ -147,8 +147,9 @@ Each function gets `(g, room, season)` with `g` at the room corner. The candidat
 
 The kitchen pumpkin, the bats, and the web are direct calls, not `put()` calls. `put()` tests a floor footprint. It refuses a pumpkin that stands on the counter, a bat over the dance floor (a keep rect), and a web that touches a wall.
 
-- `xmasTree`: a prop from `prop()`. A stand, a trunk, four green tiers (1.3, 1.0, 0.7, and 0.4 wide, 0.45 high, with the top at y 2.2), two ornaments on each of the +z and +x faces of each tier (white, silver, violet, and blue), and a brass star `#d8b45c` with its top at y 2.4. No ornament is red, green, or yellow, because those read as a status color (INTENT.md decision 33). Nothing glows.
+- `xmasTree`: a prop from `prop()`. A stand, a trunk, four green tiers (1.3, 1.0, 0.7, and 0.4 wide, 0.45 high, with the top at y 2.2), two ornaments on each of the +z and +x faces of each tier (white, silver, violet, and blue), and a brass star `#d8b45c` with its top at y 2.4. No ornament is red, green, or yellow, because those read as a status color (`docs/idr/0002-winter-decor.md`). Each ornament is a bulb: one unlit `MeshBasicMaterial` for each of the 4 colors, with `userData` `shared` and `bulb`. `office.js` adds a halo to each bulb (`lightBulbs()`).
 - `lobby()` in winter: `put(xmasTree, x, z, 0)` for the corners (1, 1), (w - 1, 1), and (1, d - 1), the first that fits. It comes after `waiting` and before the plants. So a winter lobby gets different corner plants and fill props than a normal lobby. The terrace caps change no fill, because `snow()` runs after `furnish()` and does not touch `put.taken`.
+- `furnish()` in winter: `furnish(put, room, pool, season, thin)` takes the season. `swap()` in `tryAt()` replaces `tree` with `xmasTree` when `Math.abs(Math.round(x * 7 + z * 13))` is odd. The rule picks half of the tries, but the wider tree fits less often, so about a third of the trees change (25 of 73 in 60 test rooms). The spot decides, so a rebuild gives the same trees. The `xmasTree` always stands at rot 0, so the ornaments face the camera. `foot()` and `put()` check the footprint of `xmasTree`. The wider tree may fail where `tree` fits, and then `furnish()` goes on to its next spot. `put()` counts the swapped prop as `tree`, so the `max` of the pool holds. A terrace has no `tree`, so it does not change.
 - `snow(g)`: for each green block of a terrace that is 0.1 high or more, a `SNOW` cap 0.05 high and 0.04 wider than the block, on its top. `terrace(g, t, season)` calls it last in winter. The lily pads are lower than 0.1, so they stay bare. The caps are direct `box()` calls, not `put()`, because a cap stands on a prop and `put()` refuses it.
 - `candleSpot(g, room, put)`: with Halloween, `workspaceDecor()`, `kitchen()`, `meeting()`, `party()`, and `lobby()` call it last and return its result: `{ x, z }` in world coords, or `null` when no spot is clear. Other seasons return `undefined`. `office.js` draws the candelabra there (`candelabra()`), so `decor.js` only measures.
   - The candidates lie on a 0.5 grid, 0.6 or more from the walls. The camera-side corner (large `x / w + z / d`) comes first, then the larger x. A candidate must pass `put.fits` for a 0.6 square with a gap of 0.3. The chosen square goes into `put.taken`.
@@ -242,7 +243,7 @@ Do this after a change to `placer()`, `furnish()`, a pool, a prop size, `kitchen
 - The speaker keep rect in `party()` (1.8 to each side of the booth center, 0.45 deep) holds the speakers of `office.js`. A wider speaker or booth needs a wider rect. The booth itself is a direct call, so only this rect keeps props off it.
 - A prop in the air or on another prop needs no `put()` and no `placer()` rect. Draw it with a direct call, as the bats and the web do. A `put()` call refuses it.
 - `?demo` shows the Halloween props from 24 October to 1 November. Use `?demo&season=none` to see the normal decor.
-- The demo has no terrace, so `?demo&season=winter` shows the lobby tree only. Check the snow with a fake socket (`docs/testing.md`).
+- The demo has no terrace, so `?demo&season=winter` shows the trees and the outdoor snow, but no terrace snow. Check the terrace snow with a fake socket (`docs/testing.md`).
 - `room.number` is not in `sig`. The rug and the extra prop change only at the next rebuild.
 - Keep east-end clutter off the mouse of an agent desk (`desk()` in `office.js`).
 - `GLYPH` has only h, e, r, and d. Another letter makes `logo()` throw.

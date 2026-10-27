@@ -1,6 +1,6 @@
 # public/model.js: the office model
 
-`public/model.js` turns a herdr snapshot and the meeting list into the office plan: rooms, pods, desks, corridors, terraces, meeting seats, kitchen spots, kitchen tables and chairs, the party room, and the game tables. It also plans the idle routes, keeps the break timing, and makes the demo data. It has no imports and no DOM, so the Node tests import it. `public/office.js` imports `STATUS_RANK`, `STATUS_COLOR`, `buildOffice`, `demoSnapshot`, `demoMeetings`, `hash`, `season`, `snowflakes`, `flakeAt`, `route`, `along`, `calm`, `opens`, `stepBreak`, and `endBreak`. `public/decor.js` imports only `hash`, to seed its fill pass with `room.id`. It reads the room fields `id`, `walk`, `counter`, `tables`, `chairs`, `table`, `seats`, `session`, `number`, `door`, `pods`, `booth`, and `floor`, and the terrace fields `id`, `w`, and `d`. The shapes of the office, a room, a desk, and most exported functions are in CLAUDE.md "Contracts between the files".
+`public/model.js` turns a herdr snapshot and the meeting list into the office plan: rooms, pods, desks, corridors, terraces, meeting seats, kitchen spots, kitchen tables and chairs, the party room, and the game tables. It also plans the idle routes, keeps the break timing, and makes the demo data. It has no imports and no DOM, so the Node tests import it. `public/office.js` imports `STATUS_RANK`, `STATUS_COLOR`, `buildOffice`, `demoSnapshot`, `demoMeetings`, `hash`, `season`, `snowflakes`, `flakeAt`, `route`, `along`, `calm`, `opens`, `stepBreak`, and `endBreak`. `public/decor.js` imports only `hash` and `rng`, to seed its fill pass with `room.id`. It reads the room fields `id`, `walk`, `counter`, `tables`, `chairs`, `table`, `seats`, `session`, `number`, `door`, `pods`, `booth`, and `floor`, and the terrace fields `id`, `w`, and `d`. The shapes of the office, a room, a desk, and most exported functions are in CLAUDE.md "Contracts between the files".
 
 ## When to read this doc
 
@@ -49,11 +49,13 @@ Each frame, `pose()` calls `breaks()` for each view with a worker. `breaks()` ca
 
 `season(date)` returns `'halloween'` from 24 October to 1 November, `'winter'` from 1 December to 6 January, else `null`. It reads the local month and day of the `Date` argument, so a test gives it `new Date(2026, 9, 24)` and not a UTC string. It reads no clock itself. `office.js` calls it with `new Date()`. `buildOffice()` does not use it, and the floor plan does not depend on the season. `test/model.test.mjs` pins the ranges.
 
-### snowflakes(t), flakeAt(f, s)
+### snowflakes(t), flakeAt(f, s), twinkle(ph, t, amp)
 
-- `snowflakes(t)`: `[{ x, z, phase }]` for a terrace `{ x, z, w, d }`. It gives `Math.round(w * d / 2)` flakes. The steps 0.7549 and 0.5698 (the R2 sequence) spread them, each 0.3 or more from each terrace edge. `phase` is `(i * 0.618) % 1`. It is deterministic and uses no `Math.random()`.
+- `snowflakes(t)`: `[{ x, z, phase }]` for a terrace `{ x, z, w, d }`. It uses a jittered grid of `cols * rows` cells, each about 2 m² (`round((w - 0.6) / √2)` by `round((d - 0.6) / √2)`). Each cell holds one flake at a random point, each 0.3 or more from each rect edge. `phase` is random. `rng(hash("x,z,w,d", 1e9))` gives the numbers, so the result is deterministic and uses no `Math.random()`. Two flakes can lie close together.
 - `flakeAt(f, s)`: `{ x, y, z }`. `y` falls from 2.6 at 0.3 a second, so one fall takes about 8.7 s, and starts again at the top. `x` drifts by `0.1 * sin(s + 6 * phase)`. `z` stays. `y` is the base of the flake box.
-- `office.js` runs both only in winter. `test/model.test.mjs` pins the count, the margins, the spread, and the fall.
+- `twinkle(ph, t, amp = 1)`: the halo opacity of one tree bulb, `0.35 + 0.25 * amp * sin(1.5 * t + ph)`. It goes from 0.1 to 0.6 in about 4.2 s. With amp 0.5 (reduce motion) it goes from 0.225 to 0.475.
+- `outdoors(bounds)`: 4 rects `{ x, z, w, d }` in a band round the slab (0.3 past each building edge), for `office.bounds`. The band is `Math.max(w, d) / 2 + 3` wide. The rects do not overlap. `snowflakes()` gives the outdoor snow, so it looks like the terrace snow. See `CLAUDE.md` for the four rects.
+- `office.js` runs all three only in winter. `test/model.test.mjs` pins the count, the margins, the spread, and the fall.
 
 ### candleSpots(o), lightningPlan(rand), flash(plan, s)
 

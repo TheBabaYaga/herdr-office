@@ -24,7 +24,8 @@
 | `trips`, `claimed` | desk id -> `{ n, next, trip }`, and the spot key `'<kind>:<index>'` (kind: `kitchen`, `lunch` for a kitchen chair, `party`, or `game` for a place at a game table) -> desk id | `stepBreak()`, `endBreak()`, `update()` (clears on a `lay` change), `stroll()` (`trip.rot`) | page |
 | `doors` | room id -> the door angle now | `swing()` | page. A rebuild keeps it |
 | `balls` | table index in `office.games` -> the ball of a ping-pong table (in `live`), or `null` for a chess table | `build()` | one build |
-| `flakes` | each flake `{ mesh, f }`: a white box of 0.06 (in `live`) and its flake from `snowflakes()`. `[]` except in winter. `snowfall()` reads it | `build()` | one build |
+| `flakes` | each flake from `snowflakes()` for the terraces and for `outdoors(office.bounds)`. `[]` except in winter. Instance `i` of `flakeMesh` shows flake `i`. `snowfall()` reads it | `build()` | one build |
+| `flakeMesh` | one `InstancedMesh` of white boxes of 0.06, in `live`, with `frustumCulled = false`. `null` outside winter. Its geometry and material are shared. `build()` calls `dispose()` on it | `build()` | one build |
 | `ajar`, `moving`, `dancing` | the room ids whose door a walker opens, whether a worker walked, and whether a worker danced, in this frame | frame loop resets, `pose()` sets (`dancing` through `stroll()`) | one frame |
 | `last` | the time of the last frame in seconds, 0 at first | frame loop | page |
 | `tags` | the label elements, highest priority first | `update()` | one update |
@@ -96,7 +97,7 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 - `desk(d)`: the desk, the monitor, the `screen` (in `live`), the keyboard and mouse for an agent, the chair, and `clutter()`. With `d.away`, `seatAt(d.away)` makes the head seat, the worker sits there, and the desk screen stays black. Sets the desk view.
 - `seatAt(s)`: a group at the seat, turned `s.rot` quarter turns, with a laptop, a `screen` and a `halo` (in `live`), and a `logo` when `s.rot > 1`. The chair comes from `meeting()` in `decor.js`.
 - `attendee(s)`: `seatAt(s)` and a worker with the shirt of the model family. It has its own family match, with `'subagent'` as the fallback. Sets the subagent view.
-- `worker(parent, d)`: builds the worker in `g`. Each part gets its own material (`lit()` or `fresh()`), so `pose()` can set the opacity per worker. The look comes from `hash(d.terminalId ?? d.id, 1e9)` through the local mixer `r(n, i)`, and the shirt from `shirt(d.agent.kind)` only. It collects `mats`, then makes `plate` and `paddle` with cached colors. Only an idle worker shows them, so they never fade.
+- `worker(parent, d)`: builds the worker in `g`. Each part gets its own material (`lit()` or `fresh()`), so `pose()` can set the opacity per worker. The look comes from `hash(d.terminalId ?? d.id, 1e9)` through the local mixer `r(n, i)`, and the shirt from `shirt(d.agent.kind)` only. In winter (the `winter` flag, set by `build()`), it adds 13 knit boxes of one own material before `mats`, so they fade with the body: a hem, a chest band, a yoke, six dots, and a cuff and a ring in each arm group. The knit is off-white, or navy when the shirt lightness in sRGB is 0.8 or more. It collects `mats`, then makes `plate` and `paddle` with cached colors. Only an idle worker shows them, so they never fade.
 - The `paddle` group turns with the right arm. It holds a handle (0.05 x 0.08 x 0.05) past the hand and a blade (0.2 x 0.03 x 0.2) across the arm at 0.58 to 0.61 from the shoulder, both `#b06a4f`. So the blade faces forward when the arm points forward.
 
 ### Screens
@@ -119,7 +120,7 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 ### Winter snow
 
-`snowfall(t)` runs each frame. For each entry of `flakes` it places the box with `flakeAt(f, s)`, where `s` is `t`, or `t / 2` with reduce motion (`CALM`). It adds 0.03 to `y`, because `flakeAt()` gives the base of the box. One mesh for each flake is a known limit. A `ponytail:` comment names `InstancedMesh` as the upgrade if the frame rate drops. A flake ignores the parasol canopies and the tree crowns, so it can pass through one.
+`snowfall(t)` runs each frame. For each entry of `flakes` it writes the matrix of that instance of `flakeMesh` with `flakeAt(f, s)`, where `s` is `t`, or `t / 2` with reduce motion (`CALM`). It adds 0.03 to `y`, because `flakeAt()` gives the base of the box. Then it sets `instanceMatrix.needsUpdate`. Without `flakeMesh` it does nothing. A flake ignores the parasol canopies and the tree crowns, so it can pass through one.
 
 ### Halloween night
 
@@ -130,6 +131,8 @@ The night is on only with `season === 'halloween'`. Without it, `night(false)` s
 - `candelabra(x, z, axis, poolSize)`: an iron base, a post, a bar along `axis`, three candles, and a `pool()`. The corridor candelabra come from `candleSpots()` (pool 3.2). The room candelabra come from the spot that the `DECOR` function returns (pool 2.6).
 - `pool(x, z, size)`: a flat additive circle at y 0.04, in `live` and in `pools`. All pools share `poolGeo`, and all halos and pools share the texture `blob`. `glowMat()` makes the material of each, so the materials are not shared and `build()` disposes them. The shared `map` stays.
 - `candles(t)`: runs each frame. Each flame gets a height and a color between `#ff6a1a` and `#ffae42` from `wob(t, phase)` (the phase comes from the position), and the halo and the pool follow. With reduce motion (`CALM`), the flicker has half strength.
+- `lightBulbs()`: runs in `build()` before `bake()`. It finds each mesh with `material.userData.bulb`, and adds one additive halo sprite 0.06 in front of its face (+z or +x, the tree stands at rot 0). The halo is in `live` and in `bulbs` (`{ halo, ph }`). `ph` comes from `rng` seeded with the tree position.
+- `bulbLights(t)`: runs each frame after `candles(t)`. It sets each halo opacity with `twinkle(ph, t, amp)`. `amp` is 0.5 with reduce motion (`CALM`). With no tree, `bulbs` is empty.
 - `lightning(t)`: runs each frame after `candles(t)`. At night, without reduce motion, it takes `lightningPlan()` into `strike` (the start is `t` plus the wait) and reads `flash(plan, t - start)`. It writes the ambient intensity (1.1 plus 1.2 times the power), the `SKY` emissive, and the background each frame, so the values return to the night values between flashes. It clears `strike` 1 s after the start. When `dark` is false or `CALM` matches, it clears `strike`. If a strike was in progress at night, it first writes the night values once, then nothing.
 
 ### Party room
