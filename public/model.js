@@ -209,6 +209,14 @@ export function flash(plan, s) {
   return f ? f.power : 0
 }
 
+// A seeded random number in [0, 1) for each call (mulberry32), so a room or a rect gets the same result in each build.
+export const rng = (s) => () => {
+  s = (s + 0x6d2b79f5) | 0
+  let t = Math.imul(s ^ (s >>> 15), 1 | s)
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+}
+
 // meetings: Claude Code sessions with running subagents, as the bridge sends them: [{ sessionId, cwd, agents: [...] }].
 // prev: the previous office, so a subagent keeps its seat.
 export function buildOffice(snap, meetings = [], prev = null) {
@@ -405,6 +413,27 @@ export function season(date) {
   if (md >= 1024 && md <= 1101) return 'halloween'
   if (md >= 1201 || md <= 106) return 'winter'
   return null
+}
+
+// The Halloween ghosts of a building { w, d }: 3 closed loops of 8 points { x, z, hover }, 1 or more from each outer wall.
+// hover: the seconds at the point (2 to 5). The seed comes from the bounds and the ghost index, so the same bounds give the same ghosts.
+export const ghosts = ({ w, d }) => [0, 1, 2].map((i) => {
+  const r = rng(hash(`${w},${d},${i}`, 1e9))
+  return Array.from({ length: 8 }, () => ({ x: 1 + r() * (w - 2), z: 1 + r() * (d - 2), hover: 2 + 3 * r() }))
+})
+const DRIFT = 0.8 // the ghost speed, world units a second
+// Ghost g at s seconds: { x, y, z, dx, dz }. It floats from each point to the next, hovers there, and returns to point 0 at the end of the loop.
+// dx, dz: the unit direction of the leg it floats on, or came on. y: the base, a bob from 0.3 to 0.4 in 2 s.
+export function ghostAt(g, s) {
+  const legs = g.map((p, i) => [p, g[(i + 1) % g.length]])
+  const loop = legs.reduce((a, [p, q]) => a + Math.hypot(q.x - p.x, q.z - p.z) / DRIFT + q.hover, 0)
+  const y = 0.35 + 0.05 * Math.sin(Math.PI * s + g[0].x) // the phase from the first point: the ghosts bob out of step
+  let u = ((s % loop) + loop) % loop
+  for (const [p, q] of legs) {
+    const len = Math.hypot(q.x - p.x, q.z - p.z), dx = (q.x - p.x) / len, dz = (q.z - p.z) / len, k = Math.min(u * DRIFT, len)
+    if (u < len / DRIFT + q.hover || q === g[0]) return { x: p.x + dx * k, y, z: p.z + dz * k, dx, dz } // the last leg also takes a rest of float noise
+    u -= len / DRIFT + q.hover
+  }
 }
 
 // The browse wait before trip n, the stay, and the lunch stay, in seconds, for one idle stretch. The first trip comes sooner.

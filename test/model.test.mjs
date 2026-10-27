@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { STATUS_RANK, STATUS_COLOR, rollup, buildOffice, demoSnapshot, demoMeetings, season } from '../public/model.js'
+import { STATUS_RANK, STATUS_COLOR, rollup, buildOffice, demoSnapshot, demoMeetings, season, ghosts, ghostAt } from '../public/model.js'
 
 // Synthetic snapshot. All values are made up.
 const area = { x: 10, y: 2, width: 100, height: 40 }
@@ -701,4 +701,70 @@ test('season() gives halloween from 24 Oct to 1 Nov and winter from 1 Dec to 6 J
     [on(10, 23), on(10, 24), on(11, 1), on(11, 2), on(11, 30), on(12, 1), on(12, 31), on(1, 1), on(1, 6), on(1, 7)],
     [null, 'halloween', 'halloween', null, null, 'winter', 'winter', 'winter', 'winter', null],
   )
+})
+
+// The ghosts: the demo bounds and two made-up ones. A leg takes its length / 0.8 s, then the ghost hovers at its end point.
+const GHOST_BOUNDS = [buildOffice(demoSnapshot(0), demoMeetings(0)).bounds, { w: 8, d: 12 }, { w: 41.7, d: 23.4 }]
+const legTime = (p, q) => Math.hypot(q.x - p.x, q.z - p.z) / 0.8
+const loopTime = (g) => g.reduce((s, p, i) => s + legTime(p, g[(i + 1) % g.length]) + g[(i + 1) % g.length].hover, 0)
+
+test('ghosts() gives 3 loops of 8 points inside the building, the same for the same bounds', () => {
+  for (const b of GHOST_BOUNDS) {
+    const gs = ghosts(b)
+    assert.equal(gs.length, 3)
+    assert.deepEqual(ghosts({ ...b }), gs)
+    assert.notDeepEqual(gs[0], gs[1])
+    for (const g of gs) {
+      assert.equal(g.length, 8)
+      for (const p of g) {
+        assert.ok(p.x >= 1 && p.x <= b.w - 1, `x ${p.x} in ${b.w}`)
+        assert.ok(p.z >= 1 && p.z <= b.d - 1, `z ${p.z} in ${b.d}`)
+        assert.ok(p.hover >= 2 && p.hover <= 5, `hover ${p.hover}`)
+      }
+    }
+  }
+})
+
+test('ghostAt() floats at 0.8 a second or less inside the building, bobs from 0.3 to 0.4, and gives a unit direction', () => {
+  for (const b of GHOST_BOUNDS) for (const g of ghosts(b)) {
+    let prev = ghostAt(g, 0), lo = Infinity, hi = -Infinity
+    for (let i = 1, end = 2 * loopTime(g); i * 0.05 <= end; i++) {
+      const p = ghostAt(g, i * 0.05)
+      assert.ok(p.x >= 1 - EPS && p.x <= b.w - 1 + EPS && p.z >= 1 - EPS && p.z <= b.d - 1 + EPS, `(${p.x}, ${p.z}) in ${b.w} x ${b.d}`)
+      assert.ok(p.y >= 0.3 - EPS && p.y <= 0.4 + EPS, `y ${p.y}`)
+      close(Math.hypot(p.dx, p.dz), 1, 'direction length')
+      assert.ok(Math.hypot(p.x - prev.x, p.z - prev.z) <= 0.8 * 0.05 + 1e-6, `step at ${i * 0.05}`)
+      lo = Math.min(lo, p.y)
+      hi = Math.max(hi, p.y)
+      prev = p
+    }
+    assert.ok(lo < 0.31 && hi > 0.39, `bob ${lo} to ${hi}`)
+  }
+})
+
+test('ghostAt() hovers at each point for its hover time, facing the leg it came on, and the loop closes', () => {
+  for (const b of GHOST_BOUNDS) for (const g of ghosts(b)) {
+    close(ghostAt(g, 0).x, g[0].x, 'start x')
+    close(ghostAt(g, 0).z, g[0].z, 'start z')
+    let s = 0
+    g.forEach((p, i) => {
+      const q = g[(i + 1) % g.length], len = Math.hypot(q.x - p.x, q.z - p.z)
+      s += legTime(p, q)
+      for (const u of [s + 1e-6, s + q.hover / 2, s + q.hover - 1e-6]) {
+        const a = ghostAt(g, u)
+        close(a.x, q.x, `x at point ${i + 1}`)
+        close(a.z, q.z, `z at point ${i + 1}`)
+        close(a.dx, (q.x - p.x) / len, `dx at point ${i + 1}`)
+        close(a.dz, (q.z - p.z) / len, `dz at point ${i + 1}`)
+      }
+      const a = ghostAt(g, s + q.hover + 0.05) // it moves again
+      assert.ok(Math.hypot(a.x - q.x, a.z - q.z) > 0.01, `moves on after point ${i + 1}`)
+      s += q.hover
+    })
+    for (const u of [0, 3.7, 41.2, 100]) {
+      const a = ghostAt(g, u), c = ghostAt(g, u + s)
+      close(a.x, c.x, `loop x at ${u}`)
+      close(a.z, c.z, `loop z at ${u}`)
+    }
+  }
 })
