@@ -2,12 +2,14 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, lightningPlan, flash, ghosts, ghostAt, snowflakes, flakeAt, twinkle, rng, outdoors, hash, season, route, along, calm, opens, stepBreak, endBreak } from './model.js'
+import { daylight, STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, lightningPlan, flash, ghosts, ghostAt, snowflakes, flakeAt, twinkle, rng, outdoors, hash, season, route, along, calm, opens, stepBreak, endBreak } from './model.js'
 import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, party, terrace, SNOW, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
 
 const $ = (id) => document.getElementById(id)
 const DEMO = new URLSearchParams(location.search).has('demo')
 const SEASON = new URLSearchParams(location.search).get('season') // halloween or winter shows that season on any date, another value shows none
+const TIME = (new URLSearchParams(location.search).get('time') ?? '').match(/^([01]?\d|2[0-3]):([0-5]\d)$/) // ?time=HH:MM shows the light of that time, else the local clock
+const clock = () => { if (TIME) return 60 * TIME[1] + +TIME[2]; const n = new Date(); return 60 * n.getHours() + n.getMinutes() } // minutes since local midnight
 const TOKEN = document.querySelector('meta[name=office-token]').content
 // 3D only: herdr's cream working yellow reads pale on the cream walls, so screens, lamps and door lights use a strong yellow.
 const COLOR = Object.fromEntries(Object.entries({ ...STATUS_COLOR, working: '#ffd43b' }).map(([s, c]) => [s, new THREE.Color(c)]))
@@ -184,7 +186,6 @@ function build(office, season) {
   scene.add(world)
   views.clear()
   live.clear()
-  night(season === 'halloween')
   winter = season === 'winter'
   flames = []; pools = []; bulbs = []
   const { w: BW, d: BD } = office.bounds, X = office.corridors.at(-1), W = X.x // X: the cross corridor
@@ -277,10 +278,10 @@ function build(office, season) {
   spooks = season === 'halloween' ? ghosts(office.bounds).map((p, i) => Object.assign(ghost(p), { until: spooks[i]?.until ?? 0 })) : [] // a rebuild keeps a shown balloon
   lightBulbs()
   bake()
-  // The sun shines in through the west windows. Its shadow box holds the whole building.
+  // The sun moves with the clock (night()). Its shadow box holds the whole building for each direction.
   const R = Math.hypot(BW, BD) / 2 + 2
   sun.target.position.set(BW / 2, 0, BD / 2)
-  sun.position.set(-4, 10, 5).setLength(2 * R).add(sun.target.position)
+  reach = R
   Object.assign(sun.shadow.camera, { left: -R, right: R, top: R, bottom: -R, near: 1, far: 4 * R }).updateProjectionMatrix()
   world.traverse((o) => { if (o.isMesh) { o.castShadow = o.material !== GLASS && o.material !== SKY && o.material.depthWrite; o.receiveShadow = true } }) // depthWrite false: a light beam or a halo, no shadow
 }
@@ -290,12 +291,16 @@ let flames = [] // { flame, halo, ph, y }
 let pools = [] // { mesh, ph }: a flat additive circle on the floor
 let dark = false // the night is on
 let winter = false // the winter knit sweaters are on: build() sets it, worker() reads it
-function night(on) {
+const CASTLE = { dir: [-4, 10, 5], sun: '#a9bce8', sunPower: 0.8, ambient: '#7f8fb8', ground: '#2e2622', ambientPower: 1.1, window: '#1d2540', windowGlow: '#141c33', background: '#0b0d1a' } // the Halloween light, in the shape of daylight()
+let reach = 0 // the shadow radius R: build() sets it, night() puts the sun at 2 * reach
+function night(on) { // on: the castle night. Else the light follows the clock.
   dark = on
-  ambient.color.set(on ? '#7f8fb8' : '#fff1dc'); ambient.groundColor.set(on ? '#2e2622' : '#7a6250'); ambient.intensity = on ? 1.1 : 2
-  sun.color.set(on ? '#a9bce8' : '#ffdcae'); sun.intensity = on ? 0.8 : 2.4
-  SKY.color.set(on ? '#1d2540' : '#a9d5ef'); SKY.emissive.set(on ? '#141c33' : '#55819e')
-  scene.background.set(on ? '#0b0d1a' : '#181825')
+  const k = on ? CASTLE : daylight(clock())
+  ambient.color.set(k.ambient); ambient.groundColor.set(k.ground); ambient.intensity = k.ambientPower
+  sun.color.set(k.sun); sun.intensity = k.sunPower; sun.castShadow = k.sunPower > 0
+  sun.position.set(...k.dir).setLength(2 * reach).add(sun.target.position)
+  SKY.color.set(k.window); SKY.emissive.set(k.windowGlow)
+  scene.background.set(k.background)
 }
 const blob = (() => { // one soft round gradient for all halos and pools: build() never disposes it
   const c = document.createElement('canvas'); c.width = c.height = 64
@@ -923,6 +928,7 @@ function update(next) {
     if (!sig) frame(office.rooms.find((r) => r.id === office.focus.workspaceId) ?? { x: 0, z: 0, w: office.bounds.w, d: office.bounds.d })
     sig = s
   }
+  night(se === 'halloween')
   for (const r of office.rooms) {
     const v = views.get(r.id)
     v.light.material.color.set(r.status ? COLOR[r.status] : C.wood)
@@ -1235,5 +1241,5 @@ if (DEMO) {
   es.onerror = () => { setOnline(false, 'offline — bridge not reachable'); es.onopen = () => location.reload() }
 }
 
-// The season can change at midnight, and the live stream may send nothing for a while. Check the date each minute (INTENT.md decision 31).
+// The season can change at midnight, and the live stream may send nothing for a while. Check the date and the clock light each minute (INTENT.md decision 31).
 setInterval(() => office && update(office), 60e3)
