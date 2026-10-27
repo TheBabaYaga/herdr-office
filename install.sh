@@ -34,6 +34,9 @@ case ":$PATH:" in
     echo "$dir is not on your PATH. Add this line to $rc:"
     # shellcheck disable=SC2016 # the hint must show a literal $HOME and $PATH
     echo '  export PATH="$HOME/.local/bin:$PATH"'
+    echo "Then open a new terminal and start it with: herdr-office"
+    echo "To start it now, run: $dir/herdr-office"
+    exit 0
     ;;
 esac
 echo "Start it with: herdr-office"

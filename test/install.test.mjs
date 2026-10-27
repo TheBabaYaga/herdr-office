@@ -33,7 +33,7 @@ test('install.sh writes ~/.local/bin/herdr-office and prints the PATH hint', () 
   assert.equal(r.status, 0, r.stderr)
   assert.ok(statSync(BIN(s)).mode & 0o100, 'executable')
   assert.equal(execFileSync(BIN(s), { encoding: 'utf8' }), 'hi\n')
-  for (const part of ['export PATH="$HOME/.local/bin:$PATH"', '~/.zshrc', 'herdr-office']) assert.ok(r.stdout.includes(part), part)
+  for (const part of ['export PATH="$HOME/.local/bin:$PATH"', '~/.zshrc', 'open a new terminal', '.local/bin/herdr-office']) assert.ok(r.stdout.includes(part), part)
 })
 
 test('install.sh prints no hint when ~/.local/bin is on the PATH', () => {
