@@ -209,14 +209,36 @@ export function flash(plan, s) {
   return f ? f.power : 0
 }
 
-// The snow of one terrace { x, z, w, d }: [{ x, z, phase }], one flake for each 2 m², spread by fixed steps, 0.3 in from each edge.
+// A seeded random number in [0, 1) for each call (mulberry32), so a room or a rect gets the same result in each build.
+export const rng = (s) => () => {
+  s = (s + 0x6d2b79f5) | 0
+  let t = Math.imul(s ^ (s >>> 15), 1 | s)
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+}
+
+// The snow of one rect { x, z, w, d }: [{ x, z, phase }]. A grid of cells of about 2 m² with one flake at a random point of each cell, 0.3 in from each edge.
+// The seed comes from the rect, so the same rect gives the same flakes.
 export function snowflakes(t) {
-  const n = Math.round(t.w * t.d / 2)
-  return Array.from({ length: n }, (_, i) => ({
-    x: t.x + 0.3 + ((i * 0.7549) % 1) * (t.w - 0.6),
-    z: t.z + 0.3 + ((i * 0.5698) % 1) * (t.d - 0.6),
-    phase: (i * 0.618) % 1,
-  }))
+  const x0 = t.x + 0.3, z0 = t.z + 0.3, W = t.w - 0.6, D = t.d - 0.6
+  const cols = Math.max(1, Math.round(W / Math.SQRT2)), rows = Math.max(1, Math.round(D / Math.SQRT2))
+  const r = rng(hash(`${t.x},${t.z},${t.w},${t.d}`, 1e9))
+  const out = []
+  for (let i = 0; i < cols; i++)
+    for (let j = 0; j < rows; j++)
+      out.push({ x: x0 + (i + r()) * W / cols, z: z0 + (j + r()) * D / rows, phase: r() })
+  return out
+}
+
+// The outdoor snow area: 4 rects { x, z, w, d } in a band round the slab. The slab reaches 0.3 past the building. The band is half the longer side plus 3 wide, so the flakes fill the screen corners at the min zoom.
+export function outdoors({ w, d }) {
+  const P = 0.3, M = Math.max(w, d) / 2 + 3
+  return [
+    { x: -P - M, z: -P - M, w: w + 2 * P + 2 * M, d: M },
+    { x: -P - M, z: d + P, w: w + 2 * P + 2 * M, d: M },
+    { x: -P - M, z: -P, w: M, d: d + 2 * P },
+    { x: w + P, z: -P, w: M, d: d + 2 * P },
+  ]
 }
 
 // The place { x, y, z } of one flake at s seconds: it falls from 2.6 to 0 at 0.3 a second, then starts again, and drifts 0.1 in x.
@@ -227,6 +249,9 @@ export function flakeAt(f, s) {
     z: f.z,
   }
 }
+
+// The halo opacity of one tree bulb at s seconds: 0.1 to 0.6 in about 4.2 s. amp 0.5 (reduce motion) gives 0.225 to 0.475.
+export const twinkle = (ph, s, amp = 1) => 0.35 + 0.25 * amp * Math.sin(1.5 * s + ph)
 
 // meetings: Claude Code sessions with running subagents, as the bridge sends them: [{ sessionId, cwd, agents: [...] }].
 // prev: the previous office, so a subagent keeps its seat.
