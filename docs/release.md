@@ -55,3 +55,9 @@ Steps:
 4. Publish the draft.
 
 The `release` step uses the secret `RELEASES_TOKEN`. It is a fine-grained token with "Contents: read and write" on `TheBabaYaga/herdr-office` only. Only that step can read it. The workflow makes a draft only, so a failed run publishes nothing.
+
+## README of the releases repo
+
+`release/README.md` and `release/demo.png` are the README and the screenshot of `TheBabaYaga/herdr-office`. That repo holds only these files and the releases. Copy both files to it by hand. The agent does not touch the public repo.
+
+To take `demo.png` again, start `dist/herdr-office` with `HERDR_OFFICE_NO_OPEN=1` on a free port. Open `/?demo&season=none&time=15:00` in headless Chrome at 1280 x 800 within 30 s of the start, because the binary exits when no `/events` client connects.
