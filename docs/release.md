@@ -40,3 +40,18 @@ Steps:
 To uninstall, remove `~/.local/bin/herdr-office`.
 
 `test/install.test.mjs` runs the script with a temp `HOME`, a fake `uname`, and a fake `curl`.
+
+## Make a release
+
+The workflow `.github/workflows/release.yml` runs on each tag that starts with `v`. The `linux` job runs `npm test`, runs `shellcheck install.sh`, and builds the Linux tar. The `mac` job builds the Mac tar and checks the signature. The `release` job makes a draft release in `TheBabaYaga/herdr-office` with both tars and `install.sh`.
+
+Before the first release, make the README commit in `TheBabaYaga/herdr-office`. A release needs a tag, and a tag needs a commit.
+
+Steps:
+
+1. Push a tag, for example `git tag v0.1.0 && git push origin v0.1.0`.
+2. Wait for the workflow to finish in the Actions tab of `TheBabaYaga/herdhouse`.
+3. Open the draft release in `TheBabaYaga/herdr-office`. Check that it has three files: `herdr-office-darwin-arm64.tar.gz`, `herdr-office-linux-x64.tar.gz`, and `install.sh`.
+4. Publish the draft.
+
+The `release` step uses the secret `RELEASES_TOKEN`. It is a fine-grained token with "Contents: read and write" on `TheBabaYaga/herdr-office` only. Only that step can read it. The workflow makes a draft only, so a failed run publishes nothing.
