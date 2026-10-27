@@ -56,8 +56,10 @@ async function build() {
     put('public/' + rel, rel === 'index.html' ? localHtml(html) : data)
   }
 
-  for (const { url, integrity } of threeFiles(html)) {
-    const res = await fetch(url)
+  const files = threeFiles(html)
+  if (files.length === 0) throw new Error('herdr-office build: the importmap integrity block has no three.js entry')
+  for (const { url, integrity } of files) {
+    const res = await fetch(url, { signal: AbortSignal.timeout(60_000) })
     if (res.status !== 200) throw new Error(`herdr-office build: ${url} gave status ${res.status}`)
     const buf = Buffer.from(await res.arrayBuffer())
     if (sha384(buf) !== integrity) throw new Error(`herdr-office build: wrong sha384 for ${url}`)
@@ -67,7 +69,7 @@ async function build() {
   put('version', (process.env.HERDR_OFFICE_VERSION || '').replace(/^v/, '') || '0.0.0-dev')
 
   const config = {
-    main: join(root, 'bridge.mjs'),
+    main: 'bridge.mjs',
     mainFormat: 'module',
     output: join(dist, 'herdr-office'),
     disableExperimentalSEAWarning: true,
@@ -84,7 +86,7 @@ async function build() {
   }
   const cfg = join(dist, 'sea.json')
   writeFileSync(cfg, JSON.stringify(config, null, 2))
-  execFileSync(process.execPath, ['--build-sea', cfg], { stdio: 'inherit' })
+  execFileSync(process.execPath, ['--build-sea', cfg], { stdio: 'inherit', cwd: root })
   if (process.platform === 'darwin') execFileSync('codesign', ['--sign', '-', join(dist, 'herdr-office')], { stdio: 'inherit' })
 
   const tar = `herdr-office-${process.platform}-${process.arch}.tar.gz`

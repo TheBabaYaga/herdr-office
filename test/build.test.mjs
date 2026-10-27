@@ -14,6 +14,10 @@ test('threeFiles reads the five three.js files of the importmap', () => {
   }
 })
 
+test('threeFiles gives no entry for a page without an integrity block', () => {
+  assert.deepEqual(threeFiles('<script type="importmap">{}</script>'), [])
+})
+
 test('sha384 gives the importmap form', () => {
   assert.equal(sha384(Buffer.from('abc')), 'sha384-ywB1P0WjXou1oD1pmsZQBycsMqsO3tFjGotgWkP/W+2AhgcroefMI1i67KE0yCWn')
 })
