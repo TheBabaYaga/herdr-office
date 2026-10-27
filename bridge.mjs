@@ -4,7 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { readFile, readdir, stat, open } from 'node:fs/promises'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import { isSea, getAsset } from 'node:sea'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { promisify } from 'node:util'
@@ -518,16 +519,39 @@ export function raiser(fallback, detect = detectTerminals, open = (id) => execFi
   return () => detect().then((found) => open(found.length === 1 ? found[0] : fallback)).catch((e) => console.error(`herdr-office: raise: ${e.message}`))
 }
 
+// Open the URL: `open` on a Mac, chromium --app then xdg-open on Linux. A failure only logs.
+export function openUrl(url, { platform = process.platform, spawn: run = spawn } = {}) {
+  const start = (cmd, args, onError) => {
+    const child = run(cmd, args, { detached: true, stdio: 'ignore' })
+    child.on('error', onError)
+    child.unref()
+  }
+  const fail = (e) => console.error(`herdr-office: open: ${e.message}`)
+  if (platform === 'darwin') start('open', [url], fail)
+  else start('chromium', [`--app=${url}`], () => start('xdg-open', [url], fail))
+}
+
 if (import.meta.main) {
-  const terminal = await pickTerminal(await detectTerminals())
-  console.log(`herdr-office: terminal ${terminal ?? 'none'}`)
+  if (process.argv.includes('--version')) {
+    console.log(isSea() ? getAsset('version', 'utf8').trim() : '0.0.0-dev')
+    process.exit(0)
+  }
+  // Command mode: a free port, the browser open, and an exit with no client.
+  const command = isSea() || process.argv.includes('--command')
+  const mac = process.platform === 'darwin'
+  const terminal = mac ? await pickTerminal(await detectTerminals()) : null
+  if (mac) console.log(`herdr-office: terminal ${terminal ?? 'none'}`)
   const { url } = await startBridge({
     sock: socketPath(),
-    port: Number(process.env.PORT) || 4747,
+    port: Number(process.env.PORT) || (command ? 0 : 4747),
     publicDir: fileURLToPath(new URL('public', import.meta.url)),
+    ...(isSea() && { readStatic: (rel) => Buffer.from(getAsset('public/' + rel)) }),
     claudeDir: path.join(os.homedir(), '.claude', 'projects'),
     codexDir: path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'sessions'),
     raise: terminal && raiser(terminal), // "none" in the selector means no raise
+    quitMs: command ? 30000 : null,
+    quit: () => process.exit(0),
   })
   console.log(`herdr-office: ${url}`)
+  if (command && !process.env.HERDR_OFFICE_NO_OPEN) openUrl(url)
 }

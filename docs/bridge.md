@@ -24,7 +24,7 @@
 
 ## Flow
 
-At start, the `import.meta.main` block awaits `startBridge()` with `socketPath()`, `Number(PORT) || 4747`, `public/`, `~/.claude/projects`, `codexDir` (`$CODEX_HOME/sessions`, else `~/.codex/sessions`), and `raiser(terminal)` as the `raise`. The block first finds `terminal` with `detectTerminals()`: `pgrep -x herdr`, then `ps eww -o command= -p <pid>` for each pid, and `bundleIdsIn()` keeps only the valid `__CFBundleIdentifier` values (never the rest of the environment). One id wins and the bridge logs `herdr-office: terminal <id>`. With none or many, `pickTerminal()` shows a numbered selector on a TTY (the detected ids, a fixed list of 7 terminals, and "none"), else it takes the first id, else WezTerm. "none" gives no `raise`. At each raise, `raiser()` runs `detectTerminals()` again, then `execFile('open', ['-b', id])` with no shell. One id wins, else it opens `terminal`, the start pick. So a move of herdr to another terminal needs no restart. The raise works on macOS only and does not select the herdr window or tab. `PORT=0` gives 4747, not a free port. Each start makes a new token. The bridge sends no `session.snapshot` request before the first `/events` client.
+At start, the `import.meta.main` block awaits `startBridge()` with `socketPath()`, `Number(PORT) || 4747`, `public/`, `~/.claude/projects`, `codexDir` (`$CODEX_HOME/sessions`, else `~/.codex/sessions`), and `raiser(terminal)` as the `raise`. The block first finds `terminal` with `detectTerminals()`: `pgrep -x herdr`, then `ps eww -o command= -p <pid>` for each pid, and `bundleIdsIn()` keeps only the valid `__CFBundleIdentifier` values (never the rest of the environment). One id wins and the bridge logs `herdr-office: terminal <id>`. With none or many, `pickTerminal()` shows a numbered selector on a TTY (the detected ids, a fixed list of 7 terminals, and "none"), else it takes the first id, else WezTerm. "none" gives no `raise`. At each raise, `raiser()` runs `detectTerminals()` again, then `execFile('open', ['-b', id])` with no shell. One id wins, else it opens `terminal`, the start pick. So a move of herdr to another terminal needs no restart. The raise works on macOS only and does not select the herdr window or tab. `PORT=0` gives 4747, not a free port. Command mode changes this: see "Main block and `openUrl()`". Each start makes a new token. The bridge sends no `session.snapshot` request before the first `/events` client.
 
 `handle()`, for each HTTP request:
 
@@ -121,9 +121,28 @@ A pure parser for the Codex rollout JSONL text. It returns `[{ role, text }]` in
 
 ### `startBridge(options)`
 
-The options are `sock`, `port` (on `127.0.0.1`), `publicDir`, `pollMs` (500), `token` (`crypto.randomUUID()`), `claudeDir` (`null` gives `meetings: []`, and 503 on `GET /messages` for a claude pane), `codexDir` (`null`: a codex pane gets 503 on `GET /messages`), `meetMs` (2000, the shortest time between two meeting reads), `raise` (runs after a successful `pane.focus`), and `readStatic` (`(rel) => Buffer | Promise<Buffer>`, reads one page file. The default reads `path.join(publicDir, rel)` from disk. The single executable passes a reader of its embedded assets), `quitMs` (`null`, no exit), and `quit` (a no-op). With `quitMs` set, the bridge calls `quit()` that many ms after it listens with no client, and that many ms after the last `/events` client leaves. A new client stops the timer.
+The options are:
+
+- `sock` and `port` (on `127.0.0.1`).
+- `publicDir`, `claudeDir`, and `codexDir`. A `null` `claudeDir` gives `meetings: []`, and 503 on `GET /messages` for a claude pane. A `null` `codexDir` gives 503 for a codex pane.
+- `pollMs` (500), `meetMs` (2000, the shortest time between two meeting reads), and `token` (`crypto.randomUUID()`).
+- `raise`: it runs after a successful `pane.focus`.
+- `readStatic`: `(rel) => Buffer | Promise<Buffer>` reads one page file. The default reads `path.join(publicDir, rel)` from disk. The single executable passes a reader of its embedded assets.
+- `quitMs` (`null`, no exit) and `quit` (a no-op). With `quitMs` set, the bridge calls `quit()` that many ms after it listens with no client, and that many ms after the last `/events` client leaves. A new client stops the timer.
 
 It returns `{ url, token, close }`. `close()` clears `clients` and the quit timer, and closes the server. A cycle that runs then finishes, and the loop stops.
+
+### Main block and `openUrl()`
+
+`openUrl(url, { platform, spawn })` starts the browser. On `darwin` it runs `open <url>`. Else it runs `chromium --app=<url>`, and if that start fails, `xdg-open <url>`. Each child is detached, with `stdio: 'ignore'`, and `unref()` runs. A failed start logs `herdr-office: open: <message>`.
+
+The `import.meta.main` block keeps its place at the top level, because a SEA main runs it there. `--version` prints the version and exits 0 (`getAsset('version')` in a SEA, else `0.0.0-dev`). Command mode is on in a SEA or with `--command`:
+
+- The port is `PORT`, else 0 (a free port). Without command mode it is `PORT`, else 4747.
+- `quitMs` is 30000 and `quit` is `process.exit(0)`. Without command mode, `quitMs` is `null`.
+- The block calls `openUrl(url)` after the URL line, unless `HERDR_OFFICE_NO_OPEN` is set.
+- In a SEA, `readStatic` reads `getAsset('public/' + rel)`.
+- On Linux the block skips the terminal pick and `raise` is `null`, because `open -b` is a macOS command.
 
 ### `send(msg)`
 
