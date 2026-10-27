@@ -1,6 +1,6 @@
 # public/model.js: the office model
 
-`public/model.js` turns a herdr snapshot and the meeting list into the office plan: rooms, pods, desks, corridors, terraces, meeting seats, kitchen spots, kitchen tables and chairs, the party room, and the game tables. It also plans the idle routes, keeps the break timing, and makes the demo data. It has no imports and no DOM, so the Node tests import it. `public/office.js` imports `STATUS_RANK`, `STATUS_COLOR`, `buildOffice`, `demoSnapshot`, `demoMeetings`, `hash`, `season`, `route`, `along`, `calm`, `opens`, `stepBreak`, and `endBreak`. `public/decor.js` imports only `hash`, to seed its fill pass with `room.id`. It reads the room fields `id`, `walk`, `counter`, `tables`, `chairs`, `table`, `seats`, `session`, `number`, `door`, `pods`, `booth`, and `floor`, and the terrace fields `id`, `w`, and `d`. The shapes of the office, a room, a desk, and most exported functions are in CLAUDE.md "Contracts between the files".
+`public/model.js` turns a herdr snapshot and the meeting list into the office plan: rooms, pods, desks, corridors, terraces, meeting seats, kitchen spots, kitchen tables and chairs, the party room, and the game tables. It also plans the idle routes, keeps the break timing, and makes the demo data. For the Halloween night, it plans the corridor candelabra, the lightning, and the ghosts. It has no imports and no DOM, so the Node tests import it. `public/office.js` imports `STATUS_RANK`, `STATUS_COLOR`, `buildOffice`, `demoSnapshot`, `demoMeetings`, `candleSpots`, `lightningPlan`, `flash`, `ghosts`, `ghostAt`, `hash`, `season`, `route`, `along`, `calm`, `opens`, `stepBreak`, and `endBreak`. `public/decor.js` imports only `hash`, to seed its fill pass with `room.id`. It reads the room fields `id`, `walk`, `counter`, `tables`, `chairs`, `table`, `seats`, `session`, `number`, `door`, `pods`, `booth`, and `floor`, and the terrace fields `id`, `w`, and `d`. The shapes of the office, a room, a desk, and most exported functions are in CLAUDE.md "Contracts between the files".
 
 ## When to read this doc
 
@@ -23,6 +23,7 @@ The file has no mutable state. Each `buildOffice()` call makes new objects. The 
 | `GAMES`, `BIG`, `PAD` | the kinds of game table in search order with their footprint half widths and place offsets, the free floor of a big room (80 m²), and the gap round a table (0.3) | `games()` |
 | `WALK`, `RUN` | the walk and run speeds | `tripAt()`, `test/walk.test.mjs` |
 | `WAIT` | how long a waiter stays at a game table (20 s) if nobody joins it | `stepBreak()`, `test/walk.test.mjs` |
+| `DRIFT` | the ghost speed (0.8 a second) | `ghostAt()` |
 | `AREA`, `CYCLE`, `DEMO_*` | the demo data | `demoSnapshot()`, `demoMeetings()` |
 | `trips`, `claimed` (`office.js`) | desk id to `{ n, next, trip }`, and the spot key `'<kind>:<index>'` to desk id | `stepBreak()`, `endBreak()`. `update()` clears both when `lay` changes |
 | `ajar` (`office.js`) | the room ids from `opens()` in this frame | `pose()` fills it, `swing()` reads it |
@@ -58,6 +59,24 @@ Each frame, `pose()` calls `breaks()` for each view with a worker. `breaks()` ca
 - `lightningPlan(rand = Math.random)`: draws the wait (20 to 60 s), whether a second flash comes (half of the plans), and the lengths. The first flash is at 0 with power 1 and a length of 0.08 to 0.12 s. The second is 0.3 to 0.6 s later with power 0.6. So two flashes are 0.3 s or more apart.
 - `flash(plan, s)`: the power of the flash that holds the time `s`, else 0.
 - Only `lightningPlan` may use `Math.random()`. `candleSpots` is deterministic. `office.js` runs both only with the Halloween night.
+
+### rng(s), ghosts(bounds), ghostAt(g, s)
+
+- `rng(s)`: a seeded random source (mulberry32). Each call of the function that it returns gives the next number in [0, 1). The same seed gives the same numbers.
+- `ghosts({ w, d })`: the 3 ghosts of the Halloween night. Each ghost is a closed loop of 8 points `{ x, z, hover }`. `x` lies in [1, w - 1], `z` in [1, d - 1], and `hover` in [2, 5] s. Ghost `i` takes the seed `hash('<w>,<d>,<i>', 1e9)`, so the same bounds give the same ghosts. Other bounds give other loops.
+- `ghostAt(g, s)`: `{ x, y, z, dx, dz }` at `s` seconds. Leg `i` goes from point `i` to the next point, and the last leg returns to point 0. The ghost floats each leg in a straight line at `DRIFT` (0.8 a second). Then it hovers at the end point for the `hover` of that point. At `s` 0 the ghost is at point 0, and it hovers at point 0 at the end of the loop. One loop takes the sum of the leg lengths divided by 0.8, plus the sum of the hovers.
+- `dx, dz` is the unit direction of the current leg, and of the last leg during a hover. `y` is the base of the ghost, `0.35 + 0.05 * sin(pi * s + g[0].x)`: a bob from 0.3 to 0.4 in 2 s. The first point gives the phase, so the three ghosts bob out of step.
+- The points lie in the building rectangle, so each straight leg stays inside the building. A ghost passes through walls, rooms, desks, and workers. No route, spot, or door takes it into account.
+- `ghosts` and `ghostAt` are deterministic. `office.js` runs them only with the Halloween night.
+
+The first ghost of the demo office (`{ w: 22.5, d: 37 }`):
+
+```text
+point 0 (8.96, 7.29), point 1 (11.45, 14.23, hover 2.38), leg 0 is 7.38 long
+ 0.00 s   at point 0, floats toward point 1, dx 0.34, dz 0.94
+ 9.23 s   at point 1, hovers, still faces dx 0.34, dz 0.94
+11.61 s   floats toward point 2 (6.41, 16.66), dx -0.90, dz 0.43
+```
 
 ### Status
 

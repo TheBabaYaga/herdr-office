@@ -35,7 +35,7 @@
 | `selected`, `target`, `down` | the panel id, the pane id to focus or to message, the last pointerdown | `open()`, `fill()`, pointerdown | page |
 | `timer`, `msgs`, `msgKey` | the 2000 ms refresh timer, the messages of the open claude or codex desk, and their JSON | `open()`, `close()`, `loadMessages()`, `renderMessages()` | page |
 
-`COLOR` is `STATUS_COLOR` as `THREE.Color`. `GLASS`, `SKY`, and `glow` are marked by `shared()`. `haloGeo` is one plane for all halos. The Halloween night adds `flames`, `pools`, `dark`, `strike`, `CALM`, `blob`, and `poolGeo` (see "Halloween night"). `blob` and `poolGeo` live for the whole page.
+`COLOR` is `STATUS_COLOR` as `THREE.Color`. `GLASS`, `SKY`, and `glow` are marked by `shared()`. `haloGeo` is one plane for all halos. The Halloween night adds `flames`, `pools`, `dark`, `strike`, `CALM`, `blob`, `poolGeo`, `SHEET`, and `spooks` (see "Halloween night"). `blob` and `poolGeo` live for the whole page.
 
 ## View shapes
 
@@ -86,7 +86,7 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
      - the -x edge (the last room of the row) and the +x edge (the cross corridor), always.
      - the -z edge, when `z` is more than 0. A terrace in the row behind shares the span from the larger x of the two to `W`. That span gets no wall, so the two terraces make one courtyard.
      - the +z edge, only when the band corridor is in front. Else the rooms or the terrace of the next row draw it, or the south stub stands there.
-  5. With Halloween, `candelabra(s.x, s.z, s.axis, 3.2)` for each spot of `candleSpots(office)`. The outer walls, then `desk()` for each desk and `attendee()` for each subagent, then `balls`: a hidden white ball (0.07, in `live`) for each ping-pong table of `office.games`.
+  5. The outer walls, then `desk()` for each desk and `attendee()` for each subagent, then `balls`: a hidden white ball (0.07, in `live`) for each ping-pong table of `office.games`. With Halloween, `candelabra(s.x, s.z, s.axis, 3.2)` for each spot of `candleSpots(office)`, then `spooks`: one `ghost()` for each loop of `ghosts(office.bounds)`, with `until` from the old ghost at the same index (else 0). In another season, `spooks` is `[]`.
   6. `bake()`, the sun, and the shadow flags. A material with `depthWrite` false (the glass, a light beam, a halo) casts no shadow.
 - `bake()`: skips each object in `live` with its subtree. It merges the meshes of each material with 2 or more meshes into one mesh, and marks its geometry `userData.merged`.
 
@@ -125,7 +125,10 @@ The night is on only with `season === 'halloween'`. Without it, `night(false)` s
 - `candelabra(x, z, axis, poolSize)`: an iron base, a post, a bar along `axis`, three candles, and a `pool()`. The corridor candelabra come from `candleSpots()` (pool 3.2). The room candelabra come from the spot that the `DECOR` function returns (pool 2.6).
 - `pool(x, z, size)`: a flat additive circle at y 0.04, in `live` and in `pools`. All pools share `poolGeo`, and all halos and pools share the texture `blob`. `glowMat()` makes the material of each, so the materials are not shared and `build()` disposes them. The shared `map` stays.
 - `candles(t)`: runs each frame. Each flame gets a height and a color between `#ff6a1a` and `#ffae42` from `wob(t, phase)` (the phase comes from the position), and the halo and the pool follow. With reduce motion (`CALM`), the flicker has half strength.
-- `lightning(t)`: runs each frame after `candles(t)`. At night, without reduce motion, it takes `lightningPlan()` into `strike` (the start is `t` plus the wait) and reads `flash(plan, t - start)`. It writes the ambient intensity (1.1 plus 1.2 times the power), the `SKY` emissive, and the background each frame, so the values return to the night values between flashes. It clears `strike` 1 s after the start. When `dark` is false or `CALM` matches, it clears `strike`. If a strike was in progress at night, it first writes the night values once, then nothing.
+- `lightning(t)`: runs each frame after `candles(t)` and `haunt(t)`. At night, without reduce motion, it takes `lightningPlan()` into `strike` (the start is `t` plus the wait) and reads `flash(plan, t - start)`. It writes the ambient intensity (1.1 plus 1.2 times the power), the `SKY` emissive, and the background each frame, so the values return to the night values between flashes. It clears `strike` 1 s after the start. When `dark` is false or `CALM` matches, it clears `strike`. If a strike was in progress at night, it first writes the night values once, then nothing.
+- `ghost(path)`: a group in `world` and in `live`, with its base at y 0 and its eyes on the +z face. It is 1.2 high: a jagged hem of 12 teeth in a checker (0.14 square, 0.1 or 0.2 high), a body 0.56 x 0.75 x 0.42, two smaller layers for the round top, and two black eyes at y 0.78. All parts use cached colors (`SHEET` `#f4f4f8`, eyes `#1a1a1a`), so `build()` disposes nothing of it. It also makes the balloon: `label(g, 'boo', [0, 1.5, 0])` with the text `Boohooo!`. Its CSS2DObject (the last child of `g`) gets `center` (0.5, 1), so the bottom edge of the balloon is on the point, and it starts hidden. It returns `{ g, path, rot: null, boo, until: 0 }`.
+- `haunt(t)`: runs each frame after `candles(t)`. For each entry of `spooks`, it reads `ghostAt(path, s)`, with `s = t / 2` when `CALM` matches, else `s = t`. It sets the group position and eases `rot` 0.1 of the shortest way toward `atan2(dx, dz)` each frame. On the first frame after a build it sets `rot` at once, so a rebuild does not turn a ghost. It sets `boo.visible` to `t < until`. With no ghosts it does nothing.
+- A ghost is opaque. A see-through ghost looks like an `unknown` worker, which fades to opacity 0.35. A ghost has no view and no badge. Its one label is the balloon, and it is not in `tags`, so `declutter()` never hides it. A rebuild makes new ghosts, and each new ghost takes `until` from the old ghost with the same index. So a shown balloon stays for its full 2 s.
 
 ### Party room
 
@@ -193,7 +196,8 @@ The night is on only with `season === 'halloween'`. Without it, `night(false)` s
 ### Picking
 
 - The pointerdown handler stores `down` and clears `goal`, `follow`, and `zoomTo`. A `wheel` event clears `zoomTo`, so the zoom glide never fights the user's zoom.
-- The click handler ignores a drag over 4 px. It casts a ray against one box for each desk, each away head seat, each subagent seat, and each worker on a trip, and opens the nearest hit. The desk and seat boxes come from the model, because `bake()` merged the desk meshes. The box of a worker on a trip is at the world position of its group. The handler makes it for each worker with `out` set (by `pose()`), so a seated lunch eater and a seated chess player get one too. It does not call `breaks()`. A new clickable object needs its own box.
+- The click handler ignores a drag over 4 px. It casts a ray against one box for each desk, each away head seat, each subagent seat, each worker on a trip, and each ghost, and takes the nearest hit. The desk and seat boxes come from the model, because `bake()` merged the desk meshes. The box of a worker on a trip is at the world position of its group. The handler makes it for each worker with `out` set (by `pose()`), so a seated lunch eater and a seated chess player get one too. It does not call `breaks()`. A new clickable object needs its own box. A ghost box is 0.56 x 0.56 round its group position, from its base y to 1.2 above it. An entry has an optional seventh and eighth element, `y0` and `y1` (else 0 and 1.8), for this height.
+- When the nearest hit is a ghost, the handler sets its `until` to `performance.now() / 1000 + 2` and returns. It does not call `open()`, and it sets no `follow` or `zoomTo`. The pointerdown before the click still clears `goal`, `follow`, and `zoomTo`, as for each click. The rAF time and `performance.now()` count from the same origin, so `haunt(t)` compares `t` with `until`.
 - A walker box has a sixth element, `true`. When the nearest hit is a walker box, the handler sets `follow` and `zoomTo` (1.5 times the zoom, at most `controls.maxZoom`) after `open()`, because `open()` clears `follow`.
 
 ### Frame loop and data source
@@ -216,14 +220,14 @@ Two agents in one region need a split by function.
 | breaks | `breaks()`, `stroll()`, `rally()`, `arc()`, `balls`, `HIT`, `trips`, `claimed` | update, pose, `model.js`, `test/walk.test.mjs` |
 | doors | `swing()`, `doors`, `ajar`, `OPEN`, `SWING` | build (`door()`), pose, frame loop, `model.js`, `test/walk.test.mjs` |
 | party | `partyLights()`, `disco()`, `kick()`, `DISCO`, `BEAT`, `dancing` | build (the call after `door(r)`), breaks (`stroll()` sets `dancing`), frame loop, `decor.js` `party()` (the speaker rect) |
-| night | `night()`, `candle()`, `candelabra()`, `pool()`, `candles()`, `lightning()`, `flames`, `pools`, `dark`, `strike`, `CALM`, `blob`, `poolGeo`, `glowMat()` | build (the calls), frame loop, `decor.js` (`candleSpot()`), `model.js` |
+| night | `night()`, `candle()`, `candelabra()`, `pool()`, `candles()`, `lightning()`, `ghost()`, `haunt()`, `flames`, `pools`, `dark`, `strike`, `CALM`, `blob`, `poolGeo`, `glowMat()`, `SHEET`, `spooks` | build (the calls), frame loop, picking (`spooks`), `decor.js` (`candleSpot()`), `model.js` |
 | pose | `pose()`, `ARM`, `moving` | screens, breaks, doors, frame loop |
 | declutter | `declutter()`, `tags`, `seen`, `nextPass` | update, frame loop |
 | update | `update()`, `family()`, `office`, `sig`, `laid` | all regions |
 | hud | `hud()`, `el()`, `rows`, `setOnline()`, `who()`, `plural()` | fill, camera (`goal`), `index.html` |
 | fill | `open()`, `close()`, `fill()`, `act()`, `loadMessages()`, `renderMessages()`, `timer`, `msgs`, `msgKey`, the focus button, `#say`, `#chatOpen`, `#chatClose`, and `#reply` handlers | hud, picking, camera (`follow`), `index.html` |
 | camera | `fit()`, `frame()`, `keepInView()`, `resize()`, `VIEW`, `OFFSET`, `controls`, the `goal` glide, `follow`, `zoomTo`, `tracked`, the zoom glide | hud, update, picking, fill |
-| picking | the pointerdown, wheel, and click handlers | fill, desk (seat geometry), camera (`follow`, `zoomTo`) |
+| picking | the pointerdown, wheel, and click handlers | fill, desk (seat geometry), camera (`follow`, `zoomTo`), night (`spooks`, `until`) |
 
 Give a change to `label()`, `fresh()`, `shared()`, a shared constant, or the import lines to one agent only. A new decor function changes the `./decor.js` import and `DECOR`, so it goes to the build agent.
 

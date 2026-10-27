@@ -167,12 +167,24 @@ The user made these decisions between 2026-10-03 and 2026-10-26.
     - Exception to decision 25 ("No prop glows"): the candle flames may glow, in orange only, with a soft halo and a warm pool on the floor. There is no three.js light, and no color near working yellow or blocked red.
     - The lightning is the one flash in the office. A strike comes after 20 to 60 s, with one or two soft flashes. It has no sound (decision 6 cut sound).
     - With "reduce motion" on, no lightning shows, and the flames flicker at half strength.
+33. Ghosts in the Halloween season, in the user's words: "Or you know, instead of wearing clothes, let some ghosts wander around", "that seems a better approach", and "Let the ghosts float through walls and rooms." Before that, the user asked for Halloween clothing for the workers, like the winter sweaters. The user dropped the clothing for the ghosts.
+    - From 24 October to 1 November (or `?season=halloween`), 3 ghosts float through the office. They pass through walls, rooms, desks, and workers. Nobody reacts.
+    - A ghost is a white sheet with two black eyes and a jagged hem, about the size of a standing worker. It has no legs.
+    - A ghost floats 0.3 above the floor and bobs 0.1 up and down, in about 2 s.
+    - A ghost floats in a straight line at 0.8 a second to a random point in the building. It hovers there for 2 to 5 s, then floats to the next point. It turns to face the way it floats.
+    - A ghost is opaque, because a see-through ghost looks like an `unknown` worker (opacity 0.35). It has no badge, no status, and no three.js light.
+    - With "reduce motion" on, a ghost floats and bobs at half speed.
+    - The sheet is white (`#f4f4f8`) and the eyes are black (`#1a1a1a`). No ghost color is near a status color.
+    - The workers get no Halloween clothing.
+    - An easter egg, in the user's words: "When I click on a ghost, can there appear a text balloon with like "boohooo" as a fun easter egg". A click on a ghost shows a speech balloon with `Boohooo!` above its head for 2 s. The balloon floats with the ghost. A new click on the same ghost starts the 2 s again.
+    - A click on a ghost opens no panel. A desk in front of a ghost gets the click and opens its panel. The balloon sends nothing to the bridge or to herdr.
+    - The balloon is near-white with dark text and a small tail that points down to the ghost. It has no animation, so reduce motion does not change it.
 
 ## Cut on purpose
 
 The user cut these with "ponytail ultra" (decision 6). Do not add them again without the user's approval.
 
-- Walk animations, except the idle breaks (decision 19). A worker does not walk to a new desk and does not walk to the meeting room. Nobody else walks. An orchestrator moves to the meeting room without a walk: its worker sits at the head of the meeting table.
+- Walk animations, except the idle breaks (decision 19). A worker does not walk to a new desk and does not walk to the meeting room. Nobody else walks. The ghosts of decision 33 float, and they are not workers. An orchestrator moves to the meeting room without a walk: its worker sits at the head of the meeting table.
 - Toasts and sound. The office has no desk phone and no bell. The lightning of the Halloween night is silent too (decision 32).
 - Zoom dimming. A zoomed herdr tab does not dim the other desks.
 - The herdr event subscription. The bridge polls `session.snapshot` every 500 ms instead. A status change can take up to 500 ms to show.
@@ -199,6 +211,8 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 - A floor pool of a candelabra can spill a little past a wall or the building edge.
 - A stack of halos can make a flame look a little more yellow than orange.
 - No Node test covers `night()`, `candles()`, `lightning()`, or `candleSpot()`, because Node cannot load three.js. Browser checks and a scratch ray test covered them.
+- No Node test covers `ghost()`, `haunt()`, or the ghost click, because Node cannot load three.js. A browser check with `?demo&season=halloween` covered the sheet, the hem, the eyes, the night light on the sheet, the float through a table, the move from point to point, and the turn to a new heading. A second browser check covered the ghost click: the balloon showed with no panel, stayed through a rebuild, and hid after its 2 s. A desk click still opened its panel. No browser check covered the half speed with reduce motion.
+- An opaque ghost can hide a worker or a desk for a moment when it floats in front of it. The badges and the door signs stay on top, because they are HTML labels. A click on that desk hits the ghost and shows its balloon. After the ghost moves, a new click opens the desk.
 - No test covers the party lights, the speakers, or the dance, because Node cannot load three.js. A browser check in the demo and in the live office covered them.
 - The rooms in the party row and in a terrace row do not get wider, so they do not get the extra props of a wide room. In the demo, "docs" is 7.8 wide, not 19.5. The demo has no terrace: each of its other rows has less than 4 spare width.
 - Under a short pod next to a tall pod, only a lane 0.6 wide below each last-row desk is walk floor (decision 25). The props fit between these lanes. In a room with a north door, the row lane runs above the pods, and the floor under a short pod was never walk floor.

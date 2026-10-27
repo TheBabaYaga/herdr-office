@@ -16,7 +16,7 @@ These docs describe the code of herdr-office, with one doc for each source area.
 | Kitchen and party trips, and routes | `docs/model.md` "Walk geometry", "route(o, deskId, spot, to = 'kitchen')", "Breaks". `docs/office.md` "Idle breaks" | `route()`, `walkRects()`, `stepBreak()`, `endBreak()`, `tripAt()`, `breakPlan()`, `along()`, `breaks()`, `stroll()` |
 | Doors | `docs/office.md` "Floors and walls" (`door()`), "Idle breaks" (`swing()`), the recipe for the door leaf. `docs/model.md` "Breaks" (`opens()`). `docs/testing.md` "Change when a door opens" | `door()`, `swing()`, `opens()`, `calm()` |
 | Seasonal decor | `docs/decor.md` "Seasonal props". `docs/model.md` "season(date)". `docs/office.md` "Frame loop and data source" (`SEASON`, the minute timer) | `season()`, `SEASON`, `pumpkin()`, `bat()`, `web()` |
-| The Halloween night | `docs/office.md` "Halloween night". `docs/model.md` "candleSpots(o), lightningPlan(rand), flash(plan, s)". `docs/decor.md` "Seasonal props" (`candleSpot()`). `docs/testing.md` "The Halloween night tests". `INTENT.md` decisions 31 and 32 | `night()`, `candelabra()`, `candles()`, `lightning()`, `candleSpots()`, `lightningPlan()`, `flash()`, `candleSpot()` |
+| The Halloween night and the ghosts | `docs/office.md` "Halloween night". `docs/model.md` "candleSpots(o), lightningPlan(rand), flash(plan, s)" and "rng(s), ghosts(bounds), ghostAt(g, s)". `docs/decor.md` "Seasonal props" (`candleSpot()`). `docs/testing.md` "The Halloween night tests". `INTENT.md` decisions 31 to 33 | `night()`, `candelabra()`, `candles()`, `lightning()`, `ghost()`, `haunt()`, `candleSpots()`, `lightningPlan()`, `flash()`, `ghosts()`, `ghostAt()`, `candleSpot()` |
 | Decor and props | `docs/decor.md` | `box()`, `placer()`, `workspaceDecor()`, `kitchen()`, `meeting()`, `lobby()`, `terrace()`, `plant()`, `clutter()` |
 | The bridge: poll, SSE, action, guards | `docs/bridge.md` "Flow", "`startBridge(options)`", "`GET /events` branch", "`GET /messages` branch", "`POST /action` branch" | `startBridge()`, `handle()`, `poll()`, `send()`, `herdrRequest()`, `socketPath()` |
 | Meetings and subagents | `docs/bridge.md` "`readMeetings(projects, cwds, now = Date.now())`", "Claude subagent helpers", "What may reach the browser". `docs/model.md` "buildOffice(snap, meetings = [], prev = null)" (the meeting rooms, the orchestrator, and the seats). `docs/office.md` "Desks, seats, and workers". `docs/decor.md` "Room decor" | `readMeetings()`, `cwdOf()`, `modelIn()`, `plainTail()`, `buildOffice()`, `attendee()`, `seatAt()`, `longTable()` |
@@ -65,6 +65,7 @@ follow -> goal glide -> zoom glide -> controls.update() -> keepInView() -> label
   -> disco(t)                               the party room parts, on only while a worker dances
   -> rally(t)                               the ping-pong balls, on only while both players of a table play
   -> candles(t)                             the candle flicker (Halloween night)
+  -> haunt(t)                               the ghosts float (Halloween), at half speed with reduce motion, and show a clicked balloon for 2 s
   -> lightning(t)                           the night flash, off with reduce motion
   -> swing(t - last)
   -> seen = '' while a worker walks, at most 4 times a second
@@ -77,6 +78,7 @@ The click path:
 click on a desk, a seat, or a worker on a trip (not a drag), or a HUD row
   -> open(id) -> fill()           target = the pane id, or the orchestrator desk of a subagent
   -> a worker on a trip only      follow = id, zoomTo = 1.5 times the zoom
+  -> a ghost hit (Halloween)      no open(): until = now + 2 s, and haunt() shows the balloon until then
   -> "Focus in herdr" button      act(): fetch POST /action, header x-office-token, body { type: 'focus', pane_id }
   -> bridge.mjs handle()          Host check, token check, body check
   -> herdrRequest(sock, 'pane.focus', { pane_id })
@@ -142,6 +144,7 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - desk: one herdr pane, an entry of `office.desks` (the id is the pane id). `desk()` in `office.js` draws it.
 - seat: a meeting chair position in `room.seats` (`{ x, z, rot }`), with the head seat at `seats[0]`. The worker seat at a desk is `(d.x, d.z + 0.4)`.
 - worker: the figure of an agent, from `worker()` in `office.js`. It sits at a desk or at a meeting seat.
+- ghost: a white sheet with two black eyes that floats through the office in the Halloween season. `ghosts()` in `model.js` gives its loop, and `ghost()` in `office.js` draws it. It is not a worker: it has no desk, no status, and no badge. A click on it shows a balloon with `Boohooo!` for 2 s.
 - shell desk: a desk with `agent: null`. It has no worker, and its screen is dark (`SHELL`).
 - orchestrator: the claude desk with the same cwd as a meeting session. It gets `away`, and its subagents have its id as `deskId`.
 - subagent: a Claude Code subagent that still runs, an entry of `office.subagents`. It sits at a meeting seat and always shows `working`.
