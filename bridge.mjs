@@ -320,12 +320,18 @@ export async function readCodexMessages(sessions, pane, limit = 100) {
   }
 }
 
-export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypto.randomUUID(), claudeDir = null, codexDir = null, meetMs = 2000, raise = null, readStatic = null }) {
+export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypto.randomUUID(), claudeDir = null, codexDir = null, meetMs = 2000, raise = null, readStatic = null, quitMs = null, quit = () => {} }) {
   publicDir = path.resolve(publicDir)
   readStatic ??= (rel) => readFile(path.join(publicDir, rel))
   // A Map, because pane.agent comes from outside and a plain object has keys like "constructor".
   const readers = new Map([['claude', [claudeDir, readMessages]], ['codex', [codexDir, readCodexMessages]]])
   const clients = new Set()
+  // Command mode: quit() runs quitMs after the last SSE client leaves, or after the start with no client.
+  let quitTimer = null
+  const arm = () => {
+    clearTimeout(quitTimer)
+    if (quitMs != null) quitTimer = setTimeout(quit, quitMs)
+  }
   let last = null // the last SSE payload; null while nobody listens
   let polling = false
   let snap = null // the last good snapshot, for GET /messages
@@ -415,7 +421,11 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
     if (pathname === '/events') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' })
       clients.add(res)
-      res.on('close', () => clients.delete(res))
+      clearTimeout(quitTimer)
+      res.on('close', () => {
+        clients.delete(res)
+        if (!clients.size) arm()
+      })
       if (last) res.write(`data: ${last}\n\n`)
       if (!polling) poll()
       return
@@ -450,16 +460,18 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
 
   return new Promise((resolve, reject) => {
     server.on('error', reject)
-    server.listen(port, '127.0.0.1', () => resolve({
+    server.listen(port, '127.0.0.1', () => (arm(), resolve({
       url: `http://127.0.0.1:${server.address().port}/`,
       token,
       close: () => {
+        clearTimeout(quitTimer)
+        quitMs = null // a late close event of a client must not arm the timer again
         clients.clear()
         const closed = new Promise((r) => server.close(r))
         server.closeAllConnections()
         return closed
       },
-    }))
+    })))
   })
 }
 

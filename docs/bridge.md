@@ -121,9 +121,9 @@ A pure parser for the Codex rollout JSONL text. It returns `[{ role, text }]` in
 
 ### `startBridge(options)`
 
-The options are `sock`, `port` (on `127.0.0.1`), `publicDir`, `pollMs` (500), `token` (`crypto.randomUUID()`), `claudeDir` (`null` gives `meetings: []`, and 503 on `GET /messages` for a claude pane), `codexDir` (`null`: a codex pane gets 503 on `GET /messages`), `meetMs` (2000, the shortest time between two meeting reads), `raise` (runs after a successful `pane.focus`), and `readStatic` (`(rel) => Buffer | Promise<Buffer>`, reads one page file. The default reads `path.join(publicDir, rel)` from disk. The single executable passes a reader of its embedded assets).
+The options are `sock`, `port` (on `127.0.0.1`), `publicDir`, `pollMs` (500), `token` (`crypto.randomUUID()`), `claudeDir` (`null` gives `meetings: []`, and 503 on `GET /messages` for a claude pane), `codexDir` (`null`: a codex pane gets 503 on `GET /messages`), `meetMs` (2000, the shortest time between two meeting reads), `raise` (runs after a successful `pane.focus`), and `readStatic` (`(rel) => Buffer | Promise<Buffer>`, reads one page file. The default reads `path.join(publicDir, rel)` from disk. The single executable passes a reader of its embedded assets), `quitMs` (`null`, no exit), and `quit` (a no-op). With `quitMs` set, the bridge calls `quit()` that many ms after it listens with no client, and that many ms after the last `/events` client leaves. A new client stops the timer.
 
-It returns `{ url, token, close }`. `close()` clears `clients` and closes the server. A cycle that runs then finishes, and the loop stops.
+It returns `{ url, token, close }`. `close()` clears `clients` and the quit timer, and closes the server. A cycle that runs then finishes, and the loop stops.
 
 ### `send(msg)`
 
@@ -131,7 +131,7 @@ It writes `data: <JSON>\n\n` to each client when the string differs from `last`.
 
 ### `GET /events` branch
 
-It replies 200 `text/event-stream` with `cache-control: no-store`, and adds `res` to `clients`. It writes `last` at once when it is set, and starts `poll()` when `polling` is `false`.
+It replies 200 `text/event-stream` with `cache-control: no-store`, and adds `res` to `clients`. It writes `last` at once when it is set, and starts `poll()` when `polling` is `false`. It stops the quit timer. When `res` closes and `clients` is empty, it starts the timer again.
 
 ### `GET /messages` branch
 

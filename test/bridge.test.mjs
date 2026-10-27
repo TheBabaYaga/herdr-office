@@ -248,6 +248,50 @@ test('the bridge polls only while an SSE client is connected', async () => {
   }
 })
 
+test('quitMs: the bridge quits after quitMs with no SSE client', async () => {
+  const fake = await fakeHerdr()
+  let calls = 0
+  const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, quitMs: 150, quit: () => { calls++ } })
+  try {
+    await sleep(400)
+    assert.equal(calls, 1)
+  } finally {
+    await b.close()
+    await fake.close()
+  }
+})
+
+test('quitMs: an SSE client holds the bridge, and its close starts the time again', async () => {
+  const fake = await fakeHerdr()
+  let calls = 0
+  const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, pollMs: 20, quitMs: 150, quit: () => { calls++ } })
+  try {
+    const es = sse(portOf(b))
+    await es.next()
+    await sleep(300)
+    assert.equal(calls, 0)
+    es.close()
+    await sleep(400)
+    assert.equal(calls, 1)
+  } finally {
+    await b.close()
+    await fake.close()
+  }
+})
+
+test('without quitMs the bridge never quits', async () => {
+  const fake = await fakeHerdr()
+  let threw = false
+  const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, quit: () => { threw = true } })
+  try {
+    await sleep(300)
+    assert.equal(threw, false)
+  } finally {
+    await b.close()
+    await fake.close()
+  }
+})
+
 test('the bridge drops an SSE client that stops reading', async () => {
   let k = 0
   const big = (req) => ({ result: { type: 'session_snapshot', snapshot: { ...SNAP, version: String(k++), pad: 'x'.repeat(300_000) } } })
