@@ -21,3 +21,22 @@ Facts:
 - A darwin build gives a binary of about 111 MB and a tar of about 40 MB.
 - Git ignores `dist/`.
 - `test/build.test.mjs` tests the three exports. The build itself has a manual check: run `dist/herdr-office` with a fake herdr socket and `HERDR_OFFICE_NO_OPEN=1`, then load `/?demo` in headless Chrome with the network cut (`docs/testing.md` "Visual check in the browser").
+
+## Install
+
+`install.sh` is a POSIX `sh` script. It passes `shellcheck`. CI attaches it to each release.
+
+```sh
+curl -fsSL https://github.com/TheBabaYaga/herdr-office/releases/latest/download/install.sh | sh
+```
+
+Steps:
+
+1. Read `uname -s` and `uname -m`. `Darwin arm64` gives `darwin-arm64`, and `Linux x86_64` gives `linux-x64`. Any other pair stops with "not supported".
+2. Download `herdr-office-<target>.tar.gz` with `curl -fsSL` into a temp folder. `HERDR_OFFICE_URL` replaces the URL, for a check.
+3. Copy the binary to a temp name in `~/.local/bin`, then `mv -f` it onto `herdr-office`. A new file is needed because a signed binary that changes in place can die with "Killed: 9" on macOS.
+4. If `~/.local/bin` is not on the `PATH`, print the `export` line for `~/.zshrc` (Mac) or `~/.bashrc` (Linux). The script never changes a shell config file and never uses `sudo`.
+
+To uninstall, remove `~/.local/bin/herdr-office`.
+
+`test/install.test.mjs` runs the script with a temp `HOME`, a fake `uname`, and a fake `curl`.
