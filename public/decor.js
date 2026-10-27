@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { hash } from './model.js'
+import { hash, rng } from './model.js'
 
 // ---- voxel helpers: one shared unit cube, y is the bottom of the box ----
 const CUBE = new THREE.BoxGeometry()
@@ -365,13 +365,13 @@ function placer(g, room, ...keep) {
   // written as a >= m && ..., not as a < m || ..., so a NaN position fails too
   const fits = (r, pad = 0) => r[0] >= m && r[1] >= m && r[2] <= room.w - m && r[3] <= room.d - m &&
     !taken.some((q) => r[0] - pad < q[2] && q[0] < r[2] + pad && r[1] - pad < q[3] && q[1] < r[3] + pad)
-  const put = (make, x, z, rot = 0, pad = 0) => {
+  const put = (make, x, z, rot = 0, pad = 0, kind = make) => { // kind: the maker that counts in used(), for a swapped prop
     const t = new THREE.Group()
     make(t, x, z, rot)
     const b = new THREE.Box3().setFromObject(t), r = [b.min.x, b.min.z, b.max.x, b.max.z]
     if (!fits(r, pad)) return false
     taken.push(r)
-    used.set(make, (used.get(make) ?? 0) + 1)
+    used.set(kind, (used.get(kind) ?? 0) + 1)
     g.add(...t.children)
     return true
   }
@@ -379,13 +379,6 @@ function placer(g, room, ...keep) {
 }
 const corners = ({ w, d }) => [[0.75, 0.75], [w - 0.75, 0.75], [0.75, d - 0.75], [w - 0.75, d - 0.75]]
 
-// A seeded random number in [0, 1) for each call (mulberry32), so a room gets the same fill in each build.
-const rng = (s) => () => {
-  s = (s + 0x6d2b79f5) | 0
-  let t = Math.imul(s ^ (s >>> 15), 1 | s)
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-}
 const steps = (a, b, s) => Array.from({ length: Math.max(0, Math.floor((b - a) / s + 1e-9) + 1) }, (_, i) => a + i * s)
 // The fill pass, after the fixed props of a room: props from a pool on the open floor, one for each PER m² of free floor over FREE.
 // So a small room gets none. A pool entry is [make, how, max]. how 'w': a wall prop, on the north or the west wall (the walls that the
@@ -402,7 +395,7 @@ const steps = (a, b, s) => Array.from({ length: Math.max(0, Math.floor((b - a) /
 // A spot test first moves the footprint of the prop at the origin (foot), so only a likely fit builds the prop. A plant or a bean bag
 // changes with its position, so put() checks it again.
 const FREE = 30, PER = 7, PAD = 0.3, EDGE = 1.2, NEAR = 0.6, STRIP_EDGE = 0.6, WALL_MAX = 3
-function furnish(put, room, pool, thin = THIN) { // thin: the pool of the strip round. A terrace passes GARDEN.
+function furnish(put, room, pool, season, thin = THIN) { // thin: the pool of the strip round. A terrace passes GARDEN.
   const { w, d } = room, rnd = rng(hash(room.id, 1e9)), mix = (a) => a.map((v) => [rnd(), v]).sort((p, q) => p[0] - q[0]).map(([, v]) => v)
   const free = (x, z) => !put.taken.some((q) => x > q[0] && x < q[2] && z > q[1] && z < q[3])
   const budget = () => {
@@ -425,9 +418,13 @@ function furnish(put, room, pool, thin = THIN) { // thin: the pool of the strip 
     return f[q]
   }
   const tryAt = (make, x, z, q, near) => {
-    const [a, b, c, e] = foot(make, q), r = [x + a, z + b, x + c, z + e]
-    return r[0] >= near && r[1] >= near && r[2] <= w - near && r[3] <= d - near && put.fits(r, PAD) && put(make, x, z, q, PAD)
+    const m = swap(make, x, z), o = m === make ? q : 0, [a, b, c, e] = foot(m, o), // o: a Christmas tree stays at rot 0, so its ornaments face the camera
+       r = [x + a, z + b, x + c, z + e]
+    return r[0] >= near && r[1] >= near && r[2] <= w - near && r[3] <= d - near && put.fits(r, PAD) && put(m, x, z, o, PAD, make)
   }
+  // In winter, about a third of the indoor trees become Christmas trees. The spot picks, so a rebuild gives the same trees. put() checks
+  // the real footprint, and the wider tree may fail where the plain tree fits. Then furnish() goes on to its next spot.
+  const swap = (make, x, z) => (season === 'winter' && make === tree && Math.abs(Math.round(x * 7 + z * 13)) % 2 ? xmasTree : make)
   const grid = (s, edge) => mix(steps(edge, w - edge, s).flatMap((x) => steps(edge, d - edge, s).map((z) => [x + (rnd() - 0.5) * s, z + (rnd() - 0.5) * s]))
     .filter(([x, z]) => x >= edge && x <= w - edge && z >= edge && z <= d - edge && put.fits([x - 0.2, z - 0.2, x + 0.2, z + 0.2], PAD))) // each floor prop covers this core
   const round = (entries, n, spots, near) => { // near: the least distance from a prop to a room edge
@@ -493,7 +490,7 @@ export function workspaceDecor(g, room, season) {
   ;[[E, d / 2, 1], [w / 4, E, 0], [(3 * w) / 4, E, 0]].some(([x, z, r]) => put(extra, x, z, r))
   ;[[(3 * w) / 4, E, 0], [w / 4, E, 0], [E, d / 2, 1]].some(([x, z, r]) => put(lounge, x, z, r)) // fits only a stretched room
   plants(put, corners(room), w * d > 100 ? 4 : 2)
-  furnish(put, room, OFFICE) // a big room gets more, so it does not read as an empty hall
+  furnish(put, room, OFFICE, season) // a big room gets more, so it does not read as an empty hall
   if (season === 'halloween') web(g, 0.19, 2.6, 0.17) // not through put(): it hangs on the wall, over the props. The wall face is at 0.15, the strand is 0.035 thick.
   if (season === 'halloween') return candleSpot(g, room, put)
 }
@@ -569,7 +566,7 @@ export function kitchen(g, room, season) {
   ;[[fx + 0.7, E, 0], [E, 1.6, 1], [E, d - 1.2, 1]].some(([x, z, r]) => put(cooler, x, z, r))
   const [nw, , sw, se] = corners(room)
   plants(put, [sw, nw, se], 1)
-  furnish(put, room, KITCHEN)
+  furnish(put, room, KITCHEN, season)
   if (season === 'halloween') return candleSpot(g, room, put)
 }
 
@@ -618,7 +615,7 @@ export function party(g, room, season) {
   gameTables(g, room, put)
   ;[[E, fz0 / 2, 1], [w - E, fz0 / 2, 3], [E, (fz1 + d) / 2, 1], [w - E, (fz1 + d) / 2, 3]].some(([x, z, r]) => put(lounge, x, z, r)) // on a side wall, beside the floor
   plants(put, corners(room), 2)
-  furnish(put, room, PARTY)
+  furnish(put, room, PARTY, season)
   if (season === 'halloween') { // four bats round the disco ball, above the beams (they start at y 2.2). Not through put(): the keep rect covers the floor.
     const fx = (x0 + x1) / 2 - room.x, fz = (z0 + z1) / 2 - room.z
     ;[[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([a, b], i) => bat(g, fx + a, i % 2 ? 2.45 : 2.3, fz + b))
@@ -670,10 +667,12 @@ const waiting = (g, x, z, rot) => {
 }
 
 // Winter tree: four tiers, two ornaments on the +z and +x face of each tier, a brass star (not yellow, so it never reads as `working`).
+// An ornament is a bulb: one unlit shared material for each color. office.js finds `userData.bulb` and adds a halo (INTENT.md decision 25 exception).
+const BULBS = [WHITE, '#c9ccd3', '#8b5cf6', '#4a6fa8'].map((c) => new THREE.MeshBasicMaterial({ color: c, userData: { shared: true, bulb: true } }))
 const xmasTree = prop([
   [[0.5, 0.2, 0.5], [0, 0, 0], POTS[1]], [[0.16, 0.2, 0.16], [0, 0.2, 0], WOOD_D],
   ...[1.3, 1, 0.7, 0.4].flatMap((w, i) => {
-    const y = 0.4 + i * 0.45, c = [WHITE, '#c9ccd3', '#8b5cf6', '#4a6fa8'][i]
+    const y = 0.4 + i * 0.45, c = BULBS[i]
     return [
       [[w, 0.45, w], [0, y, 0], GREENS[0]],
       ...[-1, 1].flatMap((s) => [[[0.08, 0.08, 0.08], [s * w / 4, y + 0.05, w / 2 - 0.02], c], [[0.08, 0.08, 0.08], [w / 2 - 0.02, y + 0.05, s * w / 4], c]]),
@@ -690,7 +689,7 @@ export function lobby(g, room, season) {
   if (season === 'halloween') for (const x of [w / 2 - 1.1, w / 2 + 2.3]) put(pumpkin, x, d - 3, 0)
   if (season === 'winter') [[1, 1], [w - 1, 1], [1, d - 1]].some(([x, z]) => put(xmasTree, x, z, 0))
   plants(put, corners(room), 2)
-  furnish(put, room, LOBBY)
+  furnish(put, room, LOBBY, season)
   if (season === 'halloween') return candleSpot(g, room, put)
 }
 
@@ -743,7 +742,7 @@ export function terrace(g, t, season) {
   put(bench, w / 2, 0.6)
   ;[[w / 4, d / 2], [(3 * w) / 4, d / 2]].some(([x, z]) => put(pond, x, z))
   for (const x of [0.75, w - 0.75]) put(bush, x, d - 0.75)
-  furnish(put, t, TERRACE, GARDEN)
+  furnish(put, t, TERRACE, season, GARDEN)
   if (season === 'winter') snow(g)
 }
 
