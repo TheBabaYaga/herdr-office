@@ -19,6 +19,9 @@
 | `office` | the last `buildOffice()` result, `null` at first | `update()` | page |
 | `sig`, `laid` | the build signature and the last `lay` (route inputs), as JSON | `update()` | page |
 | `SEASON` | the value of `?season`, or `null` | page load | page |
+| `TIME` | the match of `?time=HH:MM`, or `null`. `clock()` gives the minutes since midnight from it, else from `new Date()` | page load | page |
+| `CASTLE` | the Halloween light, in the shape of `daylight()` | none | page |
+| `reach` | the shadow radius `R`. `night()` puts the sun at `2 * reach` | `build()` | page |
 | `views` | id -> view (see "View shapes") | the build and screen functions, `pose()`, `update()` (`v.desk`) | one build |
 | `world`, `live` | the group of one build, and the objects that `bake()` does not merge | `build()` and the build functions | one build |
 | `trips`, `claimed` | desk id -> `{ n, next, trip }`, and the spot key `'<kind>:<index>'` (kind: `kitchen`, `lunch` for a kitchen chair, `party`, or `game` for a place at a game table) -> desk id | `stepBreak()`, `endBreak()`, `update()` (clears on a `lay` change), `stroll()` (`trip.rot`) | page |
@@ -82,14 +85,14 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 - `build(office, season)`: runs only when `sig` changes. Order:
   1. Dispose `v.tex` of each view, each geometry with `userData.merged`, and each material without `userData.shared` (with its `map`, except a `map` with `userData.shared`, like `blob`). Remove each label element from the DOM.
-  2. Make a new `world`, clear `views` and `live`, call `night(season === 'halloween')`, and empty `flames` and `pools`.
+  2. Make a new `world`, clear `views` and `live`, and empty `flames` and `pools`.
   3. The corridors, then each room: the floor, `DECOR[r.kind](g, r, season)` in a group at the room corner (with Halloween it returns the candelabra spot, and `build()` calls `candelabra(spot.x, spot.z, 'x', 2.6)`), the inner walls (each wall once), `door(r)`, `partyLights(r)` for the party room, and the pod lamps.
   4. Each terrace: the grass, `terrace(g, t, season)` in a group at the terrace corner, and its glass walls. A room draws no wall on its +x edge away from the cross corridor, and a south-row room draws none on its +z edge, so the terrace draws its walls itself:
      - the -x edge (the last room of the row) and the +x edge (the cross corridor), always.
      - the -z edge, when `z` is more than 0. A terrace in the row behind shares the span from the larger x of the two to `W`. That span gets no wall, so the two terraces make one courtyard.
      - the +z edge, only when the band corridor is in front. Else the rooms or the terrace of the next row draw it, or the south stub stands there.
   5. The outer walls, then `desk()` for each desk and `attendee()` for each subagent, then `balls`: a hidden white ball (0.07, in `live`) for each ping-pong table of `office.games`. In winter, `flakes`: each flake of `snowflakes()` for the terraces and for `outdoors(office.bounds)`, shown by one `InstancedMesh` (`flakeMesh`, in `live`). With Halloween, `candelabra(s.x, s.z, s.axis, 3.2)` for each spot of `candleSpots(office)`, then `spooks`: one `ghost()` for each loop of `ghosts(office.bounds)`, with `until` from the old ghost at the same index (else 0). In another season, `spooks` is `[]`. Then `lightBulbs()`.
-  6. `bake()`, the sun, and the shadow flags. A material with `depthWrite` false (the glass, a light beam, a halo) casts no shadow.
+  6. `bake()`, the sun target, the shadow box, `reach`, and the shadow flags. A material with `depthWrite` false (the glass, a light beam, a halo) casts no shadow.
 - `bake()`: skips each object in `live` with its subtree. It merges the meshes of each material with 2 or more meshes into one mesh, and marks its geometry `userData.merged`.
 
 ### Desks, seats, and workers
@@ -124,9 +127,9 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 ### Halloween night
 
-The night is on only with `season === 'halloween'`. Without it, `night(false)` sets the normal values, and `CLAUDE.md` "Scene conventions" lists both sets.
+The castle night is on only with `season === 'halloween'`, all day. Without it, `night(false)` sets the light from `daylight(clock())`, and `CLAUDE.md` "Scene conventions" lists the values.
 
-- `night(on)`: sets `dark`, the ambient and sun colors and intensities, the `SKY` color and emissive, and the background. `build()` calls it each time, so the switch back to the normal season at 2 November 00:00 (a rebuild, because the season is in `sig`) restores every value.
+- `night(on)`: sets `dark`, the ambient and sun colors and intensities, the `SKY` color and emissive, and the background. `update()` calls it on each data message and each minute, so the light follows the clock, and the switch back from the castle night at 2 November 00:00 restores the clock light. The sun position uses `reach` and the sun target, and `castShadow` is false when `sunPower` is 0.
 - `candle(x, y, z, h)`: a cream candle, an orange flame box (`fresh()` color), and an additive halo sprite. It adds the flame and the halo to `live` and an entry to `flames`.
 - `candelabra(x, z, axis, poolSize)`: an iron base, a post, a bar along `axis`, three candles, and a `pool()`. The corridor candelabra come from `candleSpots()` (pool 3.2). The room candelabra come from the spot that the `DECOR` function returns (pool 2.6).
 - `pool(x, z, size)`: a flat additive circle at y 0.04, in `live` and in `pools`. All pools share `poolGeo`, and all halos and pools share the texture `blob`. `glowMat()` makes the material of each, so the materials are not shared and `build()` disposes them. The shared `map` stays.
@@ -170,9 +173,10 @@ The night is on only with `season === 'halloween'`. Without it, `night(false)` s
 1. Store `office`, and build `lay` and the signature `s`. `CLAUDE.md` "Scene conventions" lists what each holds. No status, label, or focus goes into either.
 2. On a `lay` change, clear `trips` and `claimed`. Call `endBreak()` for each desk with `away` or with no agent, with `last` (the time of the last frame) as `t`, so the game of its partner ends now.
 3. On a `sig` change, `build()`. After the first build only, `frame()` the focused workspace room or the whole building.
-4. Set the door lights, the signs, the pod lamps, `v.desk`, and the badges in place.
-5. Fill `tags`: agent badges at `10 + STATUS_RANK[status]`, subagent badges at 12, door signs at `STATUS_RANK[r.status] ?? 0`. A stable sort puts the highest first. Then `seen = ''`.
-6. Move `spot` to the focused desk, or hide it. Call `hud()`, and `fill()` when the panel is open.
+4. Call `night(se === 'halloween')`, so the light follows the clock. It runs on each update, with or without a build.
+5. Set the door lights, the signs, the pod lamps, `v.desk`, and the badges in place.
+6. Fill `tags`: agent badges at `10 + STATUS_RANK[status]`, subagent badges at 12, door signs at `STATUS_RANK[r.status] ?? 0`. A stable sort puts the highest first. Then `seen = ''`.
+7. Move `spot` to the focused desk, or hide it. Call `hud()`, and `fill()` when the panel is open.
 
 ### HUD
 
@@ -210,7 +214,7 @@ The night is on only with `season === 'halloween'`. Without it, `night(false)` s
 
 ### Frame loop and data source
 
-- Season: `update()` computes `se = SEASON ?? season(new Date())`, puts it last in `sig`, and calls `build(office, se)` when `sig` changes. `?season=halloween` shows the Halloween props on any date. `?season=winter` shows the winter props on any date. Another value, for example `?season=none`, shows none. A `setInterval` of 60 s calls `update(office)`, because the live stream sends nothing while herdr does not change, and the date can change at midnight.
+- Season: `update()` computes `se = SEASON ?? season(new Date())`, puts it last in `sig`, and calls `build(office, se)` when `sig` changes. `?season=halloween` shows the Halloween props on any date. `?season=winter` shows the winter props on any date. Another value, for example `?season=none`, shows none. A `setInterval` of 60 s calls `update(office)`, because the live stream sends nothing while herdr does not change, and the date and the clock light change with time.
 - Demo (`?demo`): disables the focus button and the message field, and calls `update()` with `demoSnapshot()` and `demoMeetings()` at once and each 1000 ms.
 - Live: `es.onmessage` calls `setOnline()`, and `update()` only when `m.snapshot` is set. An offline message keeps the old scene, dimmed.
 - `es.onerror` sets `es.onopen` to `location.reload()`, so the page gets the new token of a restarted bridge. A herdr outage with a live bridge sends an offline message, and the page does not reload.
@@ -228,7 +232,7 @@ Two agents in one region need a split by function.
 | breaks | `breaks()`, `stroll()`, `rally()`, `snowfall()`, `arc()`, `balls`, `flakes`, `HIT`, `trips`, `claimed` | update, pose, `model.js`, `test/walk.test.mjs` |
 | doors | `swing()`, `doors`, `ajar`, `OPEN`, `SWING` | build (`door()`), pose, frame loop, `model.js`, `test/walk.test.mjs` |
 | party | `partyLights()`, `disco()`, `kick()`, `DISCO`, `BEAT`, `dancing` | build (the call after `door(r)`), breaks (`stroll()` sets `dancing`), frame loop, `decor.js` `party()` (the speaker rect) |
-| night | `night()`, `candle()`, `candelabra()`, `pool()`, `candles()`, `lightning()`, `ghost()`, `haunt()`, `flames`, `pools`, `dark`, `strike`, `CALM`, `blob`, `poolGeo`, `glowMat()`, `SHEET`, `spooks` | build (the calls), frame loop, picking (`spooks`), `decor.js` (`candleSpot()`), `model.js` |
+| night | `night()`, `CASTLE`, `reach`, `TIME`, `clock()`, `candle()`, `candelabra()`, `pool()`, `candles()`, `lightning()`, `ghost()`, `haunt()`, `flames`, `pools`, `dark`, `strike`, `CALM`, `blob`, `poolGeo`, `glowMat()`, `SHEET`, `spooks` | build (the calls), `update()` (calls `night()`), frame loop, picking (`spooks`), `decor.js` (`candleSpot()`), `model.js` |
 | pose | `pose()`, `ARM`, `moving` | screens, breaks, doors, frame loop |
 | declutter | `declutter()`, `tags`, `seen`, `nextPass` | update, frame loop |
 | update | `update()`, `family()`, `office`, `sig`, `laid` | all regions |

@@ -17,6 +17,7 @@ These docs describe the code of herdr-office, with one doc for each source area.
 | Doors | `docs/office.md` "Floors and walls" (`door()`), "Idle breaks" (`swing()`), the recipe for the door leaf. `docs/model.md` "Breaks" (`opens()`). `docs/testing.md` "Change when a door opens" | `door()`, `swing()`, `opens()`, `calm()` |
 | Seasonal decor | `docs/decor.md` "Seasonal props". `docs/model.md` "season(date)", "snowflakes(t), flakeAt(f, s)", "outdoors(bounds)". `docs/office.md` "Frame loop and data source" (`SEASON`, the minute timer), "Winter snow". `INTENT.md` decisions 31 and 34 | `season()`, `SEASON`, `pumpkin()`, `bat()`, `web()`, `xmasTree`, `snow()`, `snowflakes()`, `flakeAt()`, `snowfall()` |
 | The Halloween night and the ghosts | `docs/office.md` "Halloween night". `docs/model.md` "candleSpots(o), lightningPlan(rand), flash(plan, s)" and "rng(s), ghosts(bounds), ghostAt(g, s)". `docs/decor.md` "Seasonal props" (`candleSpot()`). `docs/testing.md` "The Halloween night tests". `INTENT.md` decisions 31 to 33 | `night()`, `candelabra()`, `candles()`, `lightning()`, `ghost()`, `haunt()`, `candleSpots()`, `lightningPlan()`, `flash()`, `ghosts()`, `ghostAt()`, `candleSpot()` |
+| The clock light (day and night) | `docs/office.md` "Halloween night" (`night()`, `CASTLE`, `reach`, `TIME`, `clock()`). `docs/model.md` "daylight(min)". `docs/testing.md` (the `daylight()` tests, the `?time` check) | `daylight()`, `night()`, `clock()`, `TIME`, `CASTLE`, `?time` |
 | Decor and props | `docs/decor.md` | `box()`, `placer()`, `workspaceDecor()`, `kitchen()`, `meeting()`, `lobby()`, `terrace()`, `plant()`, `clutter()` |
 | The bridge: poll, SSE, action, guards | `docs/bridge.md` "Flow", "`startBridge(options)`", "`GET /events` branch", "`GET /messages` branch", "`POST /action` branch" | `startBridge()`, `handle()`, `poll()`, `send()`, `herdrRequest()`, `socketPath()` |
 | Meetings and subagents | `docs/bridge.md` "`readMeetings(projects, cwds, now = Date.now())`", "Claude subagent helpers", "What may reach the browser". `docs/model.md` "buildOffice(snap, meetings = [], prev = null)" (the meeting rooms, the orchestrator, and the seats). `docs/office.md` "Desks, seats, and workers". `docs/decor.md` "Room decor" | `readMeetings()`, `cwdOf()`, `modelIn()`, `plainTail()`, `buildOffice()`, `attendee()`, `seatAt()`, `longTable()` |
@@ -50,6 +51,7 @@ update(next)
   |-- lay changed: trips.clear(), claimed.clear()
   |-- endBreak() for each desk with away or with no agent
   |-- sig changed: build() (DECOR[r.kind](), door(), partyLights(), terrace(), desk(), attendee(), bake()), frame() on the first build
+  |-- night(): the light from CASTLE or daylight(clock()), on each update
   '-- in place: door lights, signs, pod lamps, badges, tags, spot, hud(), fill() when the panel is open
 ```
 

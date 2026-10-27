@@ -184,6 +184,12 @@ The user made these decisions between 2026-10-03 and 2026-10-27.
     - The user also asked for Christmas trees in place of some room trees, at random, and for snow outside the office.
     - The bulbs of a Christmas tree glow with a halo and a slow twinkle. The user asked: "Can the christmas tree light bulbs give a small light effect?"
     - Each worker wears a knit sweater in off-white or navy, over the unchanged shirt color. The user asked: "Can we also let the agents where like christmas styled sweaters or so". This is an exception to decision 25, like the candle flames of decision 32.
+35. Day and night from the real clock, from issue TheBabaYaga/herdhouse#1. The issue gives the reason: "The office runs all day on a second monitor. Now it looks the same at 09:00 and at 23:00." The user saw screenshots at 15:00, 18:30, 23:00, and 06:30, tried `?time`, and approved the look on 27 October 2026: "Ok, looks good". The technical choices and the tuned values are in `docs/idr/0003-day-night-clock.md`.
+    - The light follows the local clock of the viewer. The sun rises in the east, stands high in the south at 13:00, and sets low and orange in the west. From 21:00 to 06:00 it is night, with no sun, a dim blue light, and dark blue windows.
+    - At 15:00 the office has the warm day look of decision 9. The light changes each minute and never jumps.
+    - At night the screens, the pod lamps, the door lights, and the labels are the brightest things. The `done` paper stays light grey, at the level of the castle night.
+    - In the Halloween season the castle night of decision 32 stays on all day. In the user's words: "Keep the castle night all day in the Halloween season. The clock drives the light on all other dates."
+    - `?time=HH:MM` fixes the clock for a check, also with `?demo`. In the Halloween season it has no effect, so a check adds `?season=none`.
 
 ## Cut on purpose
 
@@ -217,7 +223,9 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 - A flake passes through each garden prop (the trees, the bushes, the planters, the loungers, the bench, and the parasol canopy). The demo has no terrace, but `?demo&season=winter` shows the tree and the snow outside the building.
 - A floor pool of a candelabra can spill a little past a wall or the building edge.
 - A stack of halos can make a flame look a little more yellow than orange.
-- No Node test covers `night()`, `candles()`, `lightning()`, or `candleSpot()`, because Node cannot load three.js. Browser checks and a scratch ray test covered them.
+- No Node test covers `night()`, `clock()`, `candles()`, `lightning()`, or `candleSpot()`, because Node cannot load three.js. Browser checks and a scratch ray test covered them.
+- The key times of the clock light are fixed: 06:00, 08:00, 13:00, 15:00, 18:00, and 21:00. Real sunrise and sunset times need the location of the viewer (the open question of issue 1).
+- At night the see-through `unknown` worker (opacity 0.35) is very faint. Its grey screen and its grey badge still show the status.
 - No Node test covers `ghost()`, `haunt()`, or the ghost click, because Node cannot load three.js. A browser check with `?demo&season=halloween` covered the sheet, the hem, the eyes, the night light on the sheet, the float through a table, the move from point to point, and the turn to a new heading. A second browser check covered the ghost click: the balloon showed with no panel, stayed through a rebuild, and hid after its 2 s. A desk click still opened its panel. No browser check covered the half speed with reduce motion.
 - An opaque ghost can hide a worker or a desk for a moment when it floats in front of it. The badges and the door signs stay on top, because they are HTML labels. A click on that desk hits the ghost and shows its balloon. After the ghost moves, a new click opens the desk.
 - No test covers the party lights, the speakers, or the dance, because Node cannot load three.js. A browser check in the demo and in the live office covered them.

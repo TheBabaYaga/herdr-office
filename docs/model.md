@@ -1,6 +1,6 @@
 # public/model.js: the office model
 
-`public/model.js` turns a herdr snapshot and the meeting list into the office plan: rooms, pods, desks, corridors, terraces, meeting seats, kitchen spots, kitchen tables and chairs, the party room, and the game tables. It also plans the idle routes, keeps the break timing, and makes the demo data. For the Halloween night, it plans the corridor candelabra, the lightning, and the ghosts. It has no imports and no DOM, so the Node tests import it. `public/office.js` imports `STATUS_RANK`, `STATUS_COLOR`, `buildOffice`, `demoSnapshot`, `demoMeetings`, `candleSpots`, `lightningPlan`, `flash`, `ghosts`, `ghostAt`, `snowflakes`, `flakeAt`, `twinkle`, `rng`, `outdoors`, `hash`, `season`, `route`, `along`, `calm`, `opens`, `stepBreak`, and `endBreak`. `public/decor.js` imports only `hash` and `rng`, to seed its fill pass with `room.id`. It reads the room fields `id`, `walk`, `counter`, `tables`, `chairs`, `table`, `seats`, `session`, `number`, `door`, `pods`, `booth`, and `floor`, and the terrace fields `id`, `w`, and `d`. The shapes of the office, a room, a desk, and most exported functions are in CLAUDE.md "Contracts between the files".
+`public/model.js` turns a herdr snapshot and the meeting list into the office plan: rooms, pods, desks, corridors, terraces, meeting seats, kitchen spots, kitchen tables and chairs, the party room, and the game tables. It also plans the idle routes, keeps the break timing, and makes the demo data. For the Halloween night, it plans the corridor candelabra, the lightning, and the ghosts. It has no imports and no DOM, so the Node tests import it. `public/office.js` imports `STATUS_RANK`, `STATUS_COLOR`, `buildOffice`, `demoSnapshot`, `demoMeetings`, `candleSpots`, `lightningPlan`, `flash`, `ghosts`, `ghostAt`, `snowflakes`, `flakeAt`, `twinkle`, `rng`, `outdoors`, `hash`, `season`, `daylight`, `route`, `along`, `calm`, `opens`, `stepBreak`, and `endBreak`. `public/decor.js` imports only `hash` and `rng`, to seed its fill pass with `room.id`. It reads the room fields `id`, `walk`, `counter`, `tables`, `chairs`, `table`, `seats`, `session`, `number`, `door`, `pods`, `booth`, and `floor`, and the terrace fields `id`, `w`, and `d`. The shapes of the office, a room, a desk, and most exported functions are in CLAUDE.md "Contracts between the files".
 
 ## When to read this doc
 
@@ -49,6 +49,24 @@ Each frame, `pose()` calls `breaks()` for each view with a worker. `breaks()` ca
 ### season(date)
 
 `season(date)` returns `'halloween'` from 24 October to 1 November, `'winter'` from 1 December to 6 January, else `null`. It reads the local month and day of the `Date` argument, so a test gives it `new Date(2026, 9, 24)` and not a UTC string. It reads no clock itself. `office.js` calls it with `new Date()`. `buildOffice()` does not use it, and the floor plan does not depend on the season. `test/model.test.mjs` pins the ranges.
+
+### daylight(min)
+
+`daylight(min)` returns the light of the local clock: `{ dir, sun, sunPower, ambient, ground, ambientPower, window, windowGlow, background }`. `min` is the minutes since local midnight. The function takes it modulo 1440 and reads no clock.
+
+- `dir` points from the building center to the sun and has any length.
+- Each color is a lowercase `#rrggbb` string.
+
+The function blends six key rows in a cycle:
+
+- 06:00: night, no sun.
+- 08:00: low warm sun from the east.
+- 13:00: high sun.
+- 15:00: the reference day look (decision 9).
+- 18:00: low orange sun from the west.
+- 21:00: night, no sun. After 21:00 the blend goes to 06:00 of the next day.
+
+Numbers and `dir` mix linearly, and each color mixes per sRGB channel. A key minute gives its row. The night rows use the colors of the Halloween night of `night()`, but their `ambientPower` is 1.5 and their `sunPower` is 0. `test/model.test.mjs` pins the 15:00 row, the high sun at 13:00, and no sun at night. It also checks that no color channel steps by more than 3 from one minute to the next.
 
 ### snowflakes(t), flakeAt(f, s), twinkle(ph, t, amp)
 
