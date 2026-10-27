@@ -44,9 +44,9 @@ node --check public/office.js   # a syntax check only: three.js loads in the bro
 ```
 
 - Add `?demo` to the URL (`http://127.0.0.1:4747/?demo`) to see simulated agents. The demo page opens no `/events` stream, so the bridge does not poll herdr.
-- `npm test` uses a glob. On Node 25, `node --test test/` reads `test/` as a module path and fails with "Cannot find module".
+- `npm test` uses a glob. On Node 25, `node --test test/` reads `test/` as a module path and fails with "Cannot find module". Node 26 accepts it, but keep the glob.
 - `node --check` checks one file. It ignores a second file argument, so run it once for each changed file in `public/`.
-- The bridge starts from `if (import.meta.main)`. On a Node version without `import.meta.main`, `npm start` exits and starts nothing. The repo runs on Node 25.
+- The bridge starts from `if (import.meta.main)`. On a Node version without `import.meta.main`, `npm start` exits and starts nothing. The repo runs on Node 26.
 - The repo has no npm dependencies and no lockfile. Keep it that way. three.js 0.186.1 comes from jsDelivr through the importmap in `public/index.html`.
 - A new three.js addon import needs its URL and its sha384 hash in the importmap `integrity` block. Get the hash with `curl -s <url> | openssl dgst -sha384 -binary | openssl base64 -A`. Write the value as `sha384-<output>`.
 

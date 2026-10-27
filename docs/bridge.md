@@ -221,5 +221,5 @@ Add a field to the SSE message:
 - With `claudeDir` set, a snapshot with no `agents` array throws in each cycle that reads meetings. The page then shows offline about every `meetMs`.
 - `send()` compares the full JSON, so a timestamp field sends a message every `pollMs`. It drops a slow client only on a changed message.
 - Only the Host check guards `GET /events` and the static files. A `json()` reply has `cache-control: no-store` and no `x-frame-options`. A new HTML route must set both.
-- `raise` must be synchronous, or catch its own errors. In Node 25, an unhandled rejection ends the process. `raiser()` catches its own: a failed detection logs and opens nothing.
+- `raise` must be synchronous, or catch its own errors. In Node 26, an unhandled rejection ends the process. `raiser()` catches its own: a failed detection logs and opens nothing.
 - The traversal guard checks the path string only. `readFile()` follows a symlink inside `public/`.

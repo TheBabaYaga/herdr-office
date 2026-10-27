@@ -16,7 +16,7 @@ npm test                                                        # node --test te
 node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only the matching tests
 ```
 
-- `CLAUDE.md` "Run and check" has the Node 25 glob rule and the `node --check` rule. `package.json` has no typecheck, lint, or format script.
+- `CLAUDE.md` "Run and check" has the glob rule (Node 25 needs it) and the `node --check` rule. `package.json` has no typecheck, lint, or format script.
 - A new test file must end in `.test.mjs`, or the glob does not find it.
 - `node --test` runs each file in its own process, so the `process.chdir()` in `test/bridge.test.mjs` does not change the other files. Inside one file, the tests run in source order.
 
