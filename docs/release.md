@@ -14,6 +14,14 @@ Steps:
 6. On the Mac, run `codesign --sign -` on the binary.
 7. Write `dist/herdr-office-<os>-<arch>.tar.gz` with `tar`. The tar keeps the exec bit.
 
+The build stops when the `integrity` block has no three.js entry, and each download stops after 60 s. The SEA config uses `main: 'bridge.mjs'` and runs from the repo root, so the binary holds no absolute path.
+
+After a build, check that the binary holds no local path. This command must print nothing (`/Users/admin/build` is a build path of Node itself, and `/home/demo` is the fake path of the demo data):
+
+```sh
+strings dist/herdr-office | grep -e /Users/ -e /home/ | grep -v -e /Users/admin/build -e /home/demo
+```
+
 Facts:
 
 - `version` is `HERDR_OFFICE_VERSION` without a leading `v`, else `0.0.0-dev`. `dist/herdr-office --version` prints it.
@@ -43,7 +51,7 @@ To uninstall, remove `~/.local/bin/herdr-office`.
 
 ## Make a release
 
-The workflow `.github/workflows/release.yml` runs on each tag that starts with `v`. The `linux` job runs `npm test`, runs `shellcheck install.sh`, and builds the Linux tar. The `mac` job builds the Mac tar and checks the signature. The `release` job makes a draft release in `TheBabaYaga/herdr-office` with both tars and `install.sh`.
+The workflow `.github/workflows/release.yml` runs on each tag that starts with `v`. The `linux` job runs `npm test`, runs `shellcheck install.sh`, and builds the Linux tar. The `mac` job builds the Mac tar and checks the signature. Each build job then starts the binary, fetches `/` and a three.js file, and checks `--version`. Each job stops after 20 minutes. The `release` job makes a draft release in `TheBabaYaga/herdr-office` with both tars and `install.sh`.
 
 Before the first release, make the README commit in `TheBabaYaga/herdr-office`. A release needs a tag, and a tag needs a commit.
 
@@ -54,7 +62,9 @@ Steps:
 3. Open the draft release in `TheBabaYaga/herdr-office`. Check that it has three files: `herdr-office-darwin-arm64.tar.gz`, `herdr-office-linux-x64.tar.gz`, and `install.sh`.
 4. Publish the draft.
 
-The `release` step uses the secret `RELEASES_TOKEN`. It is a fine-grained token with "Contents: read and write" on `TheBabaYaga/herdr-office` only. Only that step can read it. The workflow makes a draft only, so a failed run publishes nothing.
+Before you re-run the workflow for the same tag, delete the old draft, because `gh release create` fails when the release exists.
+
+The `release` step uses the secret `RELEASES_TOKEN`. The token must be a fine-grained token with "Contents: read and write" on `TheBabaYaga/herdr-office` only. Only that step can read it. The workflow makes a draft only, so a failed run publishes nothing.
 
 ## README of the releases repo
 

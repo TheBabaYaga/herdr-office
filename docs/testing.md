@@ -200,7 +200,7 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
 - `night()` and `clock()` in `public/office.js`. Only `daylight()` has a test. Use the `?time` check in "Visual check in the browser".
 - The terrace walls, the hedge, and the grass in `build()`. A scratch check can copy the wall lines of `build()` and count the walls on each region edge: one, and none between two terraces.
 - `public/office.js` and `public/decor.js`. After a change to `placer()`, `kitchen()`, `party()`, or `terrace()`, load `decor.js` with three.js in a scratch script. Check that no prop stands on a walk rect, that the kitchen draws a table and two chairs at each `room.tables` entry, and that no party prop stands on the dance floor or the speaker floor (`docs/decor.md` "Check placement in Node").
-- The sha384 `integrity` values in `public/index.html`. A wrong hash fails only in the browser.
+- The sha384 `integrity` values in `public/index.html`. A wrong hash fails in the browser, and `npm run build` also stops on it.
 - The `if (import.meta.main)` block of `bridge.mjs` (command mode has a manual check in "Visual check in the browser"), the focus with the real terminal raise, and `detectTerminals()` (`pgrep` and `ps`). The `raiser()` test uses stubs.
 - The message field in the page: the `#say` hide rule, the demo lock, and the `#msg` clear. Use a fake herdr socket for a browser check (see "Visual check in the browser").
 - A room with two pod rows (wider than `MAX_ROW`). A route can cross the lower row.
