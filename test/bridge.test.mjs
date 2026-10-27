@@ -6,7 +6,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { socketPath, herdrRequest, startBridge, readMeetings, readMessages, readCodexMessages, messagesIn, codexMessagesIn, bundleIdsIn, pickTerminal, raiser } from '../bridge.mjs'
+import { EventEmitter } from 'node:events'
+import { socketPath, herdrRequest, startBridge, readMeetings, readMessages, readCodexMessages, messagesIn, codexMessagesIn, bundleIdsIn, pickTerminal, raiser, openUrl } from '../bridge.mjs'
 
 // macOS caps unix socket paths at 104 bytes, so the fake sockets use short paths relative to a temp cwd.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-sock-'))
@@ -167,6 +168,36 @@ test('GET / injects the token, static files serve, traversal is blocked', async 
   }
 })
 
+test('GET / and static files come from readStatic, with the same guards', async () => {
+  const files = new Map([['index.html', '<meta name="office-token" content="__OFFICE_TOKEN__">'], ['app.js', 'export {}']])
+  const seen = []
+  const readStatic = (rel) => {
+    seen.push(rel)
+    if (!files.has(rel)) throw new Error('no asset')
+    return Buffer.from(files.get(rel))
+  }
+  const b = await startBridge({ sock: 'none.sock', port: 0, publicDir: '/virtual/public', readStatic, token: 'tok-abc' })
+  const port = portOf(b)
+  try {
+    const home = await request(port, 'GET', '/')
+    assert.equal(home.status, 200)
+    assert.ok(home.body.includes('content="tok-abc"'))
+    assert.equal(home.headers['cache-control'], 'no-store')
+    assert.equal(home.headers['x-frame-options'], 'DENY')
+    assert.ok(seen.includes('index.html'))
+    const js = await request(port, 'GET', '/app.js')
+    assert.equal(js.status, 200)
+    assert.match(js.headers['content-type'], /^text\/javascript/)
+    assert.equal((await request(port, 'GET', '/missing.js')).status, 404)
+    for (const p of ['/../secret.js', '/%2e%2e/secret.js', '/..%2fsecret.js', '/%2e%2e%2fsecret.js', '/%2E%2E%2Fsecret.js']) {
+      assert.notEqual((await request(port, 'GET', p)).status, 200, p)
+    }
+    assert.ok(seen.every((r) => !r.startsWith('..') && !r.startsWith('/')), seen.join())
+  } finally {
+    await b.close()
+  }
+})
+
 test('startBridge makes a random token when none is given', async () => {
   const b = await startBridge({ sock: 'none.sock', port: 0, publicDir: pub })
   try {
@@ -212,6 +243,50 @@ test('the bridge polls only while an SSE client is connected', async () => {
     const count = fake.lines.length
     await sleep(100)
     assert.equal(fake.lines.length, count, 'the poll stops after the last client leaves')
+  } finally {
+    await b.close()
+    await fake.close()
+  }
+})
+
+test('quitMs: the bridge quits after quitMs with no SSE client', async () => {
+  const fake = await fakeHerdr()
+  let calls = 0
+  const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, quitMs: 150, quit: () => { calls++ } })
+  try {
+    await sleep(400)
+    assert.equal(calls, 1)
+  } finally {
+    await b.close()
+    await fake.close()
+  }
+})
+
+test('quitMs: an SSE client holds the bridge, and its close starts the time again', async () => {
+  const fake = await fakeHerdr()
+  let calls = 0
+  const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, pollMs: 20, quitMs: 150, quit: () => { calls++ } })
+  try {
+    const es = sse(portOf(b))
+    await es.next()
+    await sleep(300)
+    assert.equal(calls, 0)
+    es.close()
+    await sleep(400)
+    assert.equal(calls, 1)
+  } finally {
+    await b.close()
+    await fake.close()
+  }
+})
+
+test('without quitMs the bridge never quits', async () => {
+  const fake = await fakeHerdr()
+  let threw = false
+  const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, quit: () => { threw = true } })
+  try {
+    await sleep(300)
+    assert.equal(threw, false)
   } finally {
     await b.close()
     await fake.close()
@@ -844,4 +919,40 @@ test('raiser: opens the one detected terminal, else the start pick', async (t) =
   await assert.doesNotReject(raiser('y', () => Promise.reject(new Error('boom')), open)())
   assert.deepEqual(opened, ['x', 'y', 'y'], 'a failed detect opens nothing')
   assert.match(err.mock.calls[0].arguments[0], /raise: boom/)
+})
+
+test('openUrl: open on a Mac, chromium then xdg-open on Linux, and a failed open only logs', () => {
+  const url = 'http://127.0.0.1:5000/'
+  const fake = () => {
+    const calls = []
+    const spawn = (cmd, args, opts) => {
+      const child = Object.assign(new EventEmitter(), { unrefs: 0, unref() { this.unrefs++ } })
+      calls.push({ cmd, args, opts, child })
+      return child
+    }
+    return { calls, spawn }
+  }
+  const mac = fake()
+  openUrl(url, { platform: 'darwin', spawn: mac.spawn })
+  assert.deepEqual(mac.calls.map((c) => [c.cmd, c.args]), [['open', [url]]])
+
+  const lin = fake()
+  openUrl(url, { platform: 'linux', spawn: lin.spawn })
+  assert.deepEqual([lin.calls[0].cmd, lin.calls[0].args], ['chromium', ['--app=' + url]])
+  assert.equal(lin.calls[0].opts.detached, true)
+  assert.equal(lin.calls[0].opts.stdio, 'ignore')
+  assert.equal(lin.calls[0].child.unrefs, 1)
+  lin.calls[0].child.emit('error', new Error('ENOENT'))
+  assert.deepEqual([lin.calls[1].cmd, lin.calls[1].args], ['xdg-open', [url]])
+  assert.equal(lin.calls[1].opts.detached, true)
+  assert.equal(lin.calls[1].opts.stdio, 'ignore')
+
+  const log = console.error
+  const logged = []
+  console.error = (m) => logged.push(m)
+  try {
+    mac.calls[0].child.emit('error', new Error('boom'))
+    lin.calls[1].child.emit('error', new Error('nope'))
+  } finally { console.error = log }
+  assert.deepEqual(logged, ['herdr-office: open: boom', 'herdr-office: open: nope'])
 })

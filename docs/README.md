@@ -20,6 +20,7 @@ These docs describe the code of herdr-office, with one doc for each source area.
 | The clock light (day and night) | `docs/office.md` "Halloween night" (`night()`, `CASTLE`, `reach`, `TIME`, `clock()`). `docs/model.md` "daylight(min)". `docs/testing.md` (the `daylight()` tests, the `?time` check) | `daylight()`, `night()`, `clock()`, `TIME`, `CASTLE`, `?time` |
 | Decor and props | `docs/decor.md` | `box()`, `placer()`, `workspaceDecor()`, `kitchen()`, `meeting()`, `lobby()`, `terrace()`, `plant()`, `clutter()` |
 | The bridge: poll, SSE, action, guards | `docs/bridge.md` "Flow", "`startBridge(options)`", "`GET /events` branch", "`GET /messages` branch", "`POST /action` branch" | `startBridge()`, `handle()`, `poll()`, `send()`, `herdrRequest()`, `socketPath()` |
+| The build and the release of the single binary | `docs/release.md` "Build", "Make a release" | `threeFiles()`, `sha384()`, `localHtml()` in `build.mjs` |
 | Meetings and subagents | `docs/bridge.md` "`readMeetings(projects, cwds, now = Date.now())`", "Claude subagent helpers", "What may reach the browser". `docs/model.md` "buildOffice(snap, meetings = [], prev = null)" (the meeting rooms, the orchestrator, and the seats). `docs/office.md` "Desks, seats, and workers". `docs/decor.md` "Room decor" | `readMeetings()`, `cwdOf()`, `modelIn()`, `plainTail()`, `buildOffice()`, `attendee()`, `seatAt()`, `longTable()` |
 | The demo data | `docs/model.md` "Demo", the recipe "A new demo agent" | `demoSnapshot()`, `demoMeetings()`, `DEMO_PANES`, `DEMO_AGENTS` |
 | Tests | `docs/testing.md` | `fakeHerdr()`, `sse()`, `synthetic()`, `assertPlan()`, `assertSeats()`, `checkRoute()` |
@@ -114,7 +115,7 @@ the message field (agent desks only), Enter or "Send"; #reply in the chat window
 
 ```text
 bridge.mjs ------------- serves -------------> public/ (index.html with the token, office.js, model.js, decor.js)
-public/index.html ------ importmap ----------> three, three/addons/ (jsDelivr, three 0.186.1)
+public/index.html ------ importmap ----------> three, three/addons/ (jsDelivr with `npm start`, `/vendor/` in the binary, three 0.186.1)
                   ------ <script module> ----> public/office.js
 public/office.js ------- imports ------------> public/model.js, public/decor.js, three, three/addons/
 public/decor.js -------- imports ------------> three, public/model.js (hash)

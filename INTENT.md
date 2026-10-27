@@ -191,6 +191,14 @@ The user made these decisions between 2026-10-03 and 2026-10-27.
     - In the Halloween season the castle night of decision 32 stays on all day. In the user's words: "Keep the castle night all day in the Halloween season. The clock drives the light on all other dates."
     - `?time=HH:MM` fixes the clock for a check, also with `?demo`. In the Halloween season it has no effect, so a check adds `?season=none`.
 
+36. The office as one command, so colleagues can use it. The user's words: "I want to distribute this project to colleagues or others. Having it like we currently have doesn't seem to be too user friendly." The user first asked for a standalone app: "Click the binary and herdr office opens preferably as a stand alone app, otherwise browser tab". After the talk with a colleague, the user chose a local web app: "Ok, that seems good with command only". The technical choices are in `docs/idr/0004-one-command.md`. The build and the release are in `docs/release.md`.
+    - One install command puts the `herdr-office` binary on the `PATH`. The command `herdr-office` starts the bridge and opens the office in the browser. It does not start at login, and it has no Dock or launcher entry.
+    - On the Mac, the office opens in a tab of the default browser. On Omarchy (Arch Linux with Hyprland), it opens in a Chromium app window (`chromium --app=<url>`), else in a tab of the default browser.
+    - No Apple Developer ID. The binary ships unsigned for Gatekeeper. In the user's words: "A signed app won't be the case."
+    - The source repo `TheBabaYaga/herdhouse` stays private. CI builds the binaries and makes a draft release in a public releases repo with no source. In the user's words: "Anyone may download the app. A public release repo is fine, also with the code readable in the binary."
+    - Apple Silicon only. In the user's words: "No Intel Macs. Keep the arm64-only build."
+    - The user tests the binary on this Mac first.
+
 ## Cut on purpose
 
 The user cut these with "ponytail ultra" (decision 6). Do not add them again without the user's approval.
@@ -199,7 +207,7 @@ The user cut these with "ponytail ultra" (decision 6). Do not add them again wit
 - Toasts and sound. The office has no desk phone and no bell. The lightning of the Halloween night is silent too (decision 32).
 - Zoom dimming. A zoomed herdr tab does not dim the other desks.
 - The herdr event subscription. The bridge polls `session.snapshot` every 500 ms instead. A status change can take up to 500 ms to show.
-- npm dependencies. three.js comes from a CDN importmap. The bridge uses only Node built-ins.
+- npm dependencies. three.js comes from an importmap. `npm start` loads it from a CDN, and the binary serves it from `/vendor/`. The bridge uses only Node built-ins.
 - Spec and plan documents.
 
 The user did not choose meetings for herdr agents that share one repo (decision 16).
@@ -262,3 +270,8 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 - In a room with two pod rows (wider than 30 units), the route of a worker can cross the lower pod row. Nothing tests that case.
 - The walk and run speeds (1.6 and 4 units a second) and the break times come from the first run in the demo. The user did not tune them. A kitchen trip in the demo takes about 100 s. The first party trip of `w2:p2` takes about 33 s.
 - Section 5 of `docs/herdr-agent-model.md` lists ideas that nobody built and that the user did not decide on. Examples: worktree annex rooms, a focus marker in each pod, a per-viewer acknowledged map, the briefcase and headset badges. Ask the user before you build one.
+- No Safari check of the office yet. The user plans one, with `?demo`. In that check, also see what happens when a browser unloads a background tab (Chrome Memory Saver, Safari). That closes `/events`, and the bridge then exits 30 s later. Nobody checked this yet.
+- Nobody tested the `curl` install against a real release yet. As far as the spec knows, `curl` adds no quarantine flag, but this is not proven.
+- Nobody tested the Linux build or the Linux open step (Chromium app window) on a Linux PC.
+- No Intel Mac build and no Windows build.
+- A command that starts in a herdr pane shows as a desk with no agent.

@@ -4,7 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { readFile, readdir, stat, open } from 'node:fs/promises'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import { isSea, getAsset } from 'node:sea'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { promisify } from 'node:util'
@@ -320,11 +321,18 @@ export async function readCodexMessages(sessions, pane, limit = 100) {
   }
 }
 
-export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypto.randomUUID(), claudeDir = null, codexDir = null, meetMs = 2000, raise = null }) {
+export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypto.randomUUID(), claudeDir = null, codexDir = null, meetMs = 2000, raise = null, readStatic = null, quitMs = null, quit = () => {} }) {
   publicDir = path.resolve(publicDir)
+  readStatic ??= (rel) => readFile(path.join(publicDir, rel))
   // A Map, because pane.agent comes from outside and a plain object has keys like "constructor".
   const readers = new Map([['claude', [claudeDir, readMessages]], ['codex', [codexDir, readCodexMessages]]])
   const clients = new Set()
+  // Command mode: quit() runs quitMs after the last SSE client leaves, or after the start with no client.
+  let quitTimer = null
+  const arm = () => {
+    clearTimeout(quitTimer)
+    if (quitMs != null) quitTimer = setTimeout(quit, quitMs)
+  }
   let last = null // the last SSE payload; null while nobody listens
   let polling = false
   let snap = null // the last good snapshot, for GET /messages
@@ -414,7 +422,11 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
     if (pathname === '/events') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' })
       clients.add(res)
-      res.on('close', () => clients.delete(res))
+      clearTimeout(quitTimer)
+      res.on('close', () => {
+        clients.delete(res)
+        if (!clients.size) arm()
+      })
       if (last) res.write(`data: ${last}\n\n`)
       if (!polling) poll()
       return
@@ -439,7 +451,7 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
       const file = path.join(publicDir, pathname === '/' ? 'index.html' : decodeURIComponent(pathname))
       const type = TYPES[path.extname(file)]
       if (!type || !file.startsWith(publicDir + path.sep)) throw new Error('blocked')
-      let body = await readFile(file)
+      let body = await readStatic(path.relative(publicDir, file).split(path.sep).join('/'))
       if (type.startsWith('text/html')) body = String(body).replaceAll('__OFFICE_TOKEN__', token)
       res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store', 'x-frame-options': 'DENY' }).end(body)
     } catch {
@@ -449,16 +461,18 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
 
   return new Promise((resolve, reject) => {
     server.on('error', reject)
-    server.listen(port, '127.0.0.1', () => resolve({
+    server.listen(port, '127.0.0.1', () => (arm(), resolve({
       url: `http://127.0.0.1:${server.address().port}/`,
       token,
       close: () => {
+        clearTimeout(quitTimer)
+        quitMs = null // a late close event of a client must not arm the timer again
         clients.clear()
         const closed = new Promise((r) => server.close(r))
         server.closeAllConnections()
         return closed
       },
-    }))
+    })))
   })
 }
 
@@ -505,16 +519,39 @@ export function raiser(fallback, detect = detectTerminals, open = (id) => execFi
   return () => detect().then((found) => open(found.length === 1 ? found[0] : fallback)).catch((e) => console.error(`herdr-office: raise: ${e.message}`))
 }
 
+// Open the URL: `open` on a Mac, chromium --app then xdg-open on Linux. A failure only logs.
+export function openUrl(url, { platform = process.platform, spawn: run = spawn } = {}) {
+  const start = (cmd, args, onError) => {
+    const child = run(cmd, args, { detached: true, stdio: 'ignore' })
+    child.on('error', onError)
+    child.unref()
+  }
+  const fail = (e) => console.error(`herdr-office: open: ${e.message}`)
+  if (platform === 'darwin') start('open', [url], fail)
+  else start('chromium', [`--app=${url}`], () => start('xdg-open', [url], fail))
+}
+
 if (import.meta.main) {
-  const terminal = await pickTerminal(await detectTerminals())
-  console.log(`herdr-office: terminal ${terminal ?? 'none'}`)
+  if (process.argv.includes('--version')) {
+    console.log(isSea() ? getAsset('version', 'utf8').trim() : '0.0.0-dev')
+    process.exit(0)
+  }
+  // Command mode: a free port, the browser open, and an exit with no client.
+  const command = isSea() || process.argv.includes('--command')
+  const mac = process.platform === 'darwin'
+  const terminal = mac ? await pickTerminal(await detectTerminals()) : null
+  if (mac) console.log(`herdr-office: terminal ${terminal ?? 'none'}`)
   const { url } = await startBridge({
     sock: socketPath(),
-    port: Number(process.env.PORT) || 4747,
+    port: Number(process.env.PORT) || (command ? 0 : 4747),
     publicDir: fileURLToPath(new URL('public', import.meta.url)),
+    ...(isSea() && { readStatic: (rel) => Buffer.from(getAsset('public/' + rel)) }),
     claudeDir: path.join(os.homedir(), '.claude', 'projects'),
     codexDir: path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'sessions'),
     raise: terminal && raiser(terminal), // "none" in the selector means no raise
+    quitMs: command ? 30000 : null,
+    quit: () => process.exit(0),
   })
   console.log(`herdr-office: ${url}`)
+  if (command && !process.env.HERDR_OFFICE_NO_OPEN) openUrl(url)
 }

@@ -16,7 +16,7 @@ npm test                                                        # node --test te
 node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only the matching tests
 ```
 
-- `CLAUDE.md` "Run and check" has the Node 25 glob rule and the `node --check` rule. `package.json` has no typecheck, lint, or format script.
+- `CLAUDE.md` "Run and check" has the glob rule (Node 25 needs it) and the `node --check` rule. `package.json` has no typecheck, lint, or format script.
 - A new test file must end in `.test.mjs`, or the glob does not find it.
 - `node --test` runs each file in its own process, so the `process.chdir()` in `test/bridge.test.mjs` does not change the other files. Inside one file, the tests run in source order.
 
@@ -200,8 +200,8 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
 - `night()` and `clock()` in `public/office.js`. Only `daylight()` has a test. Use the `?time` check in "Visual check in the browser".
 - The terrace walls, the hedge, and the grass in `build()`. A scratch check can copy the wall lines of `build()` and count the walls on each region edge: one, and none between two terraces.
 - `public/office.js` and `public/decor.js`. After a change to `placer()`, `kitchen()`, `party()`, or `terrace()`, load `decor.js` with three.js in a scratch script. Check that no prop stands on a walk rect, that the kitchen draws a table and two chairs at each `room.tables` entry, and that no party prop stands on the dance floor or the speaker floor (`docs/decor.md` "Check placement in Node").
-- The sha384 `integrity` values in `public/index.html`. A wrong hash fails only in the browser.
-- The `if (import.meta.main)` block of `bridge.mjs`, the focus with the real terminal raise, and `detectTerminals()` (`pgrep` and `ps`). The `raiser()` test uses stubs.
+- The sha384 `integrity` values in `public/index.html`. A wrong hash fails in the browser, and `npm run build` also stops on it.
+- The `if (import.meta.main)` block of `bridge.mjs` (command mode has a manual check in "Visual check in the browser"), the focus with the real terminal raise, and `detectTerminals()` (`pgrep` and `ps`). The `raiser()` test uses stubs.
 - The message field in the page: the `#say` hide rule, the demo lock, and the `#msg` clear. Use a fake herdr socket for a browser check (see "Visual check in the browser").
 - A room with two pod rows (wider than `MAX_ROW`). A route can cross the lower row.
 - Two workers on trips can overlap in a corridor. No test checks that a door is open before a walker gets to it.
@@ -228,6 +228,7 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
    3. Run the `lsof` command again to make sure that the port is free.
 
 - Without `?demo`, the bridge polls the live herdr. Never click "Focus in herdr" or "Focus orchestrator" there, because the click marks the tab as seen. Never send a message there, because herdr types it into a live agent.
+- To check command mode with plain `node`, start a fake herdr socket as below, then run `HERDR_OFFICE_NO_OPEN=1 HERDR_SOCKET_PATH=h.sock node <repo>/bridge.mjs --command`. Always set `HERDR_OFFICE_NO_OPEN=1`, or a tab opens in your browser. The URL line shows a free port, and the process exits 30 s after its start with no client. `openUrl()` has a test with a stub `spawn`.
 - To check a write path without the live herdr, use a fake herdr socket:
   1. Write a small fake in a scratch folder. It answers `session.snapshot` with a snapshot that has an agent pane, and each other request with `{ type: 'ok' }`. It logs each request.
   2. Start the fake with its cwd in that folder, on a short relative socket name such as `h.sock`. macOS caps a socket path at 104 bytes.
