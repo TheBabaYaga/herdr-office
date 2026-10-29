@@ -35,8 +35,11 @@
 | `seen`, `nextPass` | the camera key of the last `declutter()` pass (`''` forces one), and the next forced pass | `declutter()`, `update()`, frame loop | page |
 | `spot` | the blue light over the focused desk, outside `world` | `update()` | page |
 | `rows` | desk id -> HUD list `<button>` | `hud()` | page |
-| `goal` | the point that the camera target glides to, or `null` | HUD row click, frame loop (from `follow`). Frame loop, `keepInView()`, and pointerdown clear it | until reached |
-| `follow`, `zoomTo`, `tracked` | the desk id of the followed walker, the zoom that the camera glides to, and the world point of the followed worker | click handler (walker hit), frame loop. `open()`, `close()`, and pointerdown clear `follow`. Pointerdown, `wheel`, and the frame loop clear `zoomTo` | until cleared |
+| `goal` | the point that the camera target glides to, or `null` | HUD row click, frame loop (from `follow`, and from `tour` each frame). Frame loop, `keepInView()`, pointerdown, and `stopTour()` clear it | until reached |
+| `follow`, `zoomTo`, `tracked` | the desk id of the followed walker, the zoom that the camera glides to, and the world point of the followed worker | click handler (walker hit), frame loop. `open()`, `close()`, and pointerdown clear `follow`. Pointerdown, `wheel`, and the frame loop clear `zoomTo`. `tourStep()` sets `zoomTo` and clears `follow`. `stopTour()` clears `zoomTo`. | until cleared |
+| `input` | the time of the last input in seconds (`performance.now() / 1000`), 0 at first | the `window` listeners | page |
+| `tour` | `null`, or `{ at, next, seen }` while the tour runs: the stop as a `THREE.Vector3`, the time of the next stop, and the stop keys of this round | `tourStep()`, `stopTour()` | until input or offline |
+| `online` | `true` at first, and for the demo. `false` while herdr or the bridge is not reachable | `setOnline()` | page |
 | `selected`, `target`, `down` | the panel id, the pane id to focus or to message, the last pointerdown | `open()`, `fill()`, pointerdown | page |
 | `timer`, `msgs`, `msgKey` | the 2000 ms refresh timer, the messages of the open claude or codex desk, and their JSON | `open()`, `close()`, `loadMessages()`, `renderMessages()` | page |
 
@@ -181,7 +184,7 @@ The castle night is on only with `season === 'halloween'`, all day. Without it, 
 ### HUD
 
 - `hud()`: fills `#counts`, `#meetings`, and `#list`. It keeps one `<button>` for each agent desk in `rows` across updates, so keyboard focus survives, and sorts them with `style.order`. A row click sets `goal` and calls `open()`.
-- `setOnline(on, note)`: toggles the `offline` class on `body` and sets `#note`. Only the live data source calls it.
+- `setOnline(on, note)`: toggles the `offline` class on `body`, sets `online`, and sets `#note`. Only the live data source calls it.
 
 ### Camera
 
@@ -189,6 +192,7 @@ The castle night is on only with `season === 'halloween'`, all day. Without it, 
 - `resize()` sets the frustum from `VIEW` and the window. `fit(w, d)`: the zoom that fits a floor, after `resize()`. `frame(rect)`: centers the camera on the rect at that zoom.
 - `keepInView()`: sets `controls.minZoom` to the building fit, and clamps the target near the building center (the limit grows with the zoom). A clamp clears `goal`.
 - Follow: while `follow` is set, the frame loop sets `goal` to the world position of that worker each frame, on a trip and after it sits down. The follow ends when the view is gone or has no worker.
+- Tour: `TOUR` (300 s) with no input starts it. `tourStep(t)` calls `nextStop(office, trips, t, tour?.seen)` every `HOLD` (10 s), sets `tour`, `zoomTo`, and clears `follow`, and shows `#tour`. The zoom is `fit(r.w, r.d)` for a room stop (`whole`), else `min(controls.maxZoom, 1.5 * fit(r.w, r.d))`. `stopTour()` clears `tour`, `goal`, and `zoomTo`, and hides `#tour`. The camera stays. The frame loop runs the tour after the follow and before the goal glide, and sets `goal = tour.at` each frame, because a `keepInView()` clamp clears `goal` at a low zoom. The tour stops when `online` is false. It never calls `open()`, `act()`, or `fetch`.
 - Zoom glide: while `zoomTo` is set, the frame loop moves `camera.zoom` 0.15 of the way to it each frame. It clears `zoomTo` within 0.01.
 
 ### Panel
@@ -207,6 +211,7 @@ The castle night is on only with `season === 'halloween'`, all day. Without it, 
 
 ### Picking
 
+- One listener each for `pointerdown`, `wheel`, and `keydown` on `window` (`capture`, `passive`) sets `input` and calls `stopTour()` when `tour` is set. Without a tour it clears nothing. It also sees input over the HUD and the panel.
 - The pointerdown handler stores `down` and clears `goal`, `follow`, and `zoomTo`. A `wheel` event clears `zoomTo`, so the zoom glide never fights the user's zoom.
 - The click handler ignores a drag over 4 px. It casts a ray against one box for each desk, each away head seat, each subagent seat, each worker on a trip, and each ghost, and takes the nearest hit. The desk and seat boxes come from the model, because `bake()` merged the desk meshes. The box of a worker on a trip is at the world position of its group. The handler makes it for each worker with `out` set (by `pose()`), so a seated lunch eater and a seated chess player get one too. It does not call `breaks()`. A new clickable object needs its own box. A ghost box is 0.56 x 0.56 round its group position, from its base y to 1.2 above it. An entry has an optional seventh and eighth element, `y0` and `y1` (else 0 and 1.8), for this height.
 - When the nearest hit is a ghost, the handler sets its `until` to `performance.now() / 1000 + 2` and returns. It does not call `open()`, and it sets no `follow` or `zoomTo`. The pointerdown before the click still clears `goal`, `follow`, and `zoomTo`, as for each click. The rAF time and `performance.now()` count from the same origin, so `haunt(t)` compares `t` with `until`.
@@ -236,9 +241,9 @@ Two agents in one region need a split by function.
 | pose | `pose()`, `ARM`, `moving` | screens, breaks, doors, frame loop |
 | declutter | `declutter()`, `tags`, `seen`, `nextPass` | update, frame loop |
 | update | `update()`, `family()`, `office`, `sig`, `laid` | all regions |
-| hud | `hud()`, `el()`, `rows`, `setOnline()`, `who()`, `plural()` | fill, camera (`goal`), `index.html` |
+| hud | `hud()`, `el()`, `rows`, `setOnline()`, `online`, `who()`, `plural()` | fill, camera (`goal`), `index.html` |
 | fill | `open()`, `close()`, `fill()`, `act()`, `loadMessages()`, `renderMessages()`, `timer`, `msgs`, `msgKey`, the focus button, `#say`, `#chatOpen`, `#chatClose`, and `#reply` handlers | hud, picking, camera (`follow`), `index.html` |
-| camera | `fit()`, `frame()`, `keepInView()`, `resize()`, `VIEW`, `OFFSET`, `controls`, the `goal` glide, `follow`, `zoomTo`, `tracked`, the zoom glide | hud, update, picking, fill |
+| camera | `fit()`, `frame()`, `keepInView()`, `TOUR`, `HOLD`, `input`, `tour`, `tourStep()`, `stopTour()`, the tour listeners, `resize()`, `VIEW`, `OFFSET`, `controls`, the `goal` glide, `follow`, `zoomTo`, `tracked`, the zoom glide | hud (`online`), breaks (`trips`), update, picking, fill |
 | picking | the pointerdown, wheel, and click handlers | fill, desk (seat geometry), camera (`follow`, `zoomTo`), night (`spooks`, `until`) |
 
 Give a change to `label()`, `fresh()`, `shared()`, a shared constant, or the import lines to one agent only. A new decor function changes the `./decor.js` import and `DECOR`, so it goes to the build agent.
