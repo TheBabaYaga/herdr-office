@@ -321,7 +321,25 @@ export async function readCodexMessages(sessions, pane, limit = 100) {
   }
 }
 
-export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypto.randomUUID(), claudeDir = null, codexDir = null, meetMs = 2000, raise = null, readStatic = null, quitMs = null, quit = () => {} }) {
+// ---- Update check: only the release binary calls GitHub ----
+const SEMVER = /^v?(\d+)\.(\d+)\.(\d+)$/
+// True when version a is newer than version b. Any form other than X.Y.Z (with an optional v) gives false.
+export function newer(a, b) {
+  const [x, y] = [a, b].map((v) => SEMVER.exec(v)?.slice(1).map(Number))
+  const i = x && y ? x.findIndex((n, k) => n !== y[k]) : -1
+  return i >= 0 && x[i] > y[i]
+}
+
+// The version of the latest published release. Only a checked X.Y.Z leaves here, never other text from GitHub.
+export async function latestRelease(fetchFn = fetch, url = 'https://api.github.com/repos/TheBabaYaga/herdr-office/releases/latest') {
+  const res = await fetchFn(url, { headers: { accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10000) })
+  if (res.status !== 200) throw new Error(`GitHub ${res.status}`)
+  const tag = String((await res.json())?.tag_name)
+  if (!SEMVER.test(tag)) throw new Error(`bad tag ${tag}`)
+  return tag.replace(/^v/, '')
+}
+
+export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypto.randomUUID(), claudeDir = null, codexDir = null, meetMs = 2000, raise = null, readStatic = null, quitMs = null, quit = () => {}, version = null, latest = null, updateMs = 3600000 }) {
   publicDir = path.resolve(publicDir)
   readStatic ??= (rel) => readFile(path.join(publicDir, rel))
   // A Map, because pane.agent comes from outside and a plain object has keys like "constructor".
@@ -336,6 +354,17 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
   let last = null // the last SSE payload; null while nobody listens
   let polling = false
   let snap = null // the last good snapshot, for GET /messages
+
+  // The update check: once at the start, then updateMs after each call ends. A failed call changes nothing.
+  let update = null, updateTimer = null // update: { current, latest, atStart } while a newer release exists
+  async function check(atStart) {
+    try {
+      const v = await latest()
+      if (!newer(v, version)) update = null
+      else if (v !== update?.latest) update = { current: version, latest: v, atStart }
+    } catch {}
+    if (latest) updateTimer = setTimeout(check, updateMs, false).unref()
+  }
 
   const send = (msg) => {
     const s = JSON.stringify(msg)
@@ -357,10 +386,10 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
           const cwds = snapshot.agents.filter((a) => a.agent === 'claude').map((a) => a.foreground_cwd || a.cwd)
           meetings = await readMeetings(claudeDir, cwds).catch(() => meetings)
         }
-        send({ online: true, snapshot, meetings })
+        send({ online: true, snapshot, meetings, update })
       } catch (e) {
         snap = null
-        send({ online: false, snapshot: null, error: e.message })
+        send({ online: false, snapshot: null, error: e.message, update })
       }
       await sleep(pollMs)
     }
@@ -461,12 +490,14 @@ export function startBridge({ sock, port, publicDir, pollMs = 500, token = crypt
 
   return new Promise((resolve, reject) => {
     server.on('error', reject)
-    server.listen(port, '127.0.0.1', () => (arm(), resolve({
+    server.listen(port, '127.0.0.1', () => (arm(), version && latest && check(true), resolve({
       url: `http://127.0.0.1:${server.address().port}/`,
       token,
       close: () => {
         clearTimeout(quitTimer)
         quitMs = null // a late close event of a client must not arm the timer again
+        clearTimeout(updateTimer)
+        latest = null // a call in progress must not start the timer again
         clients.clear()
         const closed = new Promise((r) => server.close(r))
         server.closeAllConnections()
@@ -532,8 +563,9 @@ export function openUrl(url, { platform = process.platform, spawn: run = spawn }
 }
 
 if (import.meta.main) {
+  const version = isSea() ? getAsset('version', 'utf8').trim() : '0.0.0-dev'
   if (process.argv.includes('--version')) {
-    console.log(isSea() ? getAsset('version', 'utf8').trim() : '0.0.0-dev')
+    console.log(version)
     process.exit(0)
   }
   // Command mode: a free port, the browser open, and an exit with no client.
@@ -545,7 +577,8 @@ if (import.meta.main) {
     sock: socketPath(),
     port: Number(process.env.PORT) || (command ? 0 : 4747),
     publicDir: fileURLToPath(new URL('public', import.meta.url)),
-    ...(isSea() && { readStatic: (rel) => Buffer.from(getAsset('public/' + rel)) }),
+    // Only the release binary checks for updates. npm start and --command never call GitHub.
+    ...(isSea() && { readStatic: (rel) => Buffer.from(getAsset('public/' + rel)), version, latest: () => latestRelease() }),
     claudeDir: path.join(os.homedir(), '.claude', 'projects'),
     codexDir: path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'sessions'),
     raise: terminal && raiser(terminal), // "none" in the selector means no raise
