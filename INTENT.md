@@ -51,7 +51,7 @@ The office watches. It has two writes to herdr: a focus and a message. A click o
 
 ## Decisions
 
-The user made these decisions between 2026-10-03 and 2026-10-27.
+The user made these decisions between 2026-10-03 and 2026-10-29.
 
 1. The goal, in the user's words: "Analyze how herdr works with the agents ... build a 3D office (can be in threejs) that uses the same concepts where I can see my agents working in a real office." The analysis is in `docs/herdr-agent-model.md`.
 2. Watch, plus a click to focus. A desk click opens a panel, and "Focus in herdr" sends `pane.focus`. The office never prompts agents and never answers blocked questions. Decision 21 changed the first part: the office now sends messages. It still never answers a blocked question.
@@ -198,6 +198,17 @@ The user made these decisions between 2026-10-03 and 2026-10-27.
     - The source repo `TheBabaYaga/herdhouse` stays private. CI builds the binaries and makes a draft release in a public releases repo with no source. In the user's words: "Anyone may download the app. A public release repo is fine, also with the code readable in the binary."
     - Apple Silicon only. In the user's words: "No Intel Macs. Keep the arm64-only build."
     - The user tests the binary on this Mac first.
+37. A camera tour when nobody uses the office, from issue TheBabaYaga/herdhouse#12. The issue gives the reason: "The office often runs on a second monitor that nobody touches. The camera then stays on one room. A tour shows the whole office and brings a blocked agent into view." The user answered on 28 October 2026: "yes, 5 min seems good and 10 seconds is fine as a stop and yes, show a tour note". On 29 October 2026, the user answered about reduce motion: "With reduce motion, keep the tour as it is: the 0.5 s glide every 10 s." The user answered about offline and approved the tour on 29 October 2026: "Yes, the tour can start again at once after an offline period. Write decision 37."
+    - The tour starts after 5 minutes (300 s) with no `pointerdown`, `wheel`, or `keydown` on the page. Each stop holds for 10 s.
+    - The stop order is: each blocked desk, each done desk, each game in play, a dance, and a lunch. A blocked or done orchestrator shows at its meeting seat. Only when none of these exist, the tour shows each room in the order of `office.rooms`.
+    - The tour visits each stop once in a round. A new round starts with the first stop that was not the last stop shown. So no stop shows two times in a row, unless it is the only stop. A new blocked desk in the middle of a round comes next.
+    - A desk, game, dance, or lunch stop zooms to 1.5 times the zoom that fits its room, at most the maximum zoom. A room stop zooms to fit the room.
+    - The camera glides to each stop with the glide of a desk click. It moves 0.15 of the remaining distance each frame. This takes about 0.5 s at 60 fps and about 0.25 s at 120 fps. With reduce motion the tour runs the same way.
+    - Any input ends the tour at once. The camera stays where it is.
+    - The start of the tour ends a follow (decision 23). An open panel stays open.
+    - Offline ends the tour. When the office is online again and nobody gave input for 5 minutes, the tour starts again at once.
+    - The tour never opens the panel. It never sends a request to the bridge or to herdr.
+    - While the tour runs, the HUD shows the note "camera tour · click, scroll, or press a key to stop".
 
 ## Cut on purpose
 
@@ -275,3 +286,5 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 - Nobody tested the Linux build or the Linux open step (Chromium app window) on a Linux PC.
 - No Intel Mac build and no Windows build.
 - A command that starts in a herdr pane shows as a desk with no agent.
+- No Node test covers `tourStep()`, `stopTour()`, or the input listeners, because Node cannot load three.js. A browser check in `?demo` with a 300 s clock shift covered the start and the 10 s stops. The same check covered the end on a key and on a wheel, and the glide from the full-building zoom. A second check with a fake herdr socket covered the end when the office goes offline.
+- An orchestrator stop at its meeting seat zooms by the size of its home room. Showing a hidden browser tab again does not count as input.
