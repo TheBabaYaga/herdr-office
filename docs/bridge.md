@@ -1,12 +1,13 @@
 # bridge.mjs: the herdr bridge
 
-`bridge.mjs` is the local HTTP server of herdr-office. It polls the herdr socket, reads Claude Code subagent metadata from `~/.claude/projects`, and streams both to the page over SSE. It also serves `public/`, sends two writes to herdr (`pane.focus` and `agent.prompt`), and answers `GET /messages` with the conversation of one claude or codex pane. For the herdr wire protocol, read `docs/herdr-agent-model.md` section 3.
+`bridge.mjs` is the local HTTP server of herdr-office. It polls the herdr socket, reads Claude Code subagent metadata from `~/.claude/projects`, and streams both to the page over SSE. It also serves `public/`, sends two writes to herdr (`pane.focus` and `agent.prompt`), and answers `GET /messages` with the conversation of one claude or codex pane. In the release binary, it also asks GitHub for the latest release. For the herdr wire protocol, read `docs/herdr-agent-model.md` section 3.
 
 ## When to read this doc
 
 - A change to a herdr request, the poll, the SSE stream, a guard, or the start (port, socket path, terminal raise).
 - A change to `GET /messages`, `readMessages()`, `messagesIn()`, `readCodexMessages()`, or `codexMessagesIn()`.
 - A new field in `meetings`, a new `POST /action` type, or a new static file type.
+- A change to the update check (`newer()`, `latestRelease()`, `check()`).
 - A failed test in `test/bridge.test.mjs`. Also read `docs/testing.md`.
 
 ## Module state
@@ -19,6 +20,7 @@
 | `last` | the last SSE payload, or `null` | `send()`, the end of `poll()` |
 | `snap` | the last good snapshot, or `null` after a failed cycle or when the loop stops | `poll()` |
 | `polling`, `meetings`, `readAt` | the loop flag, the last `readMeetings()` result, and its time | `poll()` |
+| `update`, `updateTimer` | `{ current, latest, atStart }` while a newer release exists, else `null`, and the timer of the next update check | `check()`, `close()` (the timer) |
 
 `cwds`, `models`, and `metas` live for the process, with no eviction. The rest live inside `startBridge()`.
 
@@ -36,7 +38,7 @@ At start, the `import.meta.main` block awaits `startBridge()` with `socketPath()
 
 1. `herdrRequest(sock, 'session.snapshot')`. `snap` keeps the snapshot. A failed cycle sets `snap` to `null`.
 2. If `claudeDir` is set and `meetMs` passed since `readAt`: set `readAt`, and call `readMeetings()` with `foreground_cwd || cwd` of each `snapshot.agents` entry with `agent === 'claude'`. A rejection keeps the old `meetings`.
-3. `send({ online: true, snapshot, meetings })`. A throw in steps 1 to 3 sends `{ online: false, snapshot: null, error }`.
+3. `send({ online: true, snapshot, meetings, update })`. A throw in steps 1 to 3 sends `{ online: false, snapshot: null, error, update }`.
 4. `sleep(pollMs)`. The loop runs while `clients.size > 0`, then resets `polling`, `last`, and `readAt`.
 
 ## Functions
@@ -119,6 +121,15 @@ A pure parser for the Codex rollout JSONL text. It returns `[{ role, text }]` in
 
 `rollouts()` lists the date folders, keeps regular files only (`open()` on a FIFO never returns), and sorts them by mtime.
 
+### `newer(a, b)` and `latestRelease(fetchFn = fetch, url)`
+
+- `newer(a, b)` is true when version `a` is newer than version `b`. Each is `X.Y.Z` with an optional leading `v`, compared as three numbers, so `0.10.0` is newer than `0.9.9`. Any other form gives false, for example `0.0.0-dev`, `nightly`, or `null`.
+- `latestRelease()` sends one GET to `url`, by default the `releases/latest` API of `TheBabaYaga/herdr-office`. It sends `accept: application/vnd.github+json` and stops after 10 s (`AbortSignal.timeout`). A status that is not 200 rejects.
+- It returns `tag_name` without the leading `v` when the tag is `X.Y.Z` (with an optional `v`). Else it rejects. So only a checked version string leaves the function.
+- `check(atStart)` inside `startBridge()` calls `latest()`. A result that `newer()` finds newer than `version` sets `update` to `{ current: version, latest: result, atStart }`. When `update.latest` is already that result, `update` stays as it is, so `atStart` stays.
+- A result that is not newer sets `update` to `null`. A rejection changes nothing. Then, while `latest` is set, `check(false)` runs `updateMs` later (`setTimeout` with `unref()`).
+- The next poll cycle sends the new `update`, so a change shows within `pollMs` while a client is connected.
+
 ### `startBridge(options)`
 
 The options are:
@@ -129,8 +140,9 @@ The options are:
 - `raise`: it runs after a successful `pane.focus`.
 - `readStatic`: `(rel) => Buffer | Promise<Buffer>` reads one page file. The default reads `path.join(publicDir, rel)` from disk. The single executable passes a reader of its embedded assets.
 - `quitMs` (`null`, no exit) and `quit` (a no-op). With `quitMs` set, the bridge calls `quit()` that many ms after it listens with no client, and that many ms after the last `/events` client leaves. A new client stops the timer.
+- `version` (`null`), `latest` (`null`), and `updateMs` (3600000, one hour): the update check. `latest` is an async function that returns a version string. With both `version` and `latest`, the bridge calls `check(true)` when it listens (see "`newer(a, b)` and `latestRelease(fetchFn = fetch, url)`").
 
-It returns `{ url, token, close }`. `close()` clears `clients` and the quit timer, and closes the server. A cycle that runs then finishes, and the loop stops.
+It returns `{ url, token, close }`. `close()` clears `clients`, the quit timer, and the update timer, and closes the server. It also sets `latest` to `null`, so a call in progress starts no new timer. A cycle that runs then finishes, and the loop stops.
 
 ### Main block and `openUrl()`
 
@@ -142,6 +154,7 @@ The `import.meta.main` block keeps its place at the top level, because a SEA mai
 - `quitMs` is 30000 and `quit` is `process.exit(0)`. Without command mode, `quitMs` is `null`.
 - The block calls `openUrl(url)` after the URL line, unless `HERDR_OFFICE_NO_OPEN` is set.
 - In a SEA, `readStatic` reads `getAsset('public/' + rel)`.
+- In a SEA, the block also passes `version` (the same constant as `--version`) and `latest: () => latestRelease()`. Without a SEA it passes neither, so `npm start` and `--command` never call GitHub.
 - On Linux the block skips the terminal pick and `raise` is `null`, because `open -b` is a macOS command.
 
 ### `send(msg)`
@@ -150,7 +163,7 @@ It writes `data: <JSON>\n\n` to each client when the string differs from `last`.
 
 ### `GET /events` branch
 
-It replies 200 `text/event-stream` with `cache-control: no-store`, and adds `res` to `clients`. It writes `last` at once when it is set, and starts `poll()` when `polling` is `false`. It stops the quit timer. When `res` closes and `clients` is empty, it starts the timer again.
+It replies 200 `text/event-stream` with `cache-control: no-store`, and adds `res` to `clients`. It writes `last` at once when it is set, and starts `poll()` when `polling` is `false`. It stops the quit timer. When `res` closes and `clients` is empty, it starts the timer again. Each message holds `update`, so a new client, also after a reload, gets it without a new check.
 
 ### `GET /messages` branch
 
@@ -188,6 +201,7 @@ A rejected request sends nothing to herdr. The page callers are `$('focus').oncl
 | `agents[].phase` | journal `phase`, else meta `workflowPhase` |
 | `agents[].model` | meta `model` (it can be an alias such as `sonnet`), else `modelIn()` |
 | `agents[].workflow`, `runId` | `<name>` of `workflows/scripts/<name>-<runId>.js`, and the run folder name |
+| `update` | `null`, or `{ current, latest, atStart }`. `current` is the `version` asset of the binary. `latest` is a GitHub `tag_name` that `latestRelease()` checked against `X.Y.Z`. No other GitHub text goes out. |
 | `error` (offline) | the `Error.message` of the failed cycle. It can hold the socket path. The page does not show it. |
 | `GET /messages` reply | `messages[]`: the user prompts, agent replies, and subagent messages of one claude or codex pane (`role`, `text`, and `from` for a subagent), behind the token. It is the only route that sends transcript text. |
 | `POST /action` reply | `{ ok: true }` or `{ error }`, shown with `textContent`. A 502 `error` is the `herdrRequest()` message, so it can also hold the socket path. |
@@ -229,7 +243,7 @@ Add a field to the SSE message:
 
 1. Add it to the `send()` calls in `poll()`.
 2. Read it in `es.onmessage` in `public/office.js`.
-3. Update the `deepEqual` checks in the two `GET /events` tests.
+3. Update the `deepEqual` checks in the two `GET /events` tests and in the `update:` tests.
 4. Docs: CLAUDE.md "Contracts between the files" and "What may reach the browser".
 
 ## Pitfalls

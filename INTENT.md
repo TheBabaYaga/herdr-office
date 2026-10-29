@@ -209,13 +209,21 @@ The user made these decisions between 2026-10-03 and 2026-10-29.
     - Offline ends the tour. When the office is online again and nobody gave input for 5 minutes, the tour starts again at once.
     - The tour never opens the panel. It never sends a request to the bridge or to herdr.
     - While the tour runs, the HUD shows the note "camera tour · click, scroll, or press a key to stop".
+38. An update check for the people who use the release binary. The user's words: "The ones who have installed the project via the releases repo". The user asked for a dialog in the office: "Can we build it as a popup within the herdr-office?" The user picked option B of the mockups: a dialog in the middle, with the office dimmed. For the checks and the notice, in the user's words: "Poll regularly to see if there is a new update, but only show the popup at startup, for the other polling (or if dismissed) show a small notification on the bottom right that can be clicked and when clicked we show the pop up window again. This until the update has been done". The user approved the design in chat on 29 October 2026. The technical choices are in `docs/idr/0005-update-check.md`, and the release side is in `docs/release.md` "Update check".
+    - Only the release binary checks. `npm start` and `node bridge.mjs --command` never call GitHub.
+    - The bridge checks once at the start, then each hour. The hour is a choice of the main session (IDR 0005).
+    - The dialog opens by itself only when the check at the start finds the update. An update that a later check finds shows only the notice.
+    - The dialog shows the new version, the version in use, the install command with a Copy button, and the link "What is new" to the release page.
+    - Later, x, and Escape close the dialog. The notice then shows in the bottom-right corner. A click on the notice opens the dialog again.
+    - The notice stays until herdr-office runs the new version. Only a newer version counts, so an older version shows nothing.
+    - A failed check (no network, a status that is not 200, a bad tag, or a timeout) changes nothing and shows nothing.
 
 ## Cut on purpose
 
 The user cut these with "ponytail ultra" (decision 6). Do not add them again without the user's approval.
 
 - Walk animations, except the idle breaks (decision 19). A worker does not walk to a new desk and does not walk to the meeting room. Nobody else walks. The ghosts of decision 33 float, and they are not workers. An orchestrator moves to the meeting room without a walk: its worker sits at the head of the meeting table.
-- Toasts and sound. The office has no desk phone and no bell. The lightning of the Halloween night is silent too (decision 32).
+- Toasts and sound. The office has no desk phone and no bell. The lightning of the Halloween night is silent too (decision 32). The one exception is the update dialog and the update notice of decision 38. They make no sound.
 - Zoom dimming. A zoomed herdr tab does not dim the other desks.
 - The herdr event subscription. The bridge polls `session.snapshot` every 500 ms instead. A status change can take up to 500 ms to show.
 - npm dependencies. three.js comes from an importmap. `npm start` loads it from a CDN, and the binary serves it from `/vendor/`. The bridge uses only Node built-ins.
@@ -268,6 +276,9 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 - The tests cover the bridge side of the chat. A browser check with a fake herdr socket and a fake projects tree covered the page side.
 - The HUD box can cover labels in the top-left corner.
 - A Claude session maps to a herdr pane by cwd. The bridge takes one session per cwd: the newest transcript. A second session in the same cwd gets no meeting room.
+- After the install of a new version, the update notice stays until herdr-office starts again, because the bridge that runs is still the old version.
+- Nobody tested the update check against a real second release on GitHub. The tests use a fake `latest` and a fake `fetchFn`.
+- No browser check covered an update that turns `null` while the page stays open.
 - If two claude panes share that cwd, the office takes the working one as the orchestrator.
 - The bridge does not find a worktree folder whose transcript starts in another cwd.
 - In the demo, a subagent badge on the south side can cover the laptop logo of the head seat.

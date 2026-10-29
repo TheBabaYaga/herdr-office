@@ -19,6 +19,8 @@ curl -fsSL https://github.com/TheBabaYaga/herdr-office/releases/latest/download/
 
 The script puts the binary in `~/.local/bin`. If that folder is not on your `PATH`, the script prints a line for you to add to your shell config. The script does not change your shell config.
 
+herdr-office asks GitHub for the latest release when it starts, and then once an hour. It sends no other data. When a newer version is out, the office shows this command in a dialog.
+
 To see the version, run this command:
 
 ```bash

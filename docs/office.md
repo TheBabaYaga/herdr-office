@@ -40,6 +40,7 @@
 | `input` | the time of the last input in seconds (`performance.now() / 1000`), 0 at first | the `window` listeners | page |
 | `tour` | `null`, or `{ at, next, seen }` while the tour runs: the stop as a `THREE.Vector3`, the time of the next stop, and the stop keys of this round | `tourStep()`, `stopTour()` | until input or offline |
 | `online` | `true` at first, and for the demo. `false` while herdr or the bridge is not reachable | `setOnline()` | page |
+| `offer`, `offered` | the last `update` of the bridge (`null` or `{ current, latest, atStart }`), and whether `#update` opened by itself on this page | `offerUpdate()` | page |
 | `selected`, `target`, `down` | the panel id, the pane id to focus or to message, the last pointerdown | `open()`, `fill()`, pointerdown | page |
 | `timer`, `msgs`, `msgKey` | the 2000 ms refresh timer, the messages of the open claude or codex desk, and their JSON | `open()`, `close()`, `loadMessages()`, `renderMessages()` | page |
 
@@ -185,6 +186,8 @@ The castle night is on only with `season === 'halloween'`, all day. Without it, 
 
 - `hud()`: fills `#counts`, `#meetings`, and `#list`. It keeps one `<button>` for each agent desk in `rows` across updates, so keyboard focus survives, and sorts them with `style.order`. A row click sets `goal` and calls `open()`.
 - `setOnline(on, note)`: toggles the `offline` class on `body`, sets `online`, and sets `#note`. Only the live data source calls it.
+- `offerUpdate(u)`: `es.onmessage` calls it with `m.update`, so the demo never calls it. With `u` `null`, it hides `#updateNote` and closes the update dialog `#update`. Else it sets `#updateText` and `#updateNote` with `textContent`, and the `#updateLink` href to `releases/tag/v<latest>`. It calls `showModal()` on `#update` when `u.atStart` is true, `offered` is false, and `sessionStorage.updateLater` is not `TOKEN`. Else it shows `#updateNote` while `#update` is closed.
+- The `#update` `close` event (Later, `x`, or Esc) shows `#updateNote` and writes `TOKEN` to `sessionStorage.updateLater`. It does nothing when `offerUpdate(null)` closed the dialog. A click on `#updateNote` hides it and calls `showModal()`. `#updateCopy` writes the text of `#updateCode` to the clipboard, and shows `Copied` or `Copy failed` for 2 s. Each `sessionStorage` access is inside `try`/`catch`.
 
 ### Camera
 
@@ -204,7 +207,7 @@ The castle night is on only with `season === 'halloween'`, all day. Without it, 
 - The `#say` submit handler: skips an empty message, then calls `act({ type: 'prompt', pane_id: target, text }, ...)`. On success it clears `#msg` if the text did not change during the request.
 - `loadMessages()`: for a desk where `hasChat()` is true (a claude or codex desk), `GET /messages?pane=<id>` with the header `x-office-token: TOKEN`. It drops a reply when the pane is no longer `selected`. On success it stores the list. On an error it shows the error in `#lastText` and keeps the messages and the log.
 - `renderMessages(err)`: `#lastText` gets the text of the last `agent` message. `#chatLog` gets one `.msg` element for each message: a role line (`you`, the agent name, or `subagent · <from>`) and the text. The three roles have three border colors. `#lastText` changes only when its text changes, and shows `...` until the first agent reply. It re-renders only when the list changed, so the scroll position and a selection stay. It keeps the log at the bottom when the log was at the bottom.
-- `#chatOpen` calls `showModal()` on `#chat`, sets `#chatWho`, scrolls the log to the bottom, and focuses `#replyMsg`. `#chatClose` and Esc close it. The Escape handler closes the panel only when `#chat` is not open.
+- `#chatOpen` calls `showModal()` on `#chat`, sets `#chatWho`, scrolls the log to the bottom, and focuses `#replyMsg`. `#chatClose` and Esc close it. The Escape handler closes the panel only when `#chat` and `#update` are not open, so Esc closes only the open dialog.
 - The `#reply` submit handler works like `#say`: it calls `act()` with `type: 'prompt'` and `$('chatResult')`, clears `#replyMsg` on success, and calls `loadMessages()`.
 - Transcript text goes into the page with `textContent` only.
 - The `p.warn` text in `#panel` is about focus only. The message field has no warning. A new write button needs its own warning.
@@ -221,7 +224,7 @@ The castle night is on only with `season === 'halloween'`, all day. Without it, 
 
 - Season: `update()` computes `se = SEASON ?? season(new Date())`, puts it last in `sig`, and calls `build(office, se)` when `sig` changes. `?season=halloween` shows the Halloween props on any date. `?season=winter` shows the winter props on any date. Another value, for example `?season=none`, shows none. A `setInterval` of 60 s calls `update(office)`, because the live stream sends nothing while herdr does not change, and the date and the clock light change with time.
 - Demo (`?demo`): disables the focus button and the message field, and calls `update()` with `demoSnapshot()` and `demoMeetings()` at once and each 1000 ms.
-- Live: `es.onmessage` calls `setOnline()`, and `update()` only when `m.snapshot` is set. An offline message keeps the old scene, dimmed.
+- Live: `es.onmessage` calls `setOnline()`, `offerUpdate(m.update)`, and `update()` only when `m.snapshot` is set. An offline message keeps the old scene, dimmed.
 - `es.onerror` sets `es.onopen` to `location.reload()`, so the page gets the new token of a restarted bridge. A herdr outage with a live bridge sends an offline message, and the page does not reload.
 
 ## Regions for parallel agents
@@ -241,7 +244,7 @@ Two agents in one region need a split by function.
 | pose | `pose()`, `ARM`, `moving` | screens, breaks, doors, frame loop |
 | declutter | `declutter()`, `tags`, `seen`, `nextPass` | update, frame loop |
 | update | `update()`, `family()`, `office`, `sig`, `laid` | all regions |
-| hud | `hud()`, `el()`, `rows`, `setOnline()`, `online`, `who()`, `plural()` | fill, camera (`goal`), `index.html` |
+| hud | `hud()`, `el()`, `rows`, `setOnline()`, `online`, `who()`, `plural()`, `offerUpdate()`, `offer`, `offered`, the `#update`, `#updateNote`, `#updateClose`, `#updateLater`, and `#updateCopy` handlers | fill, camera (`goal`), `index.html` |
 | fill | `open()`, `close()`, `fill()`, `act()`, `loadMessages()`, `renderMessages()`, `timer`, `msgs`, `msgKey`, the focus button, `#say`, `#chatOpen`, `#chatClose`, and `#reply` handlers | hud, picking, camera (`follow`), `index.html` |
 | camera | `fit()`, `frame()`, `keepInView()`, `TOUR`, `HOLD`, `input`, `tour`, `tourStep()`, `stopTour()`, the tour listeners, `resize()`, `VIEW`, `OFFSET`, `controls`, the `goal` glide, `follow`, `zoomTo`, `tracked`, the zoom glide | hud (`online`), breaks (`trips`), update, picking, fill |
 | picking | the pointerdown, wheel, and click handlers | fill, desk (seat geometry), camera (`follow`, `zoomTo`), night (`spooks`, `until`) |

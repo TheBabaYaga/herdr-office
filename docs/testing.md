@@ -43,6 +43,7 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
 - `request()` sends one HTTP request (a `host` key replaces the `Host` header). `sse(port)` returns `{ msgs, next, close }`, and `msgs.length === 0` after a sleep proves that nothing came. `portOf(b)` gives the port of a bridge with `port: 0`.
 - The meeting fixtures: `esc()`, `line()`, `write(file, text, ageS)` (sets the mtime `ageS` seconds back), `session()`, `said()`, `run()`, and `plain()`. To end a run, write `workflows/<runId>.json` in the session folder.
 - The codex fixtures: `ev(type, payload)` (one rollout line), `block()`, `msg(role, ...texts)` (a `response_item` message), `codex` (the fake sessions folder), `C(n)` (a made-up thread uuid), `rollout(day, id, cwd, body, opts)` (a rollout with its `session_meta` line first), `cpane(cwd, id)` (a codex pane), and `cchat(...texts)` (alternating user and agent messages).
+- The update helpers: `releases(...rs)` is a fake `latest()`. It gives the results in turn, then repeats the last one, and an `Error` result rejects. `f.calls` counts the calls. `until(es, ok)` reads messages until `ok(m)` is true.
 - `readMeetings()` decides with mtimes. The newest session for a cwd wins. A plain subagent quiet for 30 s has ended, and a workflow agent quiet for 30 min has ended.
 
 ### Security checks
@@ -60,6 +61,19 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
 - Codex `GET /messages` test: a codex pane gives its messages, an odd agent name gives 404, and a bridge without `codexDir` gives 503.
 - `GET /messages` test: a missing, wrong, or bad-`Host` request gives 403. A bad pane id gives 400. No snapshot yet, and `claudeDir: null`, give 503. An unknown pane and a shell pane give 404. A claude pane gives 200 with `cache-control: no-store`. The fake gets only `session.snapshot` lines, and the first `/events` message holds no reply text. A second test makes the fake fail after the first snapshot, and `/messages` then gives 503. The fake snapshot is `SNAP` with an `agent_session` on `w1:p1`.
 - No test checks the listen address `127.0.0.1`.
+
+### Update check tests
+
+No test calls the real GitHub. `latest` defaults to `null`, the `update:` tests pass `releases()`, and the `latestRelease` test passes a fake `fetchFn`. The six tests:
+
+- `newer`: newer, equal, and older versions, `v0.10.0` against `0.9.9`, an optional `v`, and the forms that give false (`0.0.0-dev`, `nightly`, `null`) on each side.
+- `latestRelease`: the URL, the `accept` header, and the `signal` of the GET, a tag with and without `v`, a `url` argument, and a rejection for a 403, a bad tag, and a `null` body.
+- `update:` the start call finds `0.2.0` with `atStart: true`. The same version sends nothing, `0.3.0` replaces it with `atStart: false`, and the offline message holds `update`.
+- `update:` the same version at the start and a later older one keep `update` at `null`, and `close()` stops the calls.
+- `update:` a failed call changes nothing. A later newer one has `atStart: false`, and an older one sets `update` to `null`.
+- `update:` a bridge without `latest` or without `version` never calls `latest()`, and `update` is `null`.
+
+Pass a small `updateMs` (the tests use 10 to 80 ms). The default is one hour. The two old `GET /events` tests also expect `update: null` in each full message.
 
 ### Gotchas
 
@@ -203,6 +217,8 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
 - `public/office.js` and `public/decor.js`. After a change to `placer()`, `kitchen()`, `party()`, or `terrace()`, load `decor.js` with three.js in a scratch script. Check that no prop stands on a walk rect, that the kitchen draws a table and two chairs at each `room.tables` entry, and that no party prop stands on the dance floor or the speaker floor (`docs/decor.md` "Check placement in Node").
 - The sha384 `integrity` values in `public/index.html`. A wrong hash fails in the browser, and `npm run build` also stops on it.
 - The `if (import.meta.main)` block of `bridge.mjs` (command mode has a manual check in "Visual check in the browser"), the focus with the real terminal raise, and `detectTerminals()` (`pgrep` and `ps`). The `raiser()` test uses stubs.
+- The update options of the `import.meta.main` block (`version`, `latest`) and the real GitHub call of `latestRelease()`.
+- `offerUpdate()`, `#update`, and `#updateNote` in the page. Use the update check in "Visual check in the browser".
 - The message field in the page: the `#say` hide rule, the demo lock, and the `#msg` clear. Use a fake herdr socket for a browser check (see "Visual check in the browser").
 - A room with two pod rows (wider than `MAX_ROW`). A route can cross the lower row.
 - Two workers on trips can overlap in a corridor. No test checks that a door is open before a walker gets to it.
@@ -235,6 +251,14 @@ node --test --test-name-pattern="stepBreak" test/walk.test.mjs  # one file, only
   2. Start the fake with its cwd in that folder, on a short relative socket name such as `h.sock`. macOS caps a socket path at 104 bytes.
   3. Start the check bridge from the same folder: `PORT=4848 HERDR_SOCKET_PATH=h.sock node <repo>/bridge.mjs`.
   4. Use the page without `?demo`, and read the fake log. Then stop the bridge and the fake.
+- To check the update dialog, use a check server. The demo opens no `/events` stream, and `npm start` never checks:
+  1. Write a small Node server in a scratch folder, on its own port (for example 4849). It serves the repo `public/` and puts a token from a `?t=` param into `__OFFICE_TOKEN__`.
+  2. It answers `/events` with `{ online: true, snapshot: demoSnapshot(0), meetings: [], update }` every 500 ms. It imports `demoSnapshot` from `public/model.js`.
+  3. A page param picks `update`: `null`, `{ current: '0.1.0', latest: '0.2.0', atStart: true }`, or the same with `atStart: false`. The `/events` request has no query, so the server reads the param from the `Referer` header.
+  4. With `atStart: true`, check that the dialog opens, and that Later, x, and Esc close it and show the notice. Esc must not close an open panel. A click on the notice opens the dialog again.
+  5. Reload with the same `?t=`: only the notice shows. A new `?t=` opens the dialog again.
+  6. With `atStart: false`, only the notice shows. With `null`, nothing shows. Check that "What is new" points to `releases/tag/v0.2.0`, and that Copy shows `Copied` or `Copy failed`.
+  7. Stop the server by its PID from `lsof`, as for the check bridge.
 - For a pod lamp that changes from `working` to `blocked`, watch the "tests" pod (`w2:t2`) at ticks 3 to 5 of each 12-tick cycle. The demo never shows a meeting start or end. See `docs/model.md` "Demo".
 - A page eval cannot read the state of `public/office.js`, because it exports nothing and sets no `window` property. It can read `.sign` and `.badge` in `#labels`: the text, the `--c` color, and `style.visibility`. Check the lamps, doors, and screens with a screenshot.
 - `CLAUDE.md` "Visual checks" gives the headless Chrome method. With `--remote-debugging-pipe`, Chrome reads CDP on fd 3 and writes on fd 4. Each JSON message ends with a NUL byte.

@@ -66,6 +66,24 @@ Before you re-run the workflow for the same tag, delete the old draft, because `
 
 The `release` step uses the secret `RELEASES_TOKEN`. The token must be a fine-grained token with "Contents: read and write" on `TheBabaYaga/herdr-office` only. Only that step can read it. The workflow makes a draft only, so a failed run publishes nothing.
 
+## Update check
+
+The binary asks GitHub for the latest release at its start and then each hour (`INTENT.md` decision 38). `latestRelease()` in `bridge.mjs` sends one GET to `https://api.github.com/repos/TheBabaYaga/herdr-office/releases/latest`. `npm start` and `--command` never send it.
+
+- `/releases/latest` skips drafts and pre-releases. So a colleague sees an update only after step 4 of "Make a release" (publish the draft).
+- A colleague sees the dialog at the next start of herdr-office, or the notice in the bottom-right corner within one hour.
+- The tag must be `vX.Y.Z`, for example `v0.2.0`. The workflow runs only on a tag that starts with `v`. The check ignores a tag that is not `X.Y.Z` after the `v`, for example `v0.2.0-beta`, and changes nothing.
+- A build without `HERDR_OFFICE_VERSION` has the version `0.0.0-dev`. `newer()` gives false for it, so that binary never shows an update.
+- The dialog shows the install command of "Install" and the link `releases/tag/v<version>`. After the install, the notice stays until herdr-office starts again.
+
+```text
+Mon 09:00  Anna runs herdr-office 0.1.0. The start check finds 0.1.0. Nothing shows.
+Mon 10:30  the user publishes the draft of v0.2.0.
+Mon 11:00  the hourly check finds 0.2.0. The notice shows. No dialog.
+Tue 09:00  Anna starts herdr-office 0.1.0 again. The start check finds 0.2.0. The dialog opens.
+Failure:   GitHub does not answer at 11:00. Nothing changes. The next check comes at 12:00.
+```
+
 ## README of the releases repo
 
 `release/README.md` and `release/demo.png` are the README and the screenshot of `TheBabaYaga/herdr-office`. That repo holds only these files and the releases. Copy both files to it by hand. The agent does not touch the public repo.
