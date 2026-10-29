@@ -64,6 +64,18 @@
   #replyMsg { flex: 1; min-width: 0; background: #11111b; color: inherit; font: inherit; border: 1px solid #45475a; padding: 2px 4px; }
   #chatResult { margin: 0; }
   #msg { flex: 1; min-width: 0; background: #11111b; color: inherit; font: inherit; border: 1px solid #45475a; padding: 2px 4px; }
+  #update { width: min(420px, calc(100% - 32px)); box-sizing: border-box; background: #1e1e2e; color: #cdd6f4; border: 1px solid #45475a; padding: 10px; }
+  #update::backdrop { background: #000000b0; }
+  #update p { margin: 0 0 6px; }
+  #update small { color: #9399b2; }
+  #update button { font: inherit; }
+  #update a { color: #89b4fa; }
+  #updateHead, #updateCmd, #updateFoot { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin: 0 0 6px; }
+  #updateHead h2 { margin: 0; }
+  #updateFoot { margin: 8px 0 0; }
+  #updateCmd code { flex: 1; min-width: 0; background: #11111b; border: 1px solid #45475a; padding: 2px 4px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #updateNote { position: fixed; right: 12px; bottom: 6px; background: #1e1e2ef0; color: inherit; font: inherit; border: 1px solid #45475a; border-left: 3px solid #89b4fa; padding: 1px 8px; cursor: pointer; }
+  #updateNote:hover { background: #313244; }
 </style>
 </head>
 <body>
@@ -91,6 +103,15 @@
   <form id="reply"><input id="replyMsg" aria-label="Answer the agent" autocomplete="off" placeholder="answer the agent"> <button>Send</button></form>
   <p id="chatResult"></p>
 </dialog>
+<dialog id="update">
+  <div id="updateHead"><h2>Update available</h2><button id="updateClose" aria-label="Close">x</button></div>
+  <p id="updateText"></p>
+  <p><small>Run this command in a terminal:</small></p>
+  <div id="updateCmd"><code id="updateCode">curl -fsSL https://github.com/TheBabaYaga/herdr-office/releases/latest/download/install.sh | sh</code><button id="updateCopy">Copy</button></div>
+  <p><small>Then close this tab and run herdr-office again.</small></p>
+  <div id="updateFoot"><a id="updateLink" target="_blank" rel="noopener">What is new</a><button id="updateLater">Later</button></div>
+</dialog>
+<button id="updateNote" hidden></button>
 <script type="module" src="office.js"></script>
 </body>
 </html>
