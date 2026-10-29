@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { EventEmitter } from 'node:events'
-import { socketPath, herdrRequest, startBridge, readMeetings, readMessages, readCodexMessages, messagesIn, codexMessagesIn, bundleIdsIn, pickTerminal, raiser, openUrl } from '../bridge.mjs'
+import { socketPath, herdrRequest, startBridge, readMeetings, readMessages, readCodexMessages, messagesIn, codexMessagesIn, bundleIdsIn, pickTerminal, raiser, openUrl, newer, latestRelease } from '../bridge.mjs'
 
 // macOS caps unix socket paths at 104 bytes, so the fake sockets use short paths relative to a temp cwd.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-sock-'))
@@ -212,7 +212,7 @@ test('GET /events: sends the snapshot, then changes only, then offline', async (
   const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, pollMs: 20 })
   const es = sse(portOf(b))
   try {
-    assert.deepEqual(await es.next(), { online: true, snapshot: SNAP, meetings: [] }, 'no claudeDir, no meetings')
+    assert.deepEqual(await es.next(), { online: true, snapshot: SNAP, meetings: [], update: null }, 'no claudeDir, no meetings')
     await sleep(120)
     assert.equal(es.msgs.length, 0, 'an unchanged snapshot sends nothing')
     assert.ok(fake.lines.length > 2, 'the bridge keeps polling')
@@ -222,6 +222,7 @@ test('GET /events: sends the snapshot, then changes only, then offline', async (
     assert.equal(off.online, false)
     assert.equal(off.snapshot, null)
     assert.equal(typeof off.error, 'string')
+    assert.equal(off.update, null)
     await sleep(120)
     assert.equal(es.msgs.length, 0, 'offline is sent once')
   } finally {
@@ -313,6 +314,117 @@ test('the bridge drops an SSE client that stops reading', async () => {
     assert.equal(fake.lines.length, count, 'the bridge still polls for a client that reads nothing')
   } finally {
     c.destroy()
+    await b.close()
+    await fake.close()
+  }
+})
+
+test('newer: compares X.Y.Z as three numbers, and any other form gives false', () => {
+  assert.equal(newer('0.2.0', '0.1.0'), true)
+  assert.equal(newer('v0.10.0', '0.9.9'), true)
+  assert.equal(newer('1.0.0', '0.99.99'), true)
+  assert.equal(newer('0.1.0', 'v0.1.0'), false, 'equal')
+  assert.equal(newer('0.1.0', '0.2.0'), false, 'older')
+  for (const [a, b] of [['0.2.0', '0.0.0-dev'], ['0.0.0-dev', '0.1.0'], ['nightly', '0.1.0'], ['0.2.0', 'nightly'], [null, '0.1.0'], ['0.2.0', null]]) {
+    assert.equal(newer(a, b), false, `${a} vs ${b}`)
+  }
+})
+
+test('latestRelease: one GET to the releases API, and a bad status or tag rejects', async () => {
+  const calls = []
+  const fetchFn = (body, status = 200) => async (url, opts) => (calls.push([url, opts]), { status, json: async () => body })
+  assert.equal(await latestRelease(fetchFn({ tag_name: 'v0.2.0' })), '0.2.0')
+  assert.equal(calls[0][0], 'https://api.github.com/repos/TheBabaYaga/herdr-office/releases/latest')
+  assert.equal(calls[0][1].headers.accept, 'application/vnd.github+json')
+  assert.ok(calls[0][1].signal instanceof AbortSignal)
+  assert.equal(await latestRelease(fetchFn({ tag_name: '0.3.0' }), 'https://x.test/latest'), '0.3.0')
+  assert.equal(calls[1][0], 'https://x.test/latest')
+  await assert.rejects(latestRelease(fetchFn({ tag_name: 'v0.2.0' }, 403)), /403/)
+  await assert.rejects(latestRelease(fetchFn({ tag_name: 'nightly' })))
+  await assert.rejects(latestRelease(fetchFn(null)))
+})
+
+// A fake latest(): it gives the results in turn, then repeats the last one. An Error rejects.
+const releases = (...rs) => {
+  const f = async () => {
+    const r = rs[Math.min(f.calls++, rs.length - 1)]
+    if (r instanceof Error) throw r
+    return r
+  }
+  f.calls = 0
+  return f
+}
+const until = async (es, ok) => { for (;;) { const m = await es.next(); if (ok(m)) return m } }
+
+test('update: the start call finds a newer version, the same version keeps it, another newer one replaces it', async () => {
+  const fake = await fakeHerdr()
+  const latest = releases('0.2.0', '0.2.0', '0.3.0')
+  const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, pollMs: 10, version: '0.1.0', latest, updateMs: 80 })
+  const es = sse(portOf(b))
+  try {
+    assert.deepEqual((await until(es, (m) => m.update)).update, { current: '0.1.0', latest: '0.2.0', atStart: true })
+    assert.deepEqual((await es.next()).update, { current: '0.1.0', latest: '0.3.0', atStart: false }, 'the same version sends nothing')
+    await fake.close()
+    const off = await es.next()
+    assert.equal(off.online, false)
+    assert.deepEqual(off.update, { current: '0.1.0', latest: '0.3.0', atStart: false }, 'the offline message carries update')
+  } finally {
+    es.close()
+    await b.close()
+  }
+})
+
+test('update: the same version at the start and a later older one give null, and close() stops the calls', async () => {
+  const fake = await fakeHerdr()
+  const latest = releases('0.1.0', '0.0.9')
+  const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, pollMs: 10, version: '0.1.0', latest, updateMs: 30 })
+  const es = sse(portOf(b))
+  try {
+    assert.deepEqual(await es.next(), { online: true, snapshot: SNAP, meetings: [], update: null })
+    while (latest.calls < 3) await sleep(10)
+    await sleep(30)
+    assert.equal(es.msgs.length, 0, 'update stays null')
+  } finally {
+    es.close()
+    await b.close()
+    await fake.close()
+  }
+  const calls = latest.calls
+  await sleep(100)
+  assert.equal(latest.calls, calls, 'close() clears the timer')
+})
+
+test('update: a failed call changes nothing, a later newer one has atStart false, and an older one clears it', async () => {
+  const fake = await fakeHerdr()
+  const latest = releases(new Error('offline'), '0.2.0', new Error('timeout'), '0.3.0', '0.1.0')
+  const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, pollMs: 10, version: '0.1.0', latest, updateMs: 80 })
+  const es = sse(portOf(b))
+  try {
+    assert.deepEqual((await until(es, (m) => m.update)).update, { current: '0.1.0', latest: '0.2.0', atStart: false })
+    assert.deepEqual((await es.next()).update, { current: '0.1.0', latest: '0.3.0', atStart: false }, 'the failed call kept update')
+    assert.equal((await es.next()).update, null)
+  } finally {
+    es.close()
+    await b.close()
+    await fake.close()
+  }
+})
+
+test('update: without latest or without version the bridge never checks, and update is null', async () => {
+  const fake = await fakeHerdr()
+  const latest = releases('0.2.0')
+  const a = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, pollMs: 10, version: '0.1.0' })
+  const b = await startBridge({ sock: fake.sock, port: 0, publicDir: pub, pollMs: 10, latest, updateMs: 10 })
+  const ea = sse(portOf(a)), eb = sse(portOf(b))
+  try {
+    assert.deepEqual(await ea.next(), { online: true, snapshot: SNAP, meetings: [], update: null })
+    assert.deepEqual(await eb.next(), { online: true, snapshot: SNAP, meetings: [], update: null })
+    await sleep(50)
+    assert.equal(latest.calls, 0)
+  } finally {
+    ea.close()
+    eb.close()
+    await a.close()
     await b.close()
     await fake.close()
   }
@@ -528,9 +640,10 @@ test('GET /events: adds the meetings of herdr claude agents, read at the slower 
     assert.deepEqual(first, {
       online: true, snapshot: SNAP,
       meetings: [{ sessionId: 'live', cwd: '/src/a', agents: [{ agentId: 'L', label: 'build:live', phase: 'Build', model: 'opus', workflow: 'my-flow', runId: 'wf_live' }] }],
+      update: null,
     })
     fs.appendFileSync(path.join(s, 'subagents', 'workflows', 'wf_live', 'journal.jsonl'), line({ type: 'result', key: 'k1', agentId: 'L', result: { text: SECRET } }))
-    assert.deepEqual(await es.next(), { online: true, snapshot: SNAP, meetings: [] }, 'a finished agent leaves')
+    assert.deepEqual(await es.next(), { online: true, snapshot: SNAP, meetings: [], update: null }, 'a finished agent leaves')
     assert.ok(fake.lines.length >= 3, 'the snapshot poll runs faster than the meetings read')
   } finally {
     es.close()

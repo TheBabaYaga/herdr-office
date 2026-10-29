@@ -989,6 +989,31 @@ function setOnline(on, note) {
   $('note').textContent = note
 }
 
+// The bridge sends version numbers only: null or { current, latest, atStart }. Later is remembered per bridge start (the token).
+let offer = null, offered = false // offered: the dialog opened by itself once on this page
+function offerUpdate(u) {
+  offer = u
+  if (!u) { $('updateNote').hidden = true; $('update').close(); return }
+  $('updateText').textContent = `herdr-office ${u.latest} is out. You use ${u.current}.`
+  $('updateNote').textContent = `Update ${u.latest} available`
+  $('updateLink').href = `https://github.com/TheBabaYaga/herdr-office/releases/tag/v${u.latest}`
+  let later = null
+  try { later = sessionStorage.updateLater } catch {}
+  if (u.atStart && !offered && later !== TOKEN) { offered = true; $('update').showModal() } else $('updateNote').hidden = $('update').open
+}
+$('update').onclose = () => {
+  if (!offer) return // offerUpdate(null) closed it
+  $('updateNote').hidden = false
+  try { sessionStorage.updateLater = TOKEN } catch {}
+}
+$('updateNote').onclick = () => { $('updateNote').hidden = true; $('update').showModal() }
+$('updateClose').onclick = $('updateLater').onclick = () => $('update').close()
+$('updateCopy').onclick = async () => {
+  const b = $('updateCopy')
+  try { await navigator.clipboard.writeText($('updateCode').textContent); b.textContent = 'Copied' } catch { b.textContent = 'Copy failed' }
+  setTimeout(() => { b.textContent = 'Copy' }, 2000)
+}
+
 // ---- camera ----
 let goal = null
 let follow = null, zoomTo = null // follow: the desk id of the clicked walker, the frame loop sets goal to it. zoomTo: the zoom to glide to
@@ -1142,7 +1167,7 @@ function fill() {
 }
 
 $('close').onclick = close
-addEventListener('keydown', (e) => e.key === 'Escape' && !$('chat').open && close()) // with the chat window open, Esc closes only the window
+addEventListener('keydown', (e) => e.key === 'Escape' && !$('chat').open && !$('update').open && close()) // with a dialog open, Esc closes only the dialog
 // POST one action to the bridge and show the outcome. Returns true on success.
 async function act(body, done, out = $('result')) {
   out.textContent = '...'
@@ -1260,6 +1285,7 @@ if (DEMO) {
   es.onmessage = (e) => {
     const m = JSON.parse(e.data)
     setOnline(m.online, m.online ? '' : 'offline — herdr socket not reachable')
+    offerUpdate(m.update)
     if (m.snapshot) update(buildOffice(m.snapshot, m.meetings, office))
   }
   // A restarted bridge has a new token. Reload when the stream comes back, so the page gets it.

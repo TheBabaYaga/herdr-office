@@ -21,6 +21,7 @@ These docs describe the code of herdr-office, with one doc for each source area.
 | Decor and props | `docs/decor.md` | `box()`, `placer()`, `workspaceDecor()`, `kitchen()`, `meeting()`, `lobby()`, `terrace()`, `plant()`, `clutter()` |
 | The bridge: poll, SSE, action, guards | `docs/bridge.md` "Flow", "`startBridge(options)`", "`GET /events` branch", "`GET /messages` branch", "`POST /action` branch" | `startBridge()`, `handle()`, `poll()`, `send()`, `herdrRequest()`, `socketPath()` |
 | The build and the release of the single binary | `docs/release.md` "Build", "Make a release" | `threeFiles()`, `sha384()`, `localHtml()` in `build.mjs` |
+| The update check (a newer release) | `docs/bridge.md` "`newer(a, b)` and `latestRelease(fetchFn = fetch, url)`", "`startBridge(options)`". `docs/office.md` "HUD". `docs/release.md` "Update check". `docs/testing.md` "Update check tests". `INTENT.md` decision 38. `docs/idr/0005-update-check.md` | `newer()`, `latestRelease()`, `check()`, `offerUpdate()`, `#update`, `#updateNote` |
 | Meetings and subagents | `docs/bridge.md` "`readMeetings(projects, cwds, now = Date.now())`", "Claude subagent helpers", "What may reach the browser". `docs/model.md` "buildOffice(snap, meetings = [], prev = null)" (the meeting rooms, the orchestrator, and the seats). `docs/office.md` "Desks, seats, and workers". `docs/decor.md` "Room decor" | `readMeetings()`, `cwdOf()`, `modelIn()`, `plainTail()`, `buildOffice()`, `attendee()`, `seatAt()`, `longTable()` |
 | The demo data | `docs/model.md` "Demo", the recipe "A new demo agent" | `demoSnapshot()`, `demoMeetings()`, `DEMO_PANES`, `DEMO_AGENTS` |
 | Tests | `docs/testing.md` | `fakeHerdr()`, `sse()`, `synthetic()`, `assertPlan()`, `assertSeats()`, `checkRoute()` |
@@ -38,8 +39,8 @@ bridge.mjs poll()            only while an /events client is connected
   |  readMeetings(): inside a cycle, when 2000 ms (meetMs) passed since the last read
   |  send(): writes only when the JSON changes
   v
-GET /events (SSE)            { online: true, snapshot, meetings }
-  |                          or { online: false, snapshot: null, error }
+GET /events (SSE)            { online: true, snapshot, meetings, update }
+  |                          or { online: false, snapshot: null, error, update }
   v
 public/office.js             EventSource('/events')
                              or ?demo: setInterval each 1000 ms with demoSnapshot(tick), demoMeetings(tick)
@@ -107,6 +108,7 @@ the message field (agent desks only), Enter or "Send"; #reply in the chat window
 - `GET /` serves `public/index.html`, and the bridge puts the token into the `office-token` meta tag.
 - The demo page opens no `/events` stream, so the bridge does not poll herdr. The focus button and the message field are disabled in the demo.
 - `readMeetings()` gets the cwds of the claude agents in the snapshot. No transcript text goes into the `/events` stream.
+- In the release binary, `check()` calls `latestRelease()` at the start and then each hour. Each `/events` message holds its `update`, and `offerUpdate()` shows the update dialog or the update notice.
 - An offline message keeps the old scene, and `setOnline()` dims it.
 - The first open after an `EventSource` error reloads the page, so the page gets the new token of a restarted bridge.
 - A status change calls `build()` only when it moves `away` to another desk (`docs/model.md` "Pitfalls"). Else `update()` and `pose()` set the new look in place.
@@ -174,6 +176,7 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - status: the agent state: `blocked`, `done`, `working`, `idle`, or `unknown`, with the ranks 4 to 0 in `STATUS_RANK`.
 - roll-up: the highest-ranked status of a tab or a workspace. The model uses the herdr `agent_status`, and calls `rollup()` only when herdr sends none.
 - focus: the herdr focus in `office.focus` (`workspaceId`, `tabId`, `paneId`) and `desk.focused`. The blue `spot` light marks the focused desk, and "Focus in herdr" sends `pane.focus`.
+- update: the field `update` of each `/events` message. It is `{ current, latest, atStart }` while a newer release exists, else `null`. `offerUpdate()` shows it as the update dialog (`#update`) or the update notice (`#updateNote`). It is not `update(next)` in `office.js`.
 - message: one entry of an agent conversation: a user prompt, an agent reply, or a subagent message (a message from another agent, with `from`). The panel fields (`#say`, `#msg`, `#reply`, `#replyMsg`) send a user message as `type: 'prompt'`, and the bridge sends it as `agent.prompt`. `GET /messages` gives the messages of one claude or codex pane.
 
 ## docs/herdr-agent-model.md
