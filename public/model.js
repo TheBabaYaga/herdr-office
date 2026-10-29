@@ -604,8 +604,11 @@ export function stepBreak(trips, claimed, id, { idle, seed, spots, route, tables
     return null
   }
   if (phase === 'stay' && trip.room === 'kitchen') trip.got = true // the mug at the counter. A lunch and a dance get none
-  return { s, phase, got: trip.got, play: phase === 'stay' && trip.begin != null && trip.begin <= t && t < trip.end, trip }
+  return { s, phase, got: trip.got, play: inPlay(trip, phase, t), trip }
 }
+
+// True while two players play their game: the trip is in its stay, between begin and end.
+const inPlay = (trip, phase, t) => phase === 'stay' && trip.begin != null && trip.begin <= t && t < trip.end
 
 const arrive = (trip) => trip.start + trip.len / WALK // the time when a trip reaches its spot
 // The player id leaves its game at time t: the stay of its partner ends at t, or at the arrival of the partner if that is later.
@@ -623,6 +626,32 @@ export function endBreak(trips, claimed, id, t) {
   if (spot !== undefined) claimed.delete(spot)
   quit(trips, id, t)
   trips.delete(id)
+}
+
+// The next stop of the camera tour. trips: the map of stepBreak(). seen: the keys of the stops of this round.
+// The stops, in order: a blocked desk, a done desk, a game in play, a dance, a lunch. With none of these, each room.
+// It picks the first stop that is not in seen. When all are seen, a new round starts and skips the stop that came last.
+// Returns { stop: { key, x, z, room, whole }, seen }. whole: true for a room stop only.
+export function nextStop(o, trips, t, seen = []) {
+  const stops = []
+  const desk = (d) => stops.push({ key: `desk:${d.id}`, x: (d.away ?? d).x, z: (d.away ?? d).z, room: d.roomId, whole: false })
+  for (const status of ['blocked', 'done']) o.desks.filter((d) => d.status === status).forEach(desk)
+  const stays = [...trips.values()].map((e) => e.trip && { trip: e.trip, phase: tripAt(e.trip, t).phase }).filter((x) => x?.phase === 'stay')
+  const tables = new Set(stays.filter((x) => x.trip.room === 'game' && inPlay(x.trip, x.phase, t)).map((x) => x.trip.table))
+  for (const i of [...tables].sort((a, b) => a - b)) stops.push({ key: `game:${i}`, x: o.games[i].x, z: o.games[i].z, room: o.games[i].room, whole: false })
+  const party = o.rooms.find((r) => r.id === 'party')
+  if (party?.floor && stays.some((x) => x.trip.room === 'party')) {
+    const [x0, z0, x1, z1] = party.floor
+    stops.push({ key: 'dance', x: (x0 + x1) / 2, z: (z0 + z1) / 2, room: 'party', whole: false })
+  }
+  const tabs = o.rooms.find((r) => r.id === 'kitchen')?.tables
+  if (tabs?.length && stays.some((x) => x.trip.room === 'lunch'))
+    stops.push({ key: 'lunch', x: tabs.reduce((a, c) => a + c.x, 0) / tabs.length, z: tabs.reduce((a, c) => a + c.z, 0) / tabs.length, room: 'kitchen', whole: false })
+  if (!stops.length) for (const r of o.rooms) stops.push({ key: `room:${r.id}`, x: r.x + r.w / 2, z: r.z + r.d / 2, room: r.id, whole: true })
+  const fresh = stops.find((s) => !seen.includes(s.key))
+  if (fresh) return { stop: fresh, seen: [...seen, fresh.key] }
+  const stop = stops.find((s) => s.key !== seen.at(-1)) ?? stops[0]
+  return { stop, seen: [stop.key] }
 }
 
 // ---- Demo: a fake session with the same shape as a real snapshot. ----
