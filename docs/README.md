@@ -11,7 +11,7 @@ These docs describe the code of herdr-office, with one doc for each source area.
 | Labels and decluttering | `docs/office.md` "declutter()", "update()", the recipe "A new label" | `label()`, `declutter()`, `update()` (`tags`) |
 | The HUD and the panel | `docs/office.md` "HUD", "Panel". The markup is in `public/index.html` (`#hud`, `#panel`, `#chat`) | `hud()`, `el()`, `setOnline()`, `open()`, `close()`, `fill()`, `act()` |
 | The last reply and the chat window | `docs/office.md` "Panel", `docs/bridge.md` "`messagesIn(text)`", "`readMessages(projects, pane, limit = 100)`", "`GET /messages` branch" | `loadMessages()`, `renderMessages()`, `readMessages()`, `messagesIn()`, `readCodexMessages()`, `codexMessagesIn()` |
-| Camera and picking | `docs/office.md` "Camera", "Picking" | `resize()`, `fit()`, `frame()`, `keepInView()`, the canvas `pointerdown` and `click` handlers |
+| Camera and picking | `docs/office.md` "Camera", "Picking" | `resize()`, `fit()`, `frame()`, `keepInView()`, the camera tour, the canvas `pointerdown` and `click` handlers |
 | The floor plan, the room layout, and the terraces | `docs/model.md` "Pods and desks", "buildOffice(snap, meetings = [], prev = null)". `docs/office.md` "Floors and walls", "Build and bake" | `buildOffice()`, `podLayout()`, `spread()`, `build()`, `inner()`, `outer()`, `stub()` |
 | Kitchen and party trips, and routes | `docs/model.md` "Walk geometry", "route(o, deskId, spot, to = 'kitchen')", "Breaks". `docs/office.md` "Idle breaks" | `route()`, `walkRects()`, `stepBreak()`, `endBreak()`, `tripAt()`, `breakPlan()`, `along()`, `breaks()`, `stroll()` |
 | Doors | `docs/office.md` "Floors and walls" (`door()`), "Idle breaks" (`swing()`), the recipe for the door leaf. `docs/model.md` "Breaks" (`opens()`). `docs/testing.md` "Change when a door opens" | `door()`, `swing()`, `opens()`, `calm()` |
@@ -59,7 +59,7 @@ update(next)
 Each frame, `renderer.setAnimationLoop()` runs these calls in this order:
 
 ```text
-follow -> goal glide -> zoom glide -> controls.update() -> keepInView() -> label font size
+follow -> tour -> goal glide -> zoom glide -> controls.update() -> keepInView() -> label font size
   -> moving = false, dancing = false, ajar.clear()
   -> pose(v, t) for each view with a desk
        breaks() -> stepBreak(), along()     where a worker on a trip is, and its target room
@@ -134,6 +134,7 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 
 ## Glossary
 
+- tour: the camera visits `nextStop()` places for 10 s each after 5 minutes with no input. Any input ends it. `tourStep()` and `stopTour()` in `office.js`.
 - building: the whole office for one herdr session. `office.bounds` holds its size, and `office.entrance` is the entrance in the south outer wall.
 - room: an entry of `office.rooms`, with `kind` `workspace`, `meeting`, `kitchen`, `party`, or `lobby`.
 - workspace room: the room of one herdr workspace (`kind: 'workspace'`, the id is the workspace id). The rooms follow the workspace `number`.

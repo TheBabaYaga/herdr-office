@@ -1,6 +1,6 @@
 # public/model.js: the office model
 
-`public/model.js` turns a herdr snapshot and the meeting list into the office plan: rooms, pods, desks, corridors, terraces, meeting seats, kitchen spots, kitchen tables and chairs, the party room, and the game tables. It also plans the idle routes, keeps the break timing, and makes the demo data. For the Halloween night, it plans the corridor candelabra, the lightning, and the ghosts. It has no imports and no DOM, so the Node tests import it. `public/office.js` imports `STATUS_RANK`, `STATUS_COLOR`, `buildOffice`, `demoSnapshot`, `demoMeetings`, `candleSpots`, `lightningPlan`, `flash`, `ghosts`, `ghostAt`, `snowflakes`, `flakeAt`, `twinkle`, `rng`, `outdoors`, `hash`, `season`, `daylight`, `route`, `along`, `calm`, `opens`, `stepBreak`, and `endBreak`. `public/decor.js` imports only `hash` and `rng`, to seed its fill pass with `room.id`. It reads the room fields `id`, `walk`, `counter`, `tables`, `chairs`, `table`, `seats`, `session`, `number`, `door`, `pods`, `booth`, and `floor`, and the terrace fields `id`, `w`, and `d`. The shapes of the office, a room, a desk, and most exported functions are in CLAUDE.md "Contracts between the files".
+`public/model.js` turns a herdr snapshot and the meeting list into the office plan: rooms, pods, desks, corridors, terraces, meeting seats, kitchen spots, kitchen tables and chairs, the party room, and the game tables. It also plans the idle routes, keeps the break timing, and makes the demo data. For the Halloween night, it plans the corridor candelabra, the lightning, and the ghosts. It has no imports and no DOM, so the Node tests import it. `public/office.js` imports `STATUS_RANK`, `STATUS_COLOR`, `buildOffice`, `demoSnapshot`, `demoMeetings`, `candleSpots`, `lightningPlan`, `flash`, `ghosts`, `ghostAt`, `snowflakes`, `flakeAt`, `twinkle`, `rng`, `outdoors`, `hash`, `season`, `daylight`, `route`, `along`, `calm`, `opens`, `stepBreak`, `endBreak`, and `nextStop`. `public/decor.js` imports only `hash` and `rng`, to seed its fill pass with `room.id`. It reads the room fields `id`, `walk`, `counter`, `tables`, `chairs`, `table`, `seats`, `session`, `number`, `door`, `pods`, `booth`, and `floor`, and the terrace fields `id`, `w`, and `d`. The shapes of the office, a room, a desk, and most exported functions are in CLAUDE.md "Contracts between the files".
 
 ## When to read this doc
 
@@ -216,6 +216,21 @@ CLAUDE.md gives the contracts of `along()`, `tripAt()`, and `pathLen()`.
 - `got` becomes true in the `stay` of a kitchen trip, so the mug stays in the hand. A lunch trip and a party trip never get it. `stroll()` writes `trip.rot`.
 
 `endBreak(trips, claimed, id, t)` frees the spot of a running trip (the `claimed` key in `trip.spot`), ends the game of its partner at `t` (as a rush does), and deletes the state. Pass `t`: without it, the stay of the partner becomes `NaN`.
+
+### nextStop(o, trips, t, seen)
+
+`nextStop()` picks the next stop of the camera tour. It reads `trips` (the map of `stepBreak()`) and the phase from `tripAt()`. It returns `{ stop: { key, x, z, room, whole }, seen }`. `whole` is `true` for a room stop only.
+
+| Kind | Key | x, z | room | Rule |
+|---|---|---|---|---|
+| blocked desk | `desk:<id>` | `d.away ?? d` | `d.roomId` | each blocked desk, in `o.desks` order |
+| done desk | `desk:<id>` | `d.away ?? d` | `d.roomId` | each done desk, in `o.desks` order |
+| game | `game:<table>` | `o.games[table]` | the room of the table | each table with a player in play, by table index |
+| dance | `dance` | the center of the party `floor` | `party` | a trip in the phase `stay` with `room === 'party'` |
+| lunch | `lunch` | the mean of the kitchen `tables` | `kitchen` | a trip in the phase `stay` with `room === 'lunch'` |
+| room | `room:<id>` | the room center | `r.id` | each room of `o.rooms`, only when the list above is empty |
+
+The pick is the first stop whose key is not in `seen`, and `seen` gets its key. When all stops are in `seen`, a new round starts. It picks the first stop whose key is not `seen.at(-1)`, else the first stop, and `seen` is `[key]`. So the same stop never comes two times in a row, unless it is the only stop. A new blocked desk comes next, also in the middle of a round. `office.js` calls it every 10 s. The play rule is `inPlay()`, which `stepBreak()` also uses for `play`.
 
 ### Demo
 

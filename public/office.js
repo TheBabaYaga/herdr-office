@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { daylight, STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, lightningPlan, flash, ghosts, ghostAt, snowflakes, flakeAt, twinkle, rng, outdoors, hash, season, route, along, calm, opens, stepBreak, endBreak } from './model.js'
+import { daylight, STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, lightningPlan, flash, ghosts, ghostAt, snowflakes, flakeAt, twinkle, rng, outdoors, hash, season, route, along, calm, opens, stepBreak, endBreak, nextStop } from './model.js'
 import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, party, terrace, SNOW, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
 
 const $ = (id) => document.getElementById(id)
@@ -982,7 +982,9 @@ function hud() {
   })
 }
 
+let online = true // the demo never calls setOnline(), so it stays online
 function setOnline(on, note) {
+  online = on
   document.body.classList.toggle('offline', !on) // CSS dims the scene and its labels
   $('note').textContent = note
 }
@@ -1010,6 +1012,26 @@ function keepInView() {
   goal = null
   controls.target.copy(center).add(off.setLength(max))
   camera.position.copy(controls.target).add(OFFSET)
+}
+
+// The tour: after TOUR s with no input, the camera visits a stop every HOLD s. Any input ends it.
+const TOUR = 300, HOLD = 10
+let input = 0 // the time of the last input in seconds, from the same origin as the frame time
+let tour = null // null, or { at: the stop, next: the time of the next stop, seen: the stop keys of this round }
+function tourStep(t) {
+  const { stop, seen: keys } = nextStop(office, trips, t, tour?.seen)
+  const r = office.rooms.find((x) => x.id === stop.room), z = fit(r.w, r.d)
+  tour = { at: new THREE.Vector3(stop.x, 0, stop.z), next: t + HOLD, seen: keys }
+  zoomTo = stop.whole ? z : Math.min(controls.maxZoom, 1.5 * z)
+  follow = null // else the follow sets goal over the tour
+  $('tour').hidden = false
+}
+function stopTour() {
+  tour = goal = zoomTo = null // the camera stays where it is
+  $('tour').hidden = true
+}
+for (const type of ['pointerdown', 'wheel', 'keydown']) {
+  window.addEventListener(type, () => { input = performance.now() / 1000; if (tour) stopTour() }, { capture: true, passive: true })
 }
 
 // ---- side panel ----
@@ -1190,6 +1212,9 @@ renderer.setAnimationLoop((ms) => {
     if (w) goal = w.g.getWorldPosition(tracked).setY(0)
     else follow = null // the agent exited
   }
+  if (tour && !online) stopTour()
+  else if (office && online && t - input > TOUR && (!tour || t >= tour.next)) tourStep(t)
+  if (tour) goal = tour.at // each frame: a keepInView() clamp clears goal at a low zoom, so the glide goes on
   if (goal) {
     controls.target.lerp(goal, 0.15)
     if (controls.target.distanceTo(goal) < 0.01) goal = null
