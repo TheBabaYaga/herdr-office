@@ -266,6 +266,12 @@ function build(office, season) {
     live.add(b)
     return b
   })
+  bubble = new THREE.Group() // one speech bubble for the office: a white box with three dots on its +z face
+  bubble.visible = false
+  world.add(bubble)
+  live.add(bubble)
+  box(bubble, [0.5, 0.3, 0.1], [0, 0, 0], '#ffffff')
+  for (const x of [-0.15, 0, 0.15]) box(bubble, [0.06, 0.06, 0.06], [x, 0.12, 0.05], '#1a1a1a')
   flakes = season === 'winter' ? [...office.terraces, ...outdoors(office.bounds)].flatMap(snowflakes) : []
   flakeMesh = null
   if (flakes.length) { // one mesh for all flakes: snowfall() writes the matrices
@@ -654,21 +660,22 @@ function browse(v, t) {
   v.tex.needsUpdate = true // the texture uploads again, also when it came from a typing screen
 }
 
-// ---- idle breaks: after a wait, an idle worker walks to the kitchen counter, a kitchen chair for lunch, the party room, or a game table, and back ----
+// ---- idle breaks ----
+// After a wait, an idle worker walks to a spot, then back. The spot is a counter spot, a lunch chair, a dance spot, a game table, or the water cooler.
 // The clock is t of the animation loop. A trip lives in trips by desk id, so it survives a rebuild for a new subagent.
 // ponytail: a change of the route inputs (`lay`) clears every trip: the workers sit at their desks again. Tracking a trip across a new layout needs a new route.
 const trips = new Map() // desk id -> { n: the next trip, next: when it starts, trip: the one that runs now }
-const claimed = new Map() // '<kind>:<spot index>' (kind: kitchen, lunch, party, or game) -> desk id: two workers never stand on one spot or sit on one chair
+const claimed = new Map() // '<kind>:<spot index>' (kind: kitchen, lunch, party, game, or chat) -> desk id: two workers never stand on one spot or sit on one chair
 // Where the worker of this view is now: { x, z, dx, dz, s, phase, got, trip, room }, or null at the desk. stepBreak() in model.js keeps the state.
 function breaks(v, t) {
   const d = v.desk, room = (id) => office.rooms.find((r) => r.id === id), kit = room('kitchen')
-  const spots = { kitchen: kit.spots.length, party: room('party')?.spots.length ?? 0, lunch: kit.chairs.length }
-  // The trip kind: 'kitchen' (a counter spot), 'party' (a dance spot), 'lunch' (a kitchen chair), or 'game' (a place at a game table).
-  // A lunch route ends at the chair point. Game place i is place i & 1 of table i >> 1, in the room of that table.
+  const spots = { kitchen: kit.spots.length, party: room('party')?.spots.length ?? 0, lunch: kit.chairs.length, chat: kit.chat.length }
+  // The trip kind: 'kitchen' (a counter spot), 'party' (a dance spot), 'lunch' (a kitchen chair), 'game' (a place at a game table), or 'chat' (a spot at the cooler).
+  // A lunch route ends at the chair point, a chat route at the chat spot. Game place i is place i & 1 of table i >> 1, in the room of that table.
   const game = (i) => office.games[i >> 1]
-  const go = (kind, i) => (kind === 'lunch' ? route(office, d.id, kit.chairs[i], 'kitchen') : kind === 'game' ? route(office, d.id, game(i).places[i & 1], game(i).room) : route(office, d.id, room(kind).spots[i], kind))
+  const go = (kind, i) => (kind === 'lunch' ? route(office, d.id, kit.chairs[i], 'kitchen') : kind === 'chat' ? route(office, d.id, kit.chat[i], 'kitchen') : kind === 'game' ? route(office, d.id, game(i).places[i & 1], game(i).room) : route(office, d.id, room(kind).spots[i], kind))
   const a = stepBreak(trips, claimed, d.id, { idle: d.status === 'idle' && !d.away, seed: v.seed, spots, route: go, tables: office.games.map((g) => g.kind) }, t)
-  const to = a?.trip.room === 'lunch' ? 'kitchen' : a?.trip.room === 'game' ? office.games[a.trip.table].room : a?.trip.room
+  const to = a?.trip.room === 'lunch' || a?.trip.room === 'chat' ? 'kitchen' : a?.trip.room === 'game' ? office.games[a.trip.table].room : a?.trip.room
   return a && { ...along(a.trip.path, a.s), ...a, room: to } // room: a room id for opens()
 }
 
@@ -693,12 +700,14 @@ const TAU = Math.PI * 2, HIT = 0.8 // HIT: the seconds of one ping-pong ball cro
 // In the party room the stay is a dance: the worker faces the booth with a sway, at its own tempo and phase.
 // In a lunch stay the worker sits on its kitchen chair, faces the table, and eats from the plate.
 // In a game stay the worker sits at the chess table or stands with a paddle at the ping-pong table, and faces the table.
+// In a chat stay the worker stands at the cooler and faces its partner. The talker waves the arm on the camera side under the speech bubble.
 function stroll(w, d, a, t) {
   const g = w.g, back = a.phase === 'back' || a.phase === 'rush', stay = a.phase === 'stay', tr = a.trip
   const dance = stay && tr.room === 'party', h = hash(d.id, 1e6), b = t * Math.PI * (1.6 + (h % 100) / 125) + h, beat = Math.sin(b) // 1.6 to 2.4 steps a second: a step is half a turn of b
   const chair = stay && tr.room === 'lunch' && office.rooms.find((r) => r.id === 'kitchen').chairs[+tr.spot.split(':')[1]] // tr.spot: 'lunch:<index>'
   const side = tr.room === 'game' && +tr.spot.split(':')[1] & 1, table = stay && tr.room === 'game' && office.games[tr.table] // tr.spot: 'game:<index>'. side 0: west
-  const place = table && table.places[side], seat = chair || place // a lunch chair point or a game place: the body point of the stay
+  const talk = stay && tr.room === 'chat' && office.rooms.find((r) => r.id === 'kitchen').chat[+tr.spot.split(':')[1]] // tr.spot: 'chat:<index>'
+  const place = table && table.places[side], seat = chair || place || talk // a lunch chair point, a game place, or a chat spot: the heading of the stay
   const to = dance ? (office.rooms.find((r) => r.id === tr.room).booth.z < a.z ? 0 : Math.PI) + 0.35 * Math.sin(b / 2) : seat ? (seat.rot * Math.PI) / 2 : stay ? 0 : Math.atan2(a.dx * (back ? 1 : -1), a.dz * (back ? 1 : -1))
   const sw = stay ? 0 : 0.7 * Math.sin(a.s * 5), c = calm(Math.min(...office.rooms.map((r) => Math.hypot(a.x - r.door.x, a.z - r.door.z))))
   const hand = stay ? 1.2 + 0.1 * Math.sin(t * 2) : 0.1 + 1.1 * c // the angle of the mug arm
@@ -715,6 +724,15 @@ function stroll(w, d, a, t) {
   w.arms[1].rotation.x = a.got ? hand : sw * c
   w.plate.visible = !!chair
   w.paddle.visible = table?.kind === 'pingpong'
+  if (talk) { // a chat at the cooler: standing, no mug, both arms down. The talker waves the arm on the camera side and shows the bubble over the head.
+    w.arms[0].rotation.x = w.arms[1].rotation.x = 0
+    if (a.talk) {
+      w.arms[+tr.spot.endsWith('0')].rotation.x = 0.85 + 0.15 * Math.sin(t * 6) // chat:0 (west, faces +x) waves arms[1], chat:1 waves arms[0]
+      bubble.position.set(a.x, 1.8, a.z)
+      bubble.visible = true
+    }
+    return
+  }
   if (place) { // a game: the body at the place, facing the table. A waiter, and a player after the game end, keep the arms down.
     const chess = table.kind === 'chess', u = t - tr.begin // u: the time since the game began
     g.position.set(place.x - d.x, 0.5, place.z - d.z)
@@ -762,6 +780,7 @@ function stroll(w, d, a, t) {
 // No three.js light: it shines through the walls into the next room. Magenta, violet and white only, so no light reads as a status.
 const DISCO = ['#e040fb', '#8b5cf6', '#ffffff'].map((c) => new THREE.Color(c)), BEAT = 2 // BEAT: the speaker beats a second
 let dancing = false // a worker dances this frame. pose() sets it, disco() reads it.
+let bubble = null // the speech bubble over the talker at the cooler. build() makes it, the frame loop hides it, stroll() shows it.
 function partyLights(r) {
   const [x0, z0, x1, z1] = r.floor, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, { booth } = r
   // The dance floor: 3 own materials on the diagonals, dark like the carpet when off. bake() merges the tiles by material:
@@ -1255,6 +1274,7 @@ renderer.setAnimationLoop((ms) => {
   labels.domElement.style.fontSize = `${Math.min(13, Math.max(8, 3 + camera.zoom * 4))}px` // labels shrink with the rooms
   moving = false
   dancing = false
+  if (bubble) bubble.visible = false // stroll() shows it again for a talker
   ajar.clear()
   for (const v of views.values()) if (v.desk) pose(v, t)
   if (office) disco(t)

@@ -22,7 +22,7 @@ The office watches. It has two writes to herdr: a focus and a message. A click o
 | `working` | The worker types | Strong yellow `#ffd43b`. The screen glows and shows text that types and scrolls. |
 | `blocked` | The worker raises a hand | Red `#fa5252`. A red beacon pulses over the head. |
 | `done` | The worker raises a paper | Teal `#94e2d5`. |
-| `idle` | The worker reclines and browses. Now and then it walks to the kitchen for a coffee or a lunch, dances in the party room, or plays chess or ping-pong. | Green `#a6e3a1`. The screen shows a fake web page or a video on a green background. See decision 19. |
+| `idle` | The worker reclines and browses. Now and then it walks to the kitchen for a coffee or a lunch, dances in the party room, plays chess or ping-pong, or chats at the water cooler. | Green `#a6e3a1`. The screen shows a fake web page or a video on a green background. See decision 19. |
 | `unknown` | The worker is semi-transparent | Grey `#6c7086`. |
 | Focus (`focused_pane_id`) | A blue spotlight on the desk | The first view frames the room of the focused workspace. |
 | Roll-up | Door light, pod lamp, HUD | Rank: blocked > done > working > idle > unknown. |
@@ -217,6 +217,18 @@ The user made these decisions between 2026-10-03 and 2026-10-29.
     - Later, x, and Escape close the dialog. The notice then shows in the bottom-right corner. A click on the notice opens the dialog again.
     - The notice stays until herdr-office runs the new version. Only a newer version counts, so an older version shows nothing.
     - A failed check (no network, a status that is not 200, a bad tag, or a timeout) changes nothing and shows nothing.
+39. A water-cooler chat, from issue TheBabaYaga/herdhouse#6. The issue gives the reason: "Each break is now a thing that a worker does alone, except a game in a big room. A small office has no game tables, so its workers never meet." The user approved the look on 30 October 2026: "I approve the look". The spec is `.local/specs/2026-10-30-water-cooler-chat.md`, in the checkout of the user only.
+    - A chat is a fifth trip kind, next to a coffee, a lunch, a dance, and a game. Each kind that an office has gets about the same chance. The main session chose this answer to the open question of the issue, and the user kept it.
+    - So an office with all kinds gives each kind about one chance in five. A small office with no party room and no game table gives a coffee, a lunch, and a chat about one chance in three each.
+    - A worker that picks a chat walks to the cooler and waits up to 20 s after it arrives. While it waits, the next idle worker that starts a trip joins it, whatever its own pick. If nobody comes, the waiter walks back.
+    - A new trip always joins a waiter, so a chat waiter and a game waiter never wait at the same time. So the second open question of the issue does not arise.
+    - A chat lasts 10 to 25 s. Both workers walk back at the end. If the status of one worker leaves `idle`, it runs back, and the chat of the other ends.
+    - The two workers stand 0.9 apart and face each other. A white bubble with three dark dots shows over one worker, then over the other, every 2 to 3 s. The waiter talks first. The bubble holds no text.
+    - The talker moves the hand on the camera side a little. Each arm angle stays at 1.5 or less, because a raised hand means `blocked`.
+    - The model places the cooler and the chat spots, so each kitchen has a cooler. A chat walker opens its own door and the kitchen door, as a lunch walker does.
+    - The main session moved the fridge to the west wall in a kitchen with a north door. A fridge east of the cooler hides the cooler from the camera, and the east wall hides a fridge in the east corner.
+    - The main session made `w1:p2` a third long-idle agent of the demo. With a fifth kind, the demo agents `w2:p2` and `w3:p3` get only chats, and the demo must also show a game.
+    - A chat is no stop of the camera tour (decision 37).
 
 ## Cut on purpose
 
@@ -290,7 +302,7 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 - Near a door the arms of a walker hang still, and the mug hand stays low.
 - A desk can stand within 3 of its own door. The door then opens when the worker stands up, and closes after the worker sits down. In the test floor plans, 36 of 302 seats are that close.
 - In a room with two pod rows (wider than 30 units), the route of a worker can cross the lower pod row. Nothing tests that case.
-- The walk and run speeds (1.6 and 4 units a second) and the break times come from the first run in the demo. The user did not tune them. A kitchen trip in the demo takes about 100 s. The first party trip of `w2:p2` takes about 33 s.
+- The walk and run speeds (1.6 and 4 units a second) and the break times come from the first run in the demo. The user did not tune them. A kitchen trip in the demo takes about 100 s. The first full party trip of `w3:p3` takes about 51 s.
 - Section 5 of `docs/herdr-agent-model.md` lists ideas that nobody built and that the user did not decide on. Examples: worktree annex rooms, a focus marker in each pod, a per-viewer acknowledged map, the briefcase and headset badges. Ask the user before you build one.
 - No Safari check of the office yet. The user plans one, with `?demo`. In that check, also see what happens when a browser unloads a background tab (Chrome Memory Saver, Safari). That closes `/events`, and the bridge then exits 30 s later. Nobody checked this yet.
 - Nobody tested the `curl` install against a real release yet. As far as the spec knows, `curl` adds no quarantine flag, but this is not proven.

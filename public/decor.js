@@ -562,8 +562,8 @@ export function kitchen(g, room, season) {
     put.taken.push([b.min.x, b.min.z, b.max.x, b.max.z])
     g.add(...o.children)
   }
-  const fx = [E + L + 0.5, w / 2 + 1.5, w - E - 0.45].find((x) => put(fridge, x, E))
-  ;[[fx + 0.7, E, 0], [E, 1.6, 1], [E, d - 1.2, 1]].some(([x, z, r]) => put(cooler, x, z, r))
+  put(cooler, room.cooler.x - room.x, room.cooler.z - room.z) // the model sets the spot, so the two chat spots stand in front of it
+  put(fridge, E + L + 0.5, E) || put(fridge, E + 0.005, 2.8, 1) // never east of the cooler: the camera looks from +x and the fridge would hide it. The 0.005 keeps its lid (0.01 behind the back) off the float edge of the wall test
   const [nw, , sw, se] = corners(room)
   plants(put, [sw, nw, se], 1)
   furnish(put, room, KITCHEN, season)

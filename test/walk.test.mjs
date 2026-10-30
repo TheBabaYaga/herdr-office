@@ -349,12 +349,18 @@ test('breakPlan is deterministic and stays in range', () => {
       assert.ok(p.lunch >= 20 && p.lunch <= 40, `seed ${seed} n ${n}: lunch ${p.lunch}`)
       assert.ok(p.pick >= 0 && p.pick < 1, `seed ${seed} n ${n}: pick ${p.pick}`)
       assert.ok(p.game >= 0 && p.game < 1, `seed ${seed} n ${n}: game ${p.game}`)
-      assert.deepEqual(Object.keys(p), ['wait', 'stay', 'lunch', 'pick', 'game'])
+      assert.ok(p.chat >= 10 && p.chat <= 25, `seed ${seed} n ${n}: chat ${p.chat}`)
+      assert.deepEqual(Object.keys(p), ['wait', 'stay', 'lunch', 'pick', 'game', 'chat'])
       if (!n) firsts.add(p.wait.toFixed(3))
     }
   }
   assert.ok(firsts.size > 150, 'the seeds spread the first trips')
   assert.notDeepEqual(breakPlan(5, 1), breakPlan(5, 2), 'each trip has its own plan')
+})
+
+test('breakPlan: the chat value keeps the other values', () => {
+  const { chat, ...rest } = breakPlan(7, 0)
+  assert.deepEqual(rest, { wait: 12.767192198662087, stay: 8.823785769520327, lunch: 26.875684433616698, pick: 0.6198440259322524, game: 0.5614819778129458 })
 })
 
 test('breakPlan: a pick for each trip gives each of 3 kinds about a third, with the same wait and stay as before the pick', () => {
@@ -392,6 +398,93 @@ const pair = () => {
   const a = gstep(w, 100, 'a'), b = kstep(w, arrive(a.trip) + 5, 'b')
   return { w, a: a.trip, b: b.trip }
 }
+
+const KC = ['kitchen', 'chat'], CHAT = { kitchen: 3, chat: 2 }
+const cstep = (w, t, id, over = {}) => stepBreak(w.trips, w.claimed, id, { idle: true, seed: seedFor('chat', KC), spots: CHAT, route: () => PATH, ...over }, t) // first pick: chat
+const jstep = (w, t, id, over = {}) => cstep(w, t, id, { seed: seedFor('kitchen', KC), ...over }) // first pick: the counter
+// a waits at the cooler, and b joins it 5 s into the wait of a.
+const cpair = () => {
+  const w = world()
+  cstep(w, 0, 'a'); jstep(w, 0, 'b')
+  const a = cstep(w, 100, 'a'), b = jstep(w, arrive(a.trip) + 5, 'b')
+  return { w, a: a.trip, b: b.trip }
+}
+
+test('stepBreak: a chat waiter goes to a free chat spot and walks back after 20 s alone', () => {
+  const w = world()
+  assert.equal(cstep(w, 0, 'a'), null)
+  const a = cstep(w, 100, 'a')
+  assert.equal(a.trip.room, 'chat'); assert.match(a.trip.spot, /^chat:[01]$/); assert.equal(a.play, false)
+  assert.deepEqual([a.trip.partner, a.trip.begin, a.trip.end], [null, null, null])
+  assert.deepEqual([...w.claimed], [[a.trip.spot, 'a']])
+  const end = arrive(a.trip) + WAIT
+  assert.deepEqual([cstep(w, end - 0.1, 'a').phase, cstep(w, end - 0.1, 'a').play], ['stay', false])
+  assert.equal(cstep(w, end + 0.1, 'a').phase, 'back')
+  assert.equal(cstep(w, end + OUT + 0.1, 'a'), null)
+  assert.equal(w.claimed.size, 0)
+})
+
+test('stepBreak: a new trip joins a chat waiter, whatever its pick, and both end at the same time', () => {
+  const { w, a, b } = cpair()
+  assert.equal(b.room, 'chat'); assert.notEqual(b.spot, a.spot)
+  assert.deepEqual([...w.claimed.keys()].sort(), ['chat:0', 'chat:1'])
+  assert.equal(a.partner, 'b'); assert.equal(b.partner, 'a')
+  assert.equal(a.begin, Math.max(arrive(a), arrive(b))); assert.equal(a.end, b.end)
+  close(a.end - a.begin, breakPlan(seedFor('chat', KC), 0).chat, 'the chat time comes from the plan of the waiter')
+  close(arrive(a) + a.stay, a.end, 'the stay of a ends at the chat end')
+  close(arrive(b) + b.stay, b.end, 'the stay of b ends at the chat end')
+  assert.equal(cstep(w, a.begin - 0.1, 'a').play, false); assert.equal(cstep(w, a.begin + 0.1, 'a').play, true)
+})
+
+test('stepBreak: a rush of one talker ends the chat of the other, and endBreak() does too', () => {
+  { // b rushes during the chat
+    const { w, a } = cpair(), tr = a.begin + 5
+    assert.equal(jstep(w, tr, 'b', { idle: false }).phase, 'rush')
+    assert.equal(a.end, tr, 'the chat of a ends at the rush')
+    const r = cstep(w, tr + 0.1, 'a')
+    assert.deepEqual([r.phase, r.play], ['back', false], 'a walks back, it does not run')
+  }
+  { // b leaves the breaks during the chat
+    const { w, a } = cpair(), te = a.begin + 5
+    endBreak(w.trips, w.claimed, 'b', te)
+    assert.deepEqual([...w.claimed.values()], ['a'], 'only the spot of b is free')
+    assert.equal(a.end, te)
+  }
+})
+
+test('stepBreak: a third worker takes another kind while the chat spots are taken or a lone waiter walks back', () => {
+  { // both spots taken
+    const { w, a } = cpair()
+    cstep(w, 0, 'c')
+    const c = cstep(w, a.begin + 1, 'c')
+    assert.equal(c.trip.room, 'kitchen', 'c picks chat, finds it full, and takes the next free kind')
+    assert.equal(a.partner, 'b')
+  }
+  { // a lone waiter walks back after its 20 s. Its spot stays claimed, and nobody takes the other spot.
+    const w = world()
+    cstep(w, 0, 'a'); cstep(w, 0, 'c')
+    const a = cstep(w, 100, 'a').trip, t = arrive(a) + WAIT + 0.1
+    assert.equal(cstep(w, t, 'a').phase, 'back')
+    assert.equal(cstep(w, t, 'c').trip.room, 'kitchen')
+    assert.equal(a.partner, null)
+  }
+})
+
+test('stepBreak: with 5 kinds each kind gets about a fifth, and with 3 kinds about a third', () => {
+  const tally = (spots, tables) => {
+    const n = {}
+    for (let seed = 0; seed < 400; seed++) {
+      const w = world(), over = { seed: seed * 7919, spots, tables }
+      step(w, 0, over)
+      const room = step(w, w.trips.get('a').next, over).trip.room
+      n[room] = (n[room] ?? 0) + 1
+    }
+    return n
+  }
+  const five = tally({ ...ALL, chat: 2 }, ['chess', 'pingpong']), three = tally({ kitchen: 3, lunch: 4, chat: 2 }, [])
+  for (const kind of [...KINDS4, 'chat']) assert.ok(five[kind] >= 56 && five[kind] <= 104, `${five[kind]} of 400 picks are ${kind}`)
+  for (const kind of ['kitchen', 'lunch', 'chat']) assert.ok(three[kind] >= 100 && three[kind] <= 170, `${three[kind]} of 400 picks are ${kind}`)
+})
 
 test('stepBreak: a waiter goes to a free game place and walks back after 20 s alone', () => {
   const w = world()
@@ -576,7 +669,7 @@ function checkRoute(name, o, d, spot, to = 'kitchen') {
   assert.ok(path[1][1] === d.z + 0.4 && Math.abs(path[1][0] - d.x) >= 0.6, `${tag}: first steps aside, clear of the chair back`)
   const samples = [...new Set([...Array.from({ length: Math.floor(len / 0.1) + 1 }, (_, i) => i * 0.1), ...cuts])].sort((a, b) => a - b)
   // The other workers in the target room: at the counter, on a dance spot, at a kitchen table, or at a game table.
-  const target = o.rooms.find(r => r.id === to), spots = [...(target.spots ?? []), ...(target.chairs ?? []), ...target.games.flatMap(g => g.places)]
+  const target = o.rooms.find(r => r.id === to), spots = [...(target.spots ?? []), ...(target.chairs ?? []), ...(target.chat ?? []), ...target.games.flatMap(g => g.places)]
   const tops = target.tables ?? [], seats = (target.chairs ?? []).filter(c => c !== spot)
   const walls = [...o.rooms, { x: 0, z: 0, w: o.bounds.w, d: o.bounds.d }]
   let prev = null
@@ -650,6 +743,12 @@ test('every route runs from a seat to a kitchen spot through rooms, doors and co
   assert.ok(n > 500, `${n} routes`)
 })
 
+test('a small kitchen has its chat spots and its cooler at the worked values', () => {
+  const at = (name) => { const k = offices.find(([n]) => n === name)[1].rooms.find(r => r.kind === 'kitchen'); return [k.door.side, ...[k.chat[0].x, k.cooler.x, k.chat[1].x].map(x => +(x - k.x).toFixed(2))] }
+  assert.deepEqual(at('1 small workspaces'), ['north', 5.28, 5.73, 6.18])
+  assert.deepEqual(at('3 small workspaces'), ['south', 4.52, 4.97, 5.42])
+})
+
 test('every lunch route runs from a seat to a kitchen chair, and its last leg comes from the strip', () => {
   let n = 0
   for (const [name, o] of offices) {
@@ -661,6 +760,36 @@ test('every lunch route runs from a seat to a kitchen chair, and its last leg co
     }
   }
   assert.ok(n > 1000, `${n} routes`)
+})
+
+test('every route to a chat spot runs from a seat, and its last leg comes from the strip', () => {
+  let n = 0
+  for (const [name, o] of offices) {
+    const k = o.rooms.find(r => r.kind === 'kitchen')
+    for (const d of o.desks.filter(d => d.agent)) for (const s of k.chat) {
+      checkRoute(name, o, d, s)
+      assert.deepEqual(route(o, d.id, s).slice(-2), [[s.x, k.z + 1.9], [s.x, s.z]], `${name}: ${d.id}: along the strip, then straight to the spot`)
+      n++
+    }
+  }
+  assert.ok(n > 500, `${n} routes`)
+})
+
+test('a walker to a chat spot opens only its own door and the kitchen door', () => {
+  let n = 0
+  for (const [name, o] of offices) {
+    const k = o.rooms.find(r => r.kind === 'kitchen')
+    for (const s of k.chat) for (const d of o.desks.filter((d) => d.agent)) {
+      const path = route(o, d.id, s), len = pathLen(path), mine = [o.rooms.find((r) => r.id === d.roomId), k]
+      for (let i = 0; i * 0.1 <= len; i++) {
+        const p = along(path, i * 0.1), ids = opens(o, d, { x: p.x, z: p.z, phase: 'out', room: 'kitchen' }), at = `${name}: ${d.id} to a chat spot at (${p.x.toFixed(2)}, ${p.z.toFixed(2)})`
+        assert.ok(ids.every((id) => mine.some((r) => r.id === id)), `${at}: opens ${ids}`)
+      }
+      assert.deepEqual(opens(o, d, { x: s.x, z: s.z, phase: 'stay', room: 'kitchen' }), [], `${name}: ${d.id}: in the stay at a chat spot`)
+      n++
+    }
+  }
+  assert.ok(n > 0)
 })
 
 test('the kitchen has 2 or more chairs at its tables, inside the room, off the walk rects of the other chairs, and apart', () => {
@@ -784,7 +913,7 @@ test('a walker to a game place opens only its own door and the door of the game 
 })
 
 // ---- the demo ----
-test('the demo has two long-idle agents in different rooms: time for a trip, a trip that a status change cuts short, and a game of the two', () => {
+test('the demo has long-idle agents in different rooms: time for a trip, a trip that a status change cuts short, a game, and a chat', () => {
   const N = 700, ticks = Array.from({ length: N }, (_, t) => demoSnapshot(t)), o = buildOffice(ticks[0], demoMeetings(0))
   const kitchen = o.rooms.find(r => r.kind === 'kitchen'), party = o.rooms.find(r => r.kind === 'party')
   assert.ok(party, 'the demo has a party room')
@@ -804,8 +933,8 @@ test('the demo has two long-idle agents in different rooms: time for a trip, a t
   assert.ok(Math.max(...starts) - Math.min(...starts) >= 30, `the idle stretches start apart: ${starts}`)
   // Run the breaks of each agent desk as office.js does, 10 frames a second. The other agents never idle long enough for a trip.
   const places = o.games.flatMap((g) => g.places.map((p) => [p, g.room])), trips = new Map(), claimed = new Map()
-  const spots = { kitchen: kitchen.spots.length, lunch: kitchen.chairs.length, party: party.spots.length }, tables = o.games.map((g) => g.kind)
-  const to = { kitchen: (j) => [kitchen.spots[j], 'kitchen'], lunch: (j) => [kitchen.chairs[j], 'kitchen'], party: (j) => [party.spots[j], 'party'], game: (j) => places[j] }
+  const spots = { kitchen: kitchen.spots.length, lunch: kitchen.chairs.length, party: party.spots.length, chat: kitchen.chat.length }, tables = o.games.map((g) => g.kind)
+  const to = { kitchen: (j) => [kitchen.spots[j], 'kitchen'], lunch: (j) => [kitchen.chairs[j], 'kitchen'], party: (j) => [party.spots[j], 'party'], game: (j) => places[j], chat: (j) => [kitchen.chat[j], 'kitchen'] }
   const desks = o.desks.filter((d) => d.agent && !d.away), last = new Map(), done = new Map(), games = []
   let cut = 0
   for (let i = 0; i < N * 10; i++) {
@@ -814,13 +943,15 @@ test('the demo has two long-idle agents in different rooms: time for a trip, a t
       const idle = snap.agents.find((a) => a.pane_id === d.id).agent_status === 'idle', seed = hash(d.terminalId, 1e9)
       const r = stepBreak(trips, claimed, d.id, { idle, seed, spots, tables, route: (kind, j) => route(o, d.id, ...to[kind](j)) }, t), prev = last.get(d.id)
       if (!r && prev) prev.trip.rush == null ? done.set(d.id, (done.get(d.id) ?? 0) + 1) : cut++ // back at the desk: a full trip, or a run back
-      if (r?.play && !prev?.play) games.push([d.id, r.trip.partner])
+      if (r?.play && !prev?.play) games.push([d.id, r.trip.partner, r.trip.room])
       last.set(d.id, r)
     }
   }
   for (const d of long) assert.ok(done.get(d.id) >= 1, `${d.id}: no full trip in ${N} s`)
   assert.ok(cut >= 1, 'a status change catches a worker on a trip')
-  assert.ok(games.some(([a, b]) => long.some((d) => d.id === a) && long.some((d) => d.id === b)), 'the two long-idle agents play a game')
+  const of = (kind) => games.some(([a, b, room]) => room === kind && long.some((d) => d.id === a) && long.some((d) => d.id === b))
+  assert.ok(of('game'), 'two long-idle agents play a game')
+  assert.ok(of('chat'), 'two long-idle agents chat')
 })
 
 test('candleSpots: corridor candelabra stand clear of the edges, doors, junction mouths, and every route', () => {
@@ -885,4 +1016,68 @@ test('flash returns the power of the flash that holds the time', () => {
   for (const s of [0, 0.05]) assert.equal(flash(plan, s), 1, `s ${s}`)
   assert.equal(flash(plan, 0.45), 0.6)
   for (const s of [0.1, 0.2, 0.39, 0.5, -1]) assert.equal(flash(plan, s), 0, `s ${s}`)
+})
+
+test('stepBreak: in a chat exactly one worker talks at each time, the waiter first, and each turn lasts 2 to 3 s', () => {
+  const { w, a } = cpair(), both = (t) => [cstep(w, t, 'a').talk, jstep(w, t, 'b').talk], turns = []
+  assert.deepEqual(both(a.begin + 0.001), [true, false], 'the waiter talks first')
+  let last = true, from = a.begin
+  for (let t = a.begin + 0.001; t < a.end; t += 0.01) {
+    const [x, y] = both(t)
+    assert.notEqual(x, y, `one worker talks at ${t}`)
+    if (x !== last) { turns.push(t - from); from = t; last = x }
+  }
+  assert.ok(turns.length >= 2, `${turns.length} full turns`)
+  for (const u of turns) assert.ok(u >= 2 - 0.02 && u <= 3 + 0.02, `a turn of ${u} s`)
+})
+
+test('stepBreak: the turn length differs from one chat to the next, and each lies in 2 to 3 s', () => {
+  const lens = [1, 3, 5, 7].map((late) => { // b joins late s after a arrives, so each chat begins at another time
+    const w = world()
+    cstep(w, 0, 'a'); jstep(w, 0, 'b')
+    const a = cstep(w, 100, 'a').trip, b = jstep(w, arrive(a) + late, 'b').trip
+    const flips = []
+    for (let t = b.begin + 0.001, last = true; t < b.end; t += 0.01) { const x = cstep(w, t, 'a').talk; if (x !== last) { flips.push(t); last = x } }
+    assert.ok(flips.length >= 2, `late ${late}: ${flips.length} flips`)
+    return flips[1] - flips[0]
+  })
+  for (const u of lens) assert.ok(u >= 2 - 0.02 && u <= 3 + 0.02, `a turn of ${u} s`)
+  assert.ok(Math.max(...lens) - Math.min(...lens) > 0.05, `the turn lengths ${lens.map((u) => u.toFixed(2))} are all equal`)
+})
+
+test('stepBreak: no talk for a waiter alone, before the chat begins, after its end, or in a game', () => {
+  { const { w, a } = cpair()
+    assert.deepEqual([cstep(w, a.begin - 0.1, 'a').talk, jstep(w, a.begin - 0.1, 'b').talk], [false, false])
+    assert.deepEqual([cstep(w, a.end + 0.1, 'a').talk, jstep(w, a.end + 0.1, 'b').talk], [false, false]) }
+  { const w = world()
+    cstep(w, 0, 'a')
+    const a = cstep(w, 100, 'a').trip
+    assert.equal(cstep(w, arrive(a) + 5, 'a').talk, false) }
+  { const { w, a } = pair()
+    const r = gstep(w, a.begin + 0.1, 'a')
+    assert.deepEqual([r.play, r.talk], [true, false]) }
+})
+
+test('stepBreak: a joiner that arrives first does not talk until the waiter arrives', () => {
+  const w = world(), near = { route: () => [[0, 0], [0, 4]] }
+  cstep(w, 0, 'a'); jstep(w, 0, 'b', near)
+  const a = cstep(w, 100, 'a').trip // a walks 10 s
+  jstep(w, 101, 'b', near) // b walks 2.5 s
+  const both = (t) => [cstep(w, t, 'a').talk, jstep(w, t, 'b', near).talk]
+  assert.deepEqual(both(105), [false, false])
+  assert.deepEqual(both(a.begin + 0.001), [true, false])
+})
+
+test('stepBreak: two trips that start in one frame still give one talker', () => {
+  const w = world()
+  cstep(w, 0, 'a'); jstep(w, 0, 'b')
+  const a = cstep(w, 100, 'a').trip, b = jstep(w, 100, 'b').trip
+  assert.equal(a.start, b.start)
+  assert.deepEqual([cstep(w, a.begin + 0.001, 'a').talk, jstep(w, a.begin + 0.001, 'b').talk], [true, false])
+})
+
+test('stepBreak: a joiner whose waiter rushes on its way never talks', () => {
+  const { w, b } = cpair(), tr = b.start + 2
+  cstep(w, tr, 'a', { idle: false })
+  for (let t = tr; t < arrive(b) + OUT; t += 0.1) { const r = jstep(w, t, 'b'); assert.ok(!r?.talk, `b talks at ${t}`) }
 })

@@ -80,7 +80,8 @@ function walkRects(r, desks) {
   const door = [R(x - LANE, r.door.z, x + LANE, j), R(Math.min(x, y) - LANE, j - LANE, Math.max(x, y) + LANE, j + LANE)] // through the door, the sidestep
   if (r.kind === 'kitchen' || r.kind === 'party') { // the door lane, then the strip in front of the counter or the dance floor
     const z = r.kind === 'kitchen' ? kitchenZ(r) : partyZ(r), seats = r.chairs ?? [], xs = [y, ...r.spots.map(p => p.x), ...seats.map(c => c.x)], zs = [z, ...r.spots.map(p => p.z)]
-    return [...door, R(Math.min(...xs) - LANE, Math.min(...zs) - LANE, Math.max(...xs) + LANE, Math.max(...zs) + LANE), R(y - LANE, j, y + LANE, z), ...seats.map(c => R(c.x - LANE, z, c.x + LANE, c.z))] // the strip and the spots, the door lane, the chair lanes
+    const [c0, c1] = r.chat ?? [] // the cooler talkers: this rect keeps props off their backs
+    return [...door, R(Math.min(...xs) - LANE, Math.min(...zs) - LANE, Math.max(...xs) + LANE, Math.max(...zs) + LANE), R(y - LANE, j, y + LANE, z), ...seats.map(c => R(c.x - LANE, z, c.x + LANE, c.z)), ...(c0 ? [R(c0.x - 0.15, c0.z - 0.4, c1.x + 0.15, c0.z)] : [])] // the strip and the spots, the door lane, the chair lanes, the backs of the talkers
   }
   const x0 = Math.min(y - LANE, ...r.pods.map(p => p.x)), x1 = Math.max(y + LANE, ...r.pods.map(p => p.x + p.w + 0.7))
   return r.pods.flatMap(p => {
@@ -376,6 +377,11 @@ export function buildOffice(snap, meetings = [], prev = null) {
   const off = kit.door.side === 'north' ? 1.3 : 2.1
   kit.tables = [-off, off].map((x) => ({ x: kit.x + kit.w / 2 + x, z: kit.z + kit.d / 2 + 0.3 }))
   kit.chairs = kit.tables.flatMap((t, i) => [{ x: t.x - 0.8, z: t.z, rot: 3, table: i }, { x: t.x + 0.8, z: t.z, rot: 1, table: i }])
+  // Two workers chat at the water cooler on the north wall, east of the counter: 0.9 apart, 1.1 from the wall, the west spot 0.9
+  // east of the door lane. They face each other (rot 3 and 1), and the cooler origin stands between them, 0.2 from the wall.
+  // A talker reaches 0.39 along z, as a walker on the strip does, and the strip is 1.9 from the wall. So a talker needs z 1.1 or less.
+  kit.chat = [0, 0.9].map((dx, i) => ({ x: stepX(kit) + 0.9 + dx, z: kit.z + 1.1, rot: 3 - 2 * i }))
+  kit.cooler = { x: stepX(kit) + 1.35, z: kit.z + 0.2 }
   // The party room: a front row of dance spots 2.0 apart, 0.5 to the door side of the room middle, then a back row 1.0 deeper with
   // each spot between two front spots. The dance floor reaches from the strip to 1.0 behind the back row, in whole 1 x 1 tiles.
   // The DJ booth stands behind the floor, and its front faces the dancers and the door.
@@ -432,7 +438,7 @@ export function buildOffice(snap, meetings = [], prev = null) {
 // ---- Idle breaks: how long a worker walks and waits. The scene draws it, the model keeps the numbers pure. ----
 
 export const WALK = 1.6, RUN = 4 // world units a second
-export const WAIT = 20 // a worker at a game table waits this long (s) after it arrives. If nobody joins in that time, it walks back
+export const WAIT = 20 // a worker at a game table or the cooler waits this long (s) after it arrives. If nobody joins in that time, it walks back
 // How free the arms of a walker are, from the distance to the nearest door center: 0 up to 1.4, 1 from 2.0. An open leaf reaches 0.96
 // into the room, so near a door the arms hang and the mug hand stays low (stroll() in office.js).
 export const calm = (dd) => Math.min(1, Math.max(0, (dd - 1.4) / 0.6))
@@ -501,7 +507,7 @@ export function ghostAt(g, s) {
 
 // The browse wait before trip n, the stay, and the lunch stay, in seconds, for one idle stretch. The first trip comes sooner.
 // pick: a number in [0, 1) that picks the first kind of trip n in stepBreak(). game: a number in [0, 1) that sets the game time of a
-// waiter (chess 30 to 60 s, ping-pong 20 to 40 s). Each value has its own index i, so a new value keeps the others. The index 2 held
+// waiter (chess 30 to 60 s, ping-pong 20 to 40 s). chat: the chat time in seconds (10 to 25) of a waiter at the cooler. Each value has its own index i, so a new value keeps the others. The index 2 held
 // the old party coin.
 export function breakPlan(seed, n) {
   const u = (i) => { // a mixed number in [0, 1) for each plan value i
@@ -510,7 +516,7 @@ export function breakPlan(seed, n) {
     return ((h ^ (h >>> 13)) >>> 0) / 4294967296
   }
   const [lo, hi] = n ? [20, 60] : [5, 30]
-  return { wait: lo + u(0) * (hi - lo), stay: 6 + u(1) * 9, lunch: 20 + u(3) * 20, pick: u(6), game: u(7) }
+  return { wait: lo + u(0) * (hi - lo), stay: 6 + u(1) * 9, lunch: 20 + u(3) * 20, pick: u(6), game: u(7), chat: 10 + u(8) * 15 }
 }
 
 // The point at distance s on a polyline (s is clamped) and the unit direction of its segment.
@@ -542,16 +548,18 @@ export const pathLen = (path) => path.slice(1).reduce((s, q, i) => s + Math.hypo
 
 // The trip bookkeeping of one worker, once a frame. trips: desk id -> { n, next, trip }, n is the next trip, next is when it starts
 // and trip is the one that runs now. claimed: '<kind>:<spot index>' -> desk id, so two workers never take one spot.
-// idle: the worker may take a break. spots: the spot count of each kind, { kitchen, lunch, party }: the counter spots, the kitchen
-// chairs, and the dance spots. A missing or 0 count means that the office has no such spot. tables: the kind of each game table
+// idle: the worker may take a break. spots: the spot count of each kind, { kitchen, lunch, party, chat }: the counter spots, the
+// kitchen chairs, the dance spots, and the chat spots at the cooler (2). A missing or 0 count means that the office has no such spot. tables: the kind of each game table
 // (office.games), or missing. Table t has the places 2t (west) and 2t + 1 (east), so the kind 'game' has 2 * tables.length places.
 // route(kind, i): the path to spot i of kind.
-// Returns { s, phase, got, play, trip } for a worker on a trip, or null for a worker at the desk. trip.room is the kind: 'kitchen',
-// 'lunch', 'party', or 'game'. play: true while two players play their game.
-// A game trip also has table, partner (the desk id of the other player, or null), and begin and end (the game times, or null).
-// A worker that starts a trip first looks for a waiter: a worker alone at a table, with no rush, in its first WAIT s at the table.
-// It then takes the other place of that table, whatever its pick. The game begins when the later player arrives, and lasts the game
-// time of the waiter. Both stays end at the game end. A waiter that nobody joins stays WAIT s. A rush of one player ends the game of
+// Returns { s, phase, got, play, talk, trip } for a worker on a trip, or null for a worker at the desk. trip.room is the kind: 'kitchen',
+// 'lunch', 'party', 'game', or 'chat'. play: true while two players play their game or two workers chat. talk: true while play is true in
+// a chat and it is the turn of this worker. A turn lasts 2 + hash(begin) / 100 s, and the waiter (trip.first) talks in the even turns.
+// A game or chat trip also has partner (the desk id of the other worker, or null), begin and end (null until a join), and time (the
+// game or chat time of the waiter). A game trip has table too.
+// A worker that starts a trip first looks for a waiter: a worker alone at a table or at the cooler, with no rush, in its first WAIT s
+// there. It then takes the other place of that pair, whatever its pick. The game or chat begins when the later worker arrives, and
+// lasts the time of the waiter. Both stays end at the game end. A waiter that nobody joins stays WAIT s. A rush of one player ends the game of
 // the other: its stay ends now, or at its arrival.
 export function stepBreak(trips, claimed, id, { idle, seed, spots, route, tables = [] }, t) {
   let b = trips.get(id)
@@ -562,34 +570,36 @@ export function stepBreak(trips, claimed, id, { idle, seed, spots, route, tables
   if (!b.trip) {
     if (!idle) return trips.delete(id), null
     if (t < b.next) return null
-    const count = { ...spots, game: 2 * tables.length }, open = (room, j) => !claimed.has(`${room}:${j}`) && (room !== 'game' || !claimed.has(`game:${j ^ 1}`))
-    const free = (room) => { // a free spot of the kind, from a start that differs for each worker. A free game place has a free table
+    const count = { ...spots, game: 2 * tables.length }, open = (room, j) => !claimed.has(`${room}:${j}`) && (room !== 'game' && room !== 'chat' || !claimed.has(`${room}:${j ^ 1}`))
+    const free = (room) => { // a free spot of the kind, from a start that differs for each worker. A free game or chat place has a free pair
       const n = count[room] ?? 0, i = Array.from({ length: n }, (_, j) => (j + seed) % n).find((j) => open(room, j))
       return i === undefined ? null : [room, i]
     }
     const plan = breakPlan(seed, b.n)
     let pick = null, mate = null
-    for (let k = 0; k < tables.length && !pick; k++) { // a waiter first: one place of table k is taken, the other is free
-      const [w, e] = [2 * k, 2 * k + 1].map((j) => claimed.get(`game:${j}`))
+    const pairs = [...tables.map((_, k) => ['game', 2 * k]), ...(spots.chat > 0 ? [['chat', 0]] : [])] // the pairs of places: a game table, the cooler
+    for (const [kind, j] of pairs) { // a waiter first: one place of the pair is taken, the other is free
+      const [w, e] = [j, j + 1].map((x) => claimed.get(`${kind}:${x}`))
       if ((w === undefined) === (e === undefined)) continue
       const other = trips.get(w ?? e)?.trip
-      if (other?.partner === null && other.rush == null && t < arrive(other) + WAIT) { pick = ['game', w === undefined ? 2 * k : 2 * k + 1]; mate = w ?? e }
+      if (other?.partner === null && other.rush == null && t < arrive(other) + WAIT) { pick = [kind, w === undefined ? j : j + 1]; mate = w ?? e; break }
     }
-    if (!pick) { // plan.pick picks the first kind. A full kind sends the worker to the next kind in the order kitchen, lunch, party, game.
-      const kinds = ['kitchen', 'lunch', 'party', 'game'].filter((k) => count[k] > 0), first = kinds.splice(Math.floor(plan.pick * kinds.length), 1)
+    if (!pick) { // plan.pick picks the first kind. A full kind sends the worker to the next kind in the order kitchen, lunch, party, game, chat.
+      const kinds = ['kitchen', 'lunch', 'party', 'game', 'chat'].filter((k) => count[k] > 0), first = kinds.splice(Math.floor(plan.pick * kinds.length), 1)
       pick = [...first, ...kinds].map(free).find(Boolean)
     }
     if (!pick) { b.next = t + breakPlan(seed, ++b.n).wait; return null } // no free spot: keep browsing
     const [room, i] = pick, path = route(room, i)
     claimed.set(`${room}:${i}`, id)
-    b.trip = { len: pathLen(path), start: t, stay: room === 'lunch' ? plan.lunch : room === 'game' ? WAIT : plan.stay, path, room, spot: `${room}:${i}`, got: false }
-    if (room === 'game') {
-      const k = i >> 1, game = tables[k] === 'chess' ? 30 + 30 * plan.game : 20 + 20 * plan.game // the game time, if this worker is the waiter
-      Object.assign(b.trip, { table: k, partner: null, begin: null, end: null, game })
-      if (mate !== null) { // the join: both stays end at the game end
-        const other = trips.get(mate).trip, begin = Math.max(arrive(other), arrive(b.trip)), end = begin + other.game
-        Object.assign(other, { partner: id, begin, end, stay: end - arrive(other) })
-        Object.assign(b.trip, { partner: mate, begin, end, stay: end - arrive(b.trip), game: other.game })
+    b.trip = { len: pathLen(path), start: t, stay: room === 'lunch' ? plan.lunch : room === 'game' || room === 'chat' ? WAIT : plan.stay, path, room, spot: `${room}:${i}`, got: false }
+    if (room === 'game' || room === 'chat') {
+      const time = room === 'chat' ? plan.chat : tables[i >> 1] === 'chess' ? 30 + 30 * plan.game : 20 + 20 * plan.game // the game or chat time, if this worker is the waiter
+      Object.assign(b.trip, { partner: null, begin: null, end: null, time })
+      if (room === 'game') b.trip.table = i >> 1
+      if (mate !== null) { // the join: both stays end at the same time
+        const other = trips.get(mate).trip, begin = Math.max(arrive(other), arrive(b.trip)), end = begin + other.time
+        Object.assign(other, { partner: id, begin, end, stay: end - arrive(other), first: true })
+        Object.assign(b.trip, { partner: mate, begin, end, stay: end - arrive(b.trip), time: other.time })
       }
     }
   }
@@ -604,7 +614,8 @@ export function stepBreak(trips, claimed, id, { idle, seed, spots, route, tables
     return null
   }
   if (phase === 'stay' && trip.room === 'kitchen') trip.got = true // the mug at the counter. A lunch and a dance get none
-  return { s, phase, got: trip.got, play: inPlay(trip, phase, t), trip }
+  const play = inPlay(trip, phase, t)
+  return { s, phase, got: trip.got, play, talk: play && trip.room === 'chat' && ((t - trip.begin) / (2 + hash(String(trip.begin), 100) / 100) | 0) % 2 === (trip.first ? 0 : 1), trip }
 }
 
 // True while two players play their game: the trip is in its stay, between begin and end.
@@ -663,12 +674,13 @@ const DEMO_TABS = { 'w1:t1': 'server', 'w2:t1': 'app', 'w2:t2': 'tests', 'w3:t1'
 // pane id, tab id, agent kind (null = shell), rect [x, y, w, h] in cells inside AREA, status phase, agent name, long idle.
 // Outside the focused tab w1:t1, phases 0, 3, 6 and 9 sit one cycle step apart, so every tick shows all four CYCLE statuses.
 // The focused tab never shows done. Its phases give the idle agent while w4:p1 is still unknown.
-// A long-idle agent ([idle ticks, start tick in its cycle]) ignores the phase: it idles for a long time, so it goes on kitchen
-// and party trips. Then it works 20 s, waits for the user 15 s and finishes 15 s. The two idle times differ, so one trip finishes and a
-// status change cuts the other short. Their kitchen routes are 55 to 76 units long: a full kitchen trip takes about 100 s. A party trip is shorter.
+// A long-idle agent ([idle ticks, start tick in its cycle]) ignores the phase: it idles for a long time, so it goes on kitchen,
+// party, game, and chat trips. Three of them idle, because with two the fifth kind would hide the games.
+// Then it works 20 s, waits for the user 15 s and finishes 15 s. The idle times differ, so one trip finishes and a
+// status change cuts another short. Their kitchen routes are 55 to 76 units long: a full kitchen trip takes about 100 s. A party trip is shorter.
 const DEMO_PANES = [
   ['w1:p1', 'w1:t1', 'claude', [0, 0, 100, 30], 1, 'lead'],
-  ['w1:p2', 'w1:t1', 'codex', [100, 0, 100, 30], 5],
+  ['w1:p2', 'w1:t1', 'codex', [100, 0, 100, 30], 5, null, [200, 170]],
   ['w1:p3', 'w1:t1', null, [0, 30, 100, 30]],
   ['w1:p4', 'w1:t1', 'gemini', [100, 30, 100, 30], 10],
   ['w2:p1', 'w2:t1', 'opencode', [0, 0, 100, 60], 6],

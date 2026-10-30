@@ -61,7 +61,7 @@ Each frame, `renderer.setAnimationLoop()` runs these calls in this order:
 
 ```text
 follow -> tour -> goal glide -> zoom glide -> controls.update() -> keepInView() -> label font size
-  -> moving = false, dancing = false, ajar.clear()
+  -> moving = false, dancing = false, bubble hidden, ajar.clear()
   -> pose(v, t) for each view with a desk
        breaks() -> stepBreak(), along()     where a worker on a trip is, and its target room
        typing() or browse()                 the screen
@@ -140,7 +140,9 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - building: the whole office for one herdr session. `office.bounds` holds its size, and `office.entrance` is the entrance in the south outer wall.
 - room: an entry of `office.rooms`, with `kind` `workspace`, `meeting`, `kitchen`, `party`, or `lobby`.
 - workspace room: the room of one herdr workspace (`kind: 'workspace'`, the id is the workspace id). The rooms follow the workspace `number`.
-- kitchen: the room with the counter (`room.counter`) and the standing spots (`room.spots`). `kitchen()` in `decor.js` draws it.
+- cooler: the water cooler on the north wall of the kitchen (`room.cooler`). Two workers chat in front of it.
+- chat spot: one of the two places in front of the cooler (`room.chat`). This is not the chat window (`#chat`, the transcript of one agent).
+- kitchen: the room with the counter (`room.counter`), the standing spots (`room.spots`), the cooler (`room.cooler`), and the chat spots (`room.chat`). `kitchen()` in `decor.js` draws it.
 - lobby: the last room (`rooms.at(-1)`), with the reception and the entrance. `lobby()` in `decor.js` draws it.
 - party room: the room with the id `party` in the spare width of one row, if that width is 7 or more. It has the dance spots (`room.spots`), the dance floor (`room.floor`), and the DJ booth (`room.booth`). `party()` in `decor.js` draws it.
 - meeting room: one room for each entry of `meetings` (id `meeting:<sessionId>`), or one empty room with the id `meeting`. It has `table` and `seats`.
@@ -162,13 +164,16 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - live: the `Set` of objects that `bake()` does not merge, because their look changes after the build.
 - tags: the label elements that `declutter()` checks, highest priority first. `update()` fills it.
 - bake: `bake()` merges the static meshes of a build into one mesh for each material.
-- route: the path `[[x, z], ...]` from the worker seat to a spot in the kitchen, the party room, or at a game table, from `route()` in `model.js`.
+- route: the path `[[x, z], ...]` from the worker seat to a spot in the kitchen (a counter spot, a chair, or a chat spot), the party room, or at a game table, from `route()` in `model.js`.
 - lane: a strip of floor that a route follows: the lane behind the desk row, the row lane (`laneZ()`), and the door lane (`stepX()`). A walk rect reaches `LANE` (0.3) to each side of a route line.
-- spot: a standing place at the end of a trip, an entry of `room.spots`: in front of the kitchen counter, or a dance spot in the party room. One worker holds a spot at a time (`claimed`).
+- spot: a standing place at the end of a trip, an entry of `room.spots`: in front of the kitchen counter, a dance spot in the party room, or a chat spot at the water cooler. One worker holds a spot at a time (`claimed`).
 - dance spot: a standing place on the dance floor of the party room, an entry of `room.spots` of that room. The spots stand in a front row and a back row, 2.0 apart in a row.
-- trip: one walk to a spot in the kitchen, the party room, or at a game table and back, `trips.get(deskId).trip`. `trip.room` is `kitchen`, `lunch`, `party`, or `game`, and `breakPlan().pick` picks the first kind. A worker that joins a waiter at a game table takes the kind `game`, whatever its pick. Its phases are `out`, `stay`, `back`, `rush`, and `done` (`tripAt()`).
+- bubble: the one speech bubble of the office. It shows over the talker of a cooler chat, and the frame loop hides it each frame.
+- talker: the worker whose turn it is in a cooler chat (`a.talk`). It waves the right hand, and the bubble shows over it.
+- trip: one walk to a spot in the kitchen, the party room, at a game table, or at the water cooler, and back, `trips.get(deskId).trip`. `trip.room` is `kitchen`, `lunch`, `party`, `game`, or `chat`, and `breakPlan().pick` picks the first kind. A worker that joins a waiter at a game table takes the kind `game`, whatever its pick. The same holds at the cooler for the kind `chat`. Its phases are `out`, `stay`, `back`, `rush`, and `done` (`tripAt()`).
 - rush: the run back at `RUN` (4) when the status leaves `idle` during a trip. `trip.rush` holds the start time of the run.
-- claimed: the `Map` from a spot key `'<room>:<index>'` (for example `'kitchen:0'` or `'party:3'`) to the desk id that holds the spot. `stepBreak()` and `endBreak()` change it.
+- waiter: a worker alone at a game table or at the water cooler, with no partner and no rush, in its first `WAIT` s after it arrives. A new trip joins it, whatever its pick (`stepBreak()`).
+- claimed: the `Map` from a spot key `'<room>:<index>'` (for example `'kitchen:0'`, `'party:3'`, or `'chat:1'`) to the desk id that holds the spot. `stepBreak()` and `endBreak()` change it.
 - lay: the JSON of the route inputs in `update()`. A change clears `trips` and `claimed`, so every trip ends.
 - browse: the idle screen at the desk, a fake web page or a video, from `browse()`.
 - ajar: the `Set` of room ids whose door a walker opens in this frame. `pose()` fills it from `opens()`, and `swing()` reads it.
