@@ -1015,3 +1015,53 @@ test('flash returns the power of the flash that holds the time', () => {
   assert.equal(flash(plan, 0.45), 0.6)
   for (const s of [0.1, 0.2, 0.39, 0.5, -1]) assert.equal(flash(plan, s), 0, `s ${s}`)
 })
+
+test('stepBreak: in a chat exactly one worker talks at each time, the waiter first, and each turn lasts 2 to 3 s', () => {
+  const { w, a } = cpair(), both = (t) => [cstep(w, t, 'a').talk, jstep(w, t, 'b').talk], turns = []
+  assert.deepEqual(both(a.begin + 0.001), [true, false], 'the waiter talks first')
+  let last = true, from = a.begin
+  for (let t = a.begin + 0.001; t < a.end; t += 0.01) {
+    const [x, y] = both(t)
+    assert.notEqual(x, y, `one worker talks at ${t}`)
+    if (x !== last) { turns.push(t - from); from = t; last = x }
+  }
+  assert.ok(turns.length >= 2, `${turns.length} full turns`)
+  for (const u of turns) assert.ok(u >= 2 - 0.02 && u <= 3 + 0.02, `a turn of ${u} s`)
+})
+
+test('stepBreak: no talk for a waiter alone, before the chat begins, after its end, or in a game', () => {
+  { const { w, a } = cpair()
+    assert.deepEqual([cstep(w, a.begin - 0.1, 'a').talk, jstep(w, a.begin - 0.1, 'b').talk], [false, false])
+    assert.deepEqual([cstep(w, a.end + 0.1, 'a').talk, jstep(w, a.end + 0.1, 'b').talk], [false, false]) }
+  { const w = world()
+    cstep(w, 0, 'a')
+    const a = cstep(w, 100, 'a').trip
+    assert.equal(cstep(w, arrive(a) + 5, 'a').talk, false) }
+  { const { w, a } = pair()
+    const r = gstep(w, a.begin + 0.1, 'a')
+    assert.deepEqual([r.play, r.talk], [true, false]) }
+})
+
+test('stepBreak: a joiner that arrives first does not talk until the waiter arrives', () => {
+  const w = world(), near = { route: () => [[0, 0], [0, 4]] }
+  cstep(w, 0, 'a'); jstep(w, 0, 'b', near)
+  const a = cstep(w, 100, 'a').trip // a walks 10 s
+  jstep(w, 101, 'b', near) // b walks 2.5 s
+  const both = (t) => [cstep(w, t, 'a').talk, jstep(w, t, 'b', near).talk]
+  assert.deepEqual(both(105), [false, false])
+  assert.deepEqual(both(a.begin + 0.001), [true, false])
+})
+
+test('stepBreak: two trips that start in one frame still give one talker', () => {
+  const w = world()
+  cstep(w, 0, 'a'); jstep(w, 0, 'b')
+  const a = cstep(w, 100, 'a').trip, b = jstep(w, 100, 'b').trip
+  assert.equal(a.start, b.start)
+  assert.deepEqual([cstep(w, a.begin + 0.001, 'a').talk, jstep(w, a.begin + 0.001, 'b').talk], [true, false])
+})
+
+test('stepBreak: a joiner whose waiter rushes on its way never talks', () => {
+  const { w, b } = cpair(), tr = b.start + 2
+  cstep(w, tr, 'a', { idle: false })
+  for (let t = tr; t < arrive(b) + OUT; t += 0.1) { const r = jstep(w, t, 'b'); assert.ok(!r?.talk, `b talks at ${t}`) }
+})

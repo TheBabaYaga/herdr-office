@@ -208,6 +208,7 @@ CLAUDE.md gives the contracts of `along()`, `tripAt()`, and `pathLen()`.
 - A waiter that nobody joins stays `WAIT` s and walks back.
 - A rush of a player with a partner ends the game of the partner (`quit()`): its `end` becomes the rush time, and its stay ends then, or at its arrival if that is later. The partner walks back, not runs, and keeps its `partner`, so nobody joins it again. After the game end, both players already walk back, so a rush or `endBreak()` of one player does not change the other.
 - It returns `play`: true in the `stay` while `begin <= t < end`. A waiter alone never plays.
+- It returns `talk`: true only in a chat, while `play` is true and it is the turn of this worker. A turn lasts `2 + hash(String(begin), 100) / 100` s (2 to 3 s), counted from `begin`, the later arrival. The join sets `first: true` on the waiter, and the waiter talks in the even turns. So exactly one of the two talks at each time, also when both trips start in one frame.
 - `trip.room` is the kind, so a lunch trip has `room: 'lunch'`. `office.js` gives `opens()` the room id `kitchen` for it. For a game trip, `opens()` needs the room of the table: `o.games[trip.table].room`.
 - A lunch trip stays `plan.lunch` (20 to 40 s). A game or chat trip stays `WAIT` until a join. The other trips stay `plan.stay`.
 - The spot search of a kind starts at `seed % n`, with `n` the spot count of that kind, so `seed` must be a non-negative integer.

@@ -550,8 +550,9 @@ export const pathLen = (path) => path.slice(1).reduce((s, q, i) => s + Math.hypo
 // kitchen chairs, the dance spots, and the chat spots at the cooler (2). A missing or 0 count means that the office has no such spot. tables: the kind of each game table
 // (office.games), or missing. Table t has the places 2t (west) and 2t + 1 (east), so the kind 'game' has 2 * tables.length places.
 // route(kind, i): the path to spot i of kind.
-// Returns { s, phase, got, play, trip } for a worker on a trip, or null for a worker at the desk. trip.room is the kind: 'kitchen',
-// 'lunch', 'party', 'game', or 'chat'. play: true while two players play their game or two workers chat.
+// Returns { s, phase, got, play, talk, trip } for a worker on a trip, or null for a worker at the desk. trip.room is the kind: 'kitchen',
+// 'lunch', 'party', 'game', or 'chat'. play: true while two players play their game or two workers chat. talk: true while play is true in
+// a chat and it is the turn of this worker. A turn lasts 2 + hash(begin) / 100 s, and the waiter (trip.first) talks in the even turns.
 // A game or chat trip also has partner (the desk id of the other worker, or null), begin and end (null until a join), and time (the
 // game or chat time of the waiter). A game trip has table too.
 // A worker that starts a trip first looks for a waiter: a worker alone at a table or at the cooler, with no rush, in its first WAIT s
@@ -595,7 +596,7 @@ export function stepBreak(trips, claimed, id, { idle, seed, spots, route, tables
       if (room === 'game') b.trip.table = i >> 1
       if (mate !== null) { // the join: both stays end at the same time
         const other = trips.get(mate).trip, begin = Math.max(arrive(other), arrive(b.trip)), end = begin + other.time
-        Object.assign(other, { partner: id, begin, end, stay: end - arrive(other) })
+        Object.assign(other, { partner: id, begin, end, stay: end - arrive(other), first: true })
         Object.assign(b.trip, { partner: mate, begin, end, stay: end - arrive(b.trip), time: other.time })
       }
     }
@@ -611,7 +612,8 @@ export function stepBreak(trips, claimed, id, { idle, seed, spots, route, tables
     return null
   }
   if (phase === 'stay' && trip.room === 'kitchen') trip.got = true // the mug at the counter. A lunch and a dance get none
-  return { s, phase, got: trip.got, play: inPlay(trip, phase, t), trip }
+  const play = inPlay(trip, phase, t)
+  return { s, phase, got: trip.got, play, talk: play && trip.room === 'chat' && ((t - trip.begin) / (2 + hash(String(trip.begin), 100) / 100) | 0) % 2 === (trip.first ? 0 : 1), trip }
 }
 
 // True while two players play their game: the trip is in its stay, between begin and end.
