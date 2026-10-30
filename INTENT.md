@@ -217,6 +217,18 @@ The user made these decisions between 2026-10-03 and 2026-10-29.
     - Later, x, and Escape close the dialog. The notice then shows in the bottom-right corner. A click on the notice opens the dialog again.
     - The notice stays until herdr-office runs the new version. Only a newer version counts, so an older version shows nothing.
     - A failed check (no network, a status that is not 200, a bad tag, or a timeout) changes nothing and shows nothing.
+39. A water-cooler chat, from issue TheBabaYaga/herdhouse#6. The issue gives the reason: "Each break is now a thing that a worker does alone, except a game in a big room. A small office has no game tables, so its workers never meet." The user approved the look on 30 October 2026: "I approve the look". The spec is `.local/specs/2026-10-30-water-cooler-chat.md`, in the checkout of the user only.
+    - A chat is a fifth trip kind, next to a coffee, a lunch, a dance, and a game. Each kind that an office has gets about the same chance. The main session chose this answer to the open question of the issue, and the user kept it.
+    - So an office with all kinds gives each kind about one chance in five. A small office with no party room and no game table gives a coffee, a lunch, and a chat about one chance in three each.
+    - A worker that picks a chat walks to the cooler and waits up to 20 s after it arrives. While it waits, the next idle worker that starts a trip joins it, whatever its own pick. If nobody comes, the waiter walks back.
+    - A new trip always joins a waiter, so a chat waiter and a game waiter never wait at the same time. So the second open question of the issue does not arise.
+    - A chat lasts 10 to 25 s. Both workers walk back at the end. If the status of one worker leaves `idle`, it runs back, and the chat of the other ends.
+    - The two workers stand 0.9 apart and face each other. A white bubble with three dark dots shows over one worker, then over the other, every 2 to 3 s. The waiter talks first. The bubble holds no text.
+    - The talker moves the hand on the camera side a little. Each arm angle stays at 1.5 or less, because a raised hand means `blocked`.
+    - The model places the cooler and the chat spots, so each kitchen has a cooler. A chat walker opens its own door and the kitchen door, as a lunch walker does.
+    - The main session moved the fridge to the west wall in a kitchen with a north door. A fridge east of the cooler hides the cooler from the camera, and the east wall hides a fridge in the east corner.
+    - The main session made `w1:p2` a third long-idle agent of the demo. With a fifth kind, the demo agents `w2:p2` and `w3:p3` get only chats, and the demo must also show a game.
+    - A chat is no stop of the camera tour (decision 37).
 
 ## Cut on purpose
 
