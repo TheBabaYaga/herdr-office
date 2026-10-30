@@ -639,6 +639,52 @@ export function endBreak(trips, claimed, id, t) {
   trips.delete(id)
 }
 
+// The idle breaks of one office. The state of stepBreak() (trips, claimed) and each lookup of a trip kind live in this closure.
+// use(office, t): the office model of this update. A change of the route inputs ends every trip, and so does a desk with away or no agent.
+// step(desk, t): where the worker of the desk is now, once a frame, or null at the desk. now(t): the games in play and the kinds in a stay.
+// A game is in play while both places hold a trip and begin <= t < the earlier end.
+export function idleBreaks() {
+  const trips = new Map(), claimed = new Map()
+  let office = null, laid = '' // laid: the route inputs of the last use()
+  const room = (id) => office.rooms.find((r) => r.id === id)
+  return {
+    use(o, t) {
+      office = o
+      const lay = JSON.stringify([ // the inputs of route(): the workspace rooms, the kitchen and the party room with their doors, the cross corridor and the desks
+        office.rooms.filter((r) => r.kind === 'workspace' || r.kind === 'kitchen' || r.kind === 'party').map((r) => [r.id, r.x, r.z, r.w, r.d, r.door, r.pods.map((p) => [p.id, p.x, p.z, p.w, p.d])]),
+        office.corridors.at(-1),
+        office.desks.map((d) => [d.id, d.x, d.z, d.roomId, d.podId]),
+      ])
+      if (lay !== laid) { trips.clear(); claimed.clear(); laid = lay } // a change of the routes ends every trip
+      for (const d of office.desks) if (d.away || !d.agent) endBreak(trips, claimed, d.id, t) // the worker sits at the meeting table, or the agent quit: no worker, no trip. The game of a partner ends at t
+    },
+    step(d, t) {
+      const kit = room('kitchen')
+      const spots = { kitchen: kit.spots.length, party: room('party')?.spots.length ?? 0, lunch: kit.chairs.length, chat: kit.chat.length }
+      // A lunch route ends at the chair point, a chat route at the chat spot. Game place i is place i & 1 of table i >> 1, in the room of that table.
+      const game = (i) => office.games[i >> 1]
+      const go = (kind, i) => (kind === 'lunch' ? route(office, d.id, kit.chairs[i], 'kitchen') : kind === 'chat' ? route(office, d.id, kit.chat[i], 'kitchen') : kind === 'game' ? route(office, d.id, game(i).places[i & 1], game(i).room) : route(office, d.id, room(kind).spots[i], kind))
+      const a = stepBreak(trips, claimed, d.id, { idle: d.status === 'idle' && !d.away, seed: hash(d.terminalId ?? d.id, 1e9), spots, route: go, tables: office.games.map((g) => g.kind) }, t)
+      if (!a) return null
+      const { trip, ...rest } = a, kind = trip.kind, i = +trip.spot.split(':')[1]
+      const to = kind === 'lunch' || kind === 'chat' ? 'kitchen' : kind === 'game' ? office.games[trip.table].room : kind // the target room id
+      const seat = kind === 'lunch' ? kit.chairs[i] : kind === 'chat' ? kit.chat[i] : kind === 'game' ? game(i).places[i & 1] : null
+      const side = kind === 'game' ? i & 1 : kind === 'chat' ? i : null, table = kind === 'game' ? i >> 1 : null
+      const p = along(trip.path, a.s)
+      return { ...p, ...rest, kind, room: to, seat, side, table, begin: trip.begin ?? null, doors: opens(office, d, { x: p.x, z: p.z, phase: a.phase, room: to }) }
+    },
+    now(t) {
+      const games = office.games.flatMap((_, i) => {
+        const [w, e] = [2 * i, 2 * i + 1].map((j) => trips.get(claimed.get(`game:${j}`))?.trip) // the west and the east player
+        const end = Math.min(w?.end, e?.end) // a rush ends the game of the partner
+        return w?.begin != null && e?.begin != null && w.begin <= t && t < end ? [{ table: i, begin: w.begin, end }] : []
+      })
+      const stays = new Set([...trips.values()].filter((b) => b.trip && tripAt(b.trip, t).phase === 'stay').map((b) => b.trip.kind))
+      return { games, stays: ['kitchen', 'lunch', 'party', 'game', 'chat'].filter((k) => stays.has(k)) }
+    },
+  }
+}
+
 // The next stop of the camera tour. trips: the map of stepBreak(). seen: the keys of the stops of this round.
 // The stops, in order: a blocked desk, a done desk, a game in play, a dance, a lunch. With none of these, each room.
 // It picks the first stop that is not in seen. When all are seen, a new round starts and skips the stop that came last.

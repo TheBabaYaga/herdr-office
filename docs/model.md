@@ -200,6 +200,16 @@ The legs follow the CLAUDE.md contract, in the order of the `pts` array. It read
 
 CLAUDE.md gives the contracts of `along()`, `tripAt()`, and `pathLen()`.
 
+`idleBreaks()` returns `{ use, step, now }`, the breaks of one office. Its closure holds `trips`, `claimed`, the office of the last `use()`, and every lookup of a trip kind.
+
+- `use(office, t)` takes the office of an update. When the route inputs change, it clears both maps. The route inputs are the workspace rooms, the kitchen, and the party room with their doors and pods, the cross corridor, and the desks. Then it calls `endBreak()` with `t` for each desk with `away` or no `agent`.
+- `step(desk, t)` calls `stepBreak()` once a frame, with the seed `hash(desk.terminalId ?? desk.id, 1e9)` and `idle` as `desk.status === 'idle' && !desk.away`. It returns `null` at the desk. A desk with no id (the subagent view desk `{ status: 'working' }`) gets `null` and no state.
+- On a trip, `step()` returns `{ x, z, dx, dz, s, phase, kind, room, seat, side, table, begin, got, play, talk, doors }`. `room` is the target room id: `kitchen` for the kinds `kitchen`, `lunch`, and `chat`, `party` for `party`, and the room of the table for `game`.
+- `seat` is the chair (lunch), the game place, or the chat spot, else `null`. For spot index `i`, `side` is `i & 1` for a game and `i` for a chat, and `table` is `i >> 1` for a game. Else both are `null`. `begin` is `null` until a join. `doors` is `opens()` at `(x, z)`.
+- `now(t)` returns `{ games: [{ table, begin, end }], stays }`. A game is in play while both places of its table hold a trip and `begin <= t < end`, with `end` the earlier end of the two trips (the rule of `rally()` in `office.js`). So a rush of one player removes the game at once. `stays` holds each kind with a trip in its stay, in the order `kitchen`, `lunch`, `party`, `game`, `chat`.
+
+`stepBreak()` and `endBreak()` stay exported as the internal seam of `idleBreaks()`. The rule tests in `test/walk.test.mjs` call them with a fixed `PATH`, fake spot counts, and a hand-filled `claimed`.
+
 `stepBreak()` points that one read can miss:
 
 - It claims a spot and calls `route()` once, at the trip start. The kinds are `kitchen` (a counter spot), `lunch` (a kitchen chair), `party` (a dance spot), `game` (a place at a game table), and `chat` (a place at the water cooler), in this order, and only the kinds with a count above 0. The count of `game` is `2 * tables.length`. `plan.pick` picks the first kind. A full kind sends the worker to the next kind in the order. With no free spot of any kind, it waits for the next plan.
@@ -216,7 +226,7 @@ CLAUDE.md gives the contracts of `along()`, `tripAt()`, and `pathLen()`.
 - At `done` it returns `null` in the same call, so a walk phase is never `done`.
 - `got` becomes true in the `stay` of a kitchen trip, so the mug stays in the hand. A lunch trip and a party trip never get it. `stroll()` writes `trip.rot`.
 
-`endBreak(trips, claimed, id, t)` frees the spot of a running trip (the `claimed` key in `trip.spot`), ends the game of its partner at `t` (as a rush does), and deletes the state. Pass `t`: without it, the stay of the partner becomes `NaN`.
+`endBreak(trips, claimed, id, t)` frees the spot of a running trip (the `claimed` key in `trip.spot`), ends the game of its partner at `t` (as a rush does), and deletes the state. Pass `t`. Without it, `quit()` compares `undefined < end`, which is false, so the game of the partner runs to its old end.
 
 ### nextStop(o, trips, t, seen)
 
