@@ -562,8 +562,8 @@ export function kitchen(g, room, season) {
     put.taken.push([b.min.x, b.min.z, b.max.x, b.max.z])
     g.add(...o.children)
   }
-  const fx = [E + L + 0.5, w / 2 + 1.5, w - E - 0.45].find((x) => put(fridge, x, E))
-  ;[[fx + 0.7, E, 0], [E, 1.6, 1], [E, d - 1.2, 1]].some(([x, z, r]) => put(cooler, x, z, r))
+  put(cooler, room.cooler.x - room.x, room.cooler.z - room.z) // the model sets the spot, so the two chat spots stand in front of it
+  ;[E + L + 0.5, room.cooler.x - room.x + 0.75, w - E - 0.45].some((x) => put(fridge, x, E))
   const [nw, , sw, se] = corners(room)
   plants(put, [sw, nw, se], 1)
   furnish(put, room, KITCHEN, season)
