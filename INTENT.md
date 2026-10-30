@@ -22,7 +22,7 @@ The office watches. It has two writes to herdr: a focus and a message. A click o
 | `working` | The worker types | Strong yellow `#ffd43b`. The screen glows and shows text that types and scrolls. |
 | `blocked` | The worker raises a hand | Red `#fa5252`. A red beacon pulses over the head. |
 | `done` | The worker raises a paper | Teal `#94e2d5`. |
-| `idle` | The worker reclines and browses. Now and then it walks to the kitchen for a coffee or a lunch, dances in the party room, or plays chess or ping-pong. | Green `#a6e3a1`. The screen shows a fake web page or a video on a green background. See decision 19. |
+| `idle` | The worker reclines and browses. Now and then it walks to the kitchen for a coffee or a lunch, dances in the party room, plays chess or ping-pong, or chats at the water cooler. | Green `#a6e3a1`. The screen shows a fake web page or a video on a green background. See decision 19. |
 | `unknown` | The worker is semi-transparent | Grey `#6c7086`. |
 | Focus (`focused_pane_id`) | A blue spotlight on the desk | The first view frames the room of the focused workspace. |
 | Roll-up | Door light, pod lamp, HUD | Rank: blocked > done > working > idle > unknown. |

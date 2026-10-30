@@ -142,7 +142,7 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - workspace room: the room of one herdr workspace (`kind: 'workspace'`, the id is the workspace id). The rooms follow the workspace `number`.
 - cooler: the water cooler on the north wall of the kitchen (`room.cooler`). Two workers chat in front of it.
 - chat spot: one of the two places in front of the cooler (`room.chat`). This is not the chat window (`#chat`, the transcript of one agent).
-- kitchen: the room with the counter (`room.counter`) and the standing spots (`room.spots`). `kitchen()` in `decor.js` draws it.
+- kitchen: the room with the counter (`room.counter`), the standing spots (`room.spots`), the cooler (`room.cooler`), and the chat spots (`room.chat`). `kitchen()` in `decor.js` draws it.
 - lobby: the last room (`rooms.at(-1)`), with the reception and the entrance. `lobby()` in `decor.js` draws it.
 - party room: the room with the id `party` in the spare width of one row, if that width is 7 or more. It has the dance spots (`room.spots`), the dance floor (`room.floor`), and the DJ booth (`room.booth`). `party()` in `decor.js` draws it.
 - meeting room: one room for each entry of `meetings` (id `meeting:<sessionId>`), or one empty room with the id `meeting`. It has `table` and `seats`.
@@ -164,7 +164,7 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - live: the `Set` of objects that `bake()` does not merge, because their look changes after the build.
 - tags: the label elements that `declutter()` checks, highest priority first. `update()` fills it.
 - bake: `bake()` merges the static meshes of a build into one mesh for each material.
-- route: the path `[[x, z], ...]` from the worker seat to a spot in the kitchen, the party room, or at a game table, from `route()` in `model.js`.
+- route: the path `[[x, z], ...]` from the worker seat to a spot in the kitchen (a counter spot, a chair, or a chat spot), the party room, or at a game table, from `route()` in `model.js`.
 - lane: a strip of floor that a route follows: the lane behind the desk row, the row lane (`laneZ()`), and the door lane (`stepX()`). A walk rect reaches `LANE` (0.3) to each side of a route line.
 - spot: a standing place at the end of a trip, an entry of `room.spots`: in front of the kitchen counter, a dance spot in the party room, or a chat spot at the water cooler. One worker holds a spot at a time (`claimed`).
 - dance spot: a standing place on the dance floor of the party room, an entry of `room.spots` of that room. The spots stand in a front row and a back row, 2.0 apart in a row.
