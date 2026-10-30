@@ -80,7 +80,8 @@ function walkRects(r, desks) {
   const door = [R(x - LANE, r.door.z, x + LANE, j), R(Math.min(x, y) - LANE, j - LANE, Math.max(x, y) + LANE, j + LANE)] // through the door, the sidestep
   if (r.kind === 'kitchen' || r.kind === 'party') { // the door lane, then the strip in front of the counter or the dance floor
     const z = r.kind === 'kitchen' ? kitchenZ(r) : partyZ(r), seats = r.chairs ?? [], xs = [y, ...r.spots.map(p => p.x), ...seats.map(c => c.x)], zs = [z, ...r.spots.map(p => p.z)]
-    return [...door, R(Math.min(...xs) - LANE, Math.min(...zs) - LANE, Math.max(...xs) + LANE, Math.max(...zs) + LANE), R(y - LANE, j, y + LANE, z), ...seats.map(c => R(c.x - LANE, z, c.x + LANE, c.z))] // the strip and the spots, the door lane, the chair lanes
+    const [c0, c1] = r.chat ?? [] // the cooler talkers: this rect keeps props off their backs
+    return [...door, R(Math.min(...xs) - LANE, Math.min(...zs) - LANE, Math.max(...xs) + LANE, Math.max(...zs) + LANE), R(y - LANE, j, y + LANE, z), ...seats.map(c => R(c.x - LANE, z, c.x + LANE, c.z)), ...(c0 ? [R(c0.x - 0.15, c0.z - 0.4, c1.x + 0.15, c0.z)] : [])] // the strip and the spots, the door lane, the chair lanes, the backs of the talkers
   }
   const x0 = Math.min(y - LANE, ...r.pods.map(p => p.x)), x1 = Math.max(y + LANE, ...r.pods.map(p => p.x + p.w + 0.7))
   return r.pods.flatMap(p => {
@@ -376,10 +377,11 @@ export function buildOffice(snap, meetings = [], prev = null) {
   const off = kit.door.side === 'north' ? 1.3 : 2.1
   kit.tables = [-off, off].map((x) => ({ x: kit.x + kit.w / 2 + x, z: kit.z + kit.d / 2 + 0.3 }))
   kit.chairs = kit.tables.flatMap((t, i) => [{ x: t.x - 0.8, z: t.z, rot: 3, table: i }, { x: t.x + 0.8, z: t.z, rot: 1, table: i }])
-  // Two workers chat at the water cooler on the north wall, east of the counter: 0.9 apart, 1.35 from the wall, the west spot 0.8
+  // Two workers chat at the water cooler on the north wall, east of the counter: 0.9 apart, 1.1 from the wall, the west spot 0.9
   // east of the door lane. They face each other (rot 3 and 1), and the cooler origin stands between them, 0.2 from the wall.
-  kit.chat = [0, 0.9].map((dx, i) => ({ x: stepX(kit) + 0.8 + dx, z: kit.z + 1.35, rot: 3 - 2 * i }))
-  kit.cooler = { x: stepX(kit) + 1.25, z: kit.z + 0.2 }
+  // A talker reaches 0.39 along z, as a walker on the strip does, and the strip is 1.9 from the wall. So a talker needs z 1.1 or less.
+  kit.chat = [0, 0.9].map((dx, i) => ({ x: stepX(kit) + 0.9 + dx, z: kit.z + 1.1, rot: 3 - 2 * i }))
+  kit.cooler = { x: stepX(kit) + 1.35, z: kit.z + 0.2 }
   // The party room: a front row of dance spots 2.0 apart, 0.5 to the door side of the room middle, then a back row 1.0 deeper with
   // each spot between two front spots. The dance floor reaches from the strip to 1.0 behind the back row, in whole 1 x 1 tiles.
   // The DJ booth stands behind the floor, and its front faces the dancers and the door.

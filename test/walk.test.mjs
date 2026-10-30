@@ -745,8 +745,8 @@ test('every route runs from a seat to a kitchen spot through rooms, doors and co
 
 test('a small kitchen has its chat spots and its cooler at the worked values', () => {
   const at = (name) => { const k = offices.find(([n]) => n === name)[1].rooms.find(r => r.kind === 'kitchen'); return [k.door.side, ...[k.chat[0].x, k.cooler.x, k.chat[1].x].map(x => +(x - k.x).toFixed(2))] }
-  assert.deepEqual(at('1 small workspaces'), ['north', 5.18, 5.63, 6.08])
-  assert.deepEqual(at('3 small workspaces'), ['south', 4.42, 4.87, 5.32])
+  assert.deepEqual(at('1 small workspaces'), ['north', 5.28, 5.73, 6.18])
+  assert.deepEqual(at('3 small workspaces'), ['south', 4.52, 4.97, 5.42])
 })
 
 test('every lunch route runs from a seat to a kitchen chair, and its last leg comes from the strip', () => {

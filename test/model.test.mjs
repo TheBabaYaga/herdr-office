@@ -214,7 +214,7 @@ function assertKitchen(o) {
   const [west, east] = k.chat, c = k.cooler, body = (p) => box(p.x, p.z, -0.15, 0.15, -0.39, 0.39) // a worker that faces along x
   assert.equal(k.chat.length, 2, 'two chat spots')
   assert.deepEqual([west.rot, east.rot], [3, 1], 'the spots face each other')
-  assert.ok(Math.abs(east.x - west.x - 0.9) < EPS && west.z === east.z && Math.abs(west.z - (k.z + 1.35)) < EPS, 'the spots stand 0.9 apart, 1.35 from the north wall')
+  assert.ok(Math.abs(east.x - west.x - 0.9) < EPS && west.z === east.z && Math.abs(west.z - (k.z + 1.1)) < EPS, 'the spots stand 0.9 apart, 1.1 from the north wall')
   const foot = box(c.x, c.z, -0.2, 0.2, 0, 0.48), area = box(k.door.x, k.door.z, -1, 1, s > 0 ? -2 : 0, s > 0 ? 0 : 2) // area: the door area of placer()
   assert.ok(foot[0] >= k.counter.x + k.counter.len / 2 && foot[2] <= k.x + k.w - 0.2 + EPS && Math.abs(c.z - (k.z + 0.2)) < EPS, 'the cooler stands on the north wall, east of the counter')
   assert.ok(!hits(foot, area), 'the cooler is off the door area')
@@ -223,6 +223,8 @@ function assertKitchen(o) {
     assert.ok(walk.some(r => inRect(p, r)), `the chat spot at x ${p.x} is off the walk rects`)
     for (const q of k.spots) assert.ok(Math.hypot(p.x - q.x, p.z - q.z) >= 0.85 - EPS, 'a chat spot keeps 0.85 from a counter spot')
     for (const b of [...tops, ...seats]) assert.ok(!hits(body(p), b), 'a talker is off the tables and the chairs')
+    assert.ok(p.z + 0.39 <= k.z + 1.9 - 0.39 + EPS, 'a talker clears a walker on the strip')
+    assert.ok(walk.some(r => inRect({ x: p.x, z: p.z - 0.39 }, r)), 'a walk rect keeps props off the back of a talker')
   }
   assert.ok(!hits(body(west), door), 'the west talker is out of the door box')
   assert.ok(k.x + k.w - east.x >= 1.8 - EPS, 'the east wall does not hide the east talker')
