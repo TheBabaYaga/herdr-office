@@ -963,6 +963,8 @@ test('nextStop: with no stop of the other kinds, the tour visits each room in of
   const stops = round(statuses(TOUR_OFFICE, {}), EMPTY, 5)
   assert.deepEqual(keys(stops), ['room:w1', 'room:kitchen', 'room:party', 'room:meeting', 'room:w1'])
   assert.deepEqual([stops[0].x, stops[0].z, stops[0].whole], [4, 3, true])
+  // A stay at the counter, at a game table, or at the cooler is no stop. Only a game in play (now.games) is.
+  assert.equal(nextStop(statuses(TOUR_OFFICE, {}), { games: [], stays: ['kitchen', 'game', 'chat'] }).stop.key, 'room:w1')
 })
 
 test('nextStop: a new blocked desk is the next stop, also in the middle of a round', () => {
