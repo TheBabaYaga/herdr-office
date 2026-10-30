@@ -576,7 +576,7 @@ function checkRoute(name, o, d, spot, to = 'kitchen') {
   assert.ok(path[1][1] === d.z + 0.4 && Math.abs(path[1][0] - d.x) >= 0.6, `${tag}: first steps aside, clear of the chair back`)
   const samples = [...new Set([...Array.from({ length: Math.floor(len / 0.1) + 1 }, (_, i) => i * 0.1), ...cuts])].sort((a, b) => a - b)
   // The other workers in the target room: at the counter, on a dance spot, at a kitchen table, or at a game table.
-  const target = o.rooms.find(r => r.id === to), spots = [...(target.spots ?? []), ...(target.chairs ?? []), ...target.games.flatMap(g => g.places)]
+  const target = o.rooms.find(r => r.id === to), spots = [...(target.spots ?? []), ...(target.chairs ?? []), ...(target.chat ?? []), ...target.games.flatMap(g => g.places)]
   const tops = target.tables ?? [], seats = (target.chairs ?? []).filter(c => c !== spot)
   const walls = [...o.rooms, { x: 0, z: 0, w: o.bounds.w, d: o.bounds.d }]
   let prev = null
@@ -650,6 +650,12 @@ test('every route runs from a seat to a kitchen spot through rooms, doors and co
   assert.ok(n > 500, `${n} routes`)
 })
 
+test('a small kitchen has its chat spots and its cooler at the worked values', () => {
+  const at = (name) => { const k = offices.find(([n]) => n === name)[1].rooms.find(r => r.kind === 'kitchen'); return [k.door.side, ...[k.chat[0].x, k.cooler.x, k.chat[1].x].map(x => +(x - k.x).toFixed(2))] }
+  assert.deepEqual(at('1 small workspaces'), ['north', 5.18, 5.63, 6.08])
+  assert.deepEqual(at('3 small workspaces'), ['south', 4.42, 4.87, 5.32])
+})
+
 test('every lunch route runs from a seat to a kitchen chair, and its last leg comes from the strip', () => {
   let n = 0
   for (const [name, o] of offices) {
@@ -661,6 +667,36 @@ test('every lunch route runs from a seat to a kitchen chair, and its last leg co
     }
   }
   assert.ok(n > 1000, `${n} routes`)
+})
+
+test('every route to a chat spot runs from a seat, and its last leg comes from the strip', () => {
+  let n = 0
+  for (const [name, o] of offices) {
+    const k = o.rooms.find(r => r.kind === 'kitchen')
+    for (const d of o.desks.filter(d => d.agent)) for (const s of k.chat) {
+      checkRoute(name, o, d, s)
+      assert.deepEqual(route(o, d.id, s).slice(-2), [[s.x, k.z + 1.9], [s.x, s.z]], `${name}: ${d.id}: along the strip, then straight to the spot`)
+      n++
+    }
+  }
+  assert.ok(n > 500, `${n} routes`)
+})
+
+test('a walker to a chat spot opens only its own door and the kitchen door', () => {
+  let n = 0
+  for (const [name, o] of offices) {
+    const k = o.rooms.find(r => r.kind === 'kitchen')
+    for (const s of k.chat) for (const d of o.desks.filter((d) => d.agent)) {
+      const path = route(o, d.id, s), len = pathLen(path), mine = [o.rooms.find((r) => r.id === d.roomId), k]
+      for (let i = 0; i * 0.1 <= len; i++) {
+        const p = along(path, i * 0.1), ids = opens(o, d, { x: p.x, z: p.z, phase: 'out', room: 'kitchen' }), at = `${name}: ${d.id} to a chat spot at (${p.x.toFixed(2)}, ${p.z.toFixed(2)})`
+        assert.ok(ids.every((id) => mine.some((r) => r.id === id)), `${at}: opens ${ids}`)
+      }
+      assert.deepEqual(opens(o, d, { x: s.x, z: s.z, phase: 'stay', room: 'kitchen' }), [], `${name}: ${d.id}: in the stay at a chat spot`)
+      n++
+    }
+  }
+  assert.ok(n > 0)
 })
 
 test('the kitchen has 2 or more chairs at its tables, inside the room, off the walk rects of the other chairs, and apart', () => {

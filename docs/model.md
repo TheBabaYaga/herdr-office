@@ -38,7 +38,7 @@ At import, no function runs. For each update, `office.js` calls `buildOffice(sna
 4. Find the band plan.
 5. Add the party room to the row with the most spare width, if that width is 7 or more. Then make `rooms` again from the rows.
 6. Put each row in place: rooms, doors, pods, desks, the terrace of a row with 4 or more spare width, the band corridors, then the cross corridor.
-7. Set the kitchen `counter`, `spots`, `tables`, and `chairs`, and the party `spots`, `floor`, and `booth`. Then set `walk` for each workspace room, the kitchen, and the party room (`walkRects(r, desks)`). Then set `games` for each room (`games(r)`), which adds the lanes of each game table to `walk`.
+7. Set the kitchen `counter`, `spots`, `tables`, `chairs`, `chat`, and `cooler`, and the party `spots`, `floor`, and `booth`. Then set `walk` for each workspace room, the kitchen, and the party room (`walkRects(r, desks)`). Then set `games` for each room (`games(r)`), which adds the lanes of each game table to `walk`.
 8. Set the meeting `table` and `seats`, the orchestrator `away`, and `subagents`.
 9. Set `counts`, `focus`, `bounds`, `entrance`, and `games` (each table of each room, in `rooms` order, with its room id).
 

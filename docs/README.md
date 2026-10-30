@@ -140,6 +140,8 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - building: the whole office for one herdr session. `office.bounds` holds its size, and `office.entrance` is the entrance in the south outer wall.
 - room: an entry of `office.rooms`, with `kind` `workspace`, `meeting`, `kitchen`, `party`, or `lobby`.
 - workspace room: the room of one herdr workspace (`kind: 'workspace'`, the id is the workspace id). The rooms follow the workspace `number`.
+- cooler: the water cooler on the north wall of the kitchen (`room.cooler`). Two workers chat in front of it.
+- chat spot: one of the two places in front of the cooler (`room.chat`). This is not the chat window (`#chat`, the transcript of one agent).
 - kitchen: the room with the counter (`room.counter`) and the standing spots (`room.spots`). `kitchen()` in `decor.js` draws it.
 - lobby: the last room (`rooms.at(-1)`), with the reception and the entrance. `lobby()` in `decor.js` draws it.
 - party room: the room with the id `party` in the spare width of one row, if that width is 7 or more. It has the dance spots (`room.spots`), the dance floor (`room.floor`), and the DJ booth (`room.booth`). `party()` in `decor.js` draws it.

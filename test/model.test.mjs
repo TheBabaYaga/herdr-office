@@ -211,6 +211,21 @@ function assertKitchen(o) {
   chairs.forEach((a, i) => chairs.slice(i + 1).forEach(b => assert.ok(a.table === b.table || Math.hypot(a.x - b.x, a.z - b.z) >= 0.85 - EPS, 'chairs of two tables keep 0.85 apart')))
   // The camera looks along (1, 1, 1), and the east wall is 2.6 high. A seated torso (0.8 high) shows only 1.8 or more from that wall.
   if (s < 0 && k.w >= 8.6) for (const c of chairs) assert.ok(k.x + k.w - c.x >= 1.8 - EPS, `the chair at x ${c.x} is ${(k.x + k.w - c.x).toFixed(2)} from the east wall`)
+  const [west, east] = k.chat, c = k.cooler, body = (p) => box(p.x, p.z, -0.15, 0.15, -0.39, 0.39) // a worker that faces along x
+  assert.equal(k.chat.length, 2, 'two chat spots')
+  assert.deepEqual([west.rot, east.rot], [3, 1], 'the spots face each other')
+  assert.ok(Math.abs(east.x - west.x - 0.9) < EPS && west.z === east.z && Math.abs(west.z - (k.z + 1.35)) < EPS, 'the spots stand 0.9 apart, 1.35 from the north wall')
+  const foot = box(c.x, c.z, -0.2, 0.2, 0, 0.48), area = box(k.door.x, k.door.z, -1, 1, s > 0 ? -2 : 0, s > 0 ? 0 : 2) // area: the door area of placer()
+  assert.ok(foot[0] >= k.counter.x + k.counter.len / 2 && foot[2] <= k.x + k.w - 0.2 + EPS && Math.abs(c.z - (k.z + 0.2)) < EPS, 'the cooler stands on the north wall, east of the counter')
+  assert.ok(!hits(foot, area), 'the cooler is off the door area')
+  for (const r of walk) assert.ok(!hits(foot, r), `the cooler is on the walk rect ${r}`)
+  for (const p of k.chat) {
+    assert.ok(walk.some(r => inRect(p, r)), `the chat spot at x ${p.x} is off the walk rects`)
+    for (const q of k.spots) assert.ok(Math.hypot(p.x - q.x, p.z - q.z) >= 0.85 - EPS, 'a chat spot keeps 0.85 from a counter spot')
+    for (const b of [...tops, ...seats]) assert.ok(!hits(body(p), b), 'a talker is off the tables and the chairs')
+  }
+  assert.ok(!hits(body(west), door), 'the west talker is out of the door box')
+  assert.ok(k.x + k.w - east.x >= 1.8 - EPS, 'the east wall does not hide the east talker')
 }
 
 // The game tables: only in a big workspace room or a big party room (80 m² or more of free floor), at most one of each kind.
