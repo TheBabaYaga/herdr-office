@@ -662,14 +662,16 @@ export function idleBreaks() {
     step(d, t) {
       const kit = room('kitchen')
       const spots = { kitchen: kit.spots.length, party: room('party')?.spots.length ?? 0, lunch: kit.chairs.length, chat: kit.chat.length }
-      // A lunch route ends at the chair point, a chat route at the chat spot. Game place i is place i & 1 of table i >> 1, in the room of that table.
+      // at(kind, i): [the spot, the target room id] of place i of a kind. A lunch ends at the chair point, a chat at the chat spot.
+      // Game place i is place i & 1 of table i >> 1, in the room of that table.
       const game = (i) => office.games[i >> 1]
-      const go = (kind, i) => (kind === 'lunch' ? route(office, d.id, kit.chairs[i], 'kitchen') : kind === 'chat' ? route(office, d.id, kit.chat[i], 'kitchen') : kind === 'game' ? route(office, d.id, game(i).places[i & 1], game(i).room) : route(office, d.id, room(kind).spots[i], kind))
+      const at = (kind, i) => kind === 'lunch' ? [kit.chairs[i], 'kitchen'] : kind === 'chat' ? [kit.chat[i], 'kitchen']
+        : kind === 'game' ? [game(i).places[i & 1], game(i).room] : [room(kind).spots[i], kind]
+      const go = (kind, i) => route(office, d.id, ...at(kind, i))
       const a = stepBreak(trips, claimed, d.id, { idle: d.status === 'idle' && !d.away, seed: hash(d.terminalId ?? d.id, 1e9), spots, route: go, tables: office.games.map((g) => g.kind) }, t)
       if (!a) return null
       const { trip, ...rest } = a, kind = trip.kind, i = +trip.spot.split(':')[1]
-      const to = kind === 'lunch' || kind === 'chat' ? 'kitchen' : kind === 'game' ? office.games[trip.table].room : kind // the target room id
-      const seat = kind === 'lunch' ? kit.chairs[i] : kind === 'chat' ? kit.chat[i] : kind === 'game' ? game(i).places[i & 1] : null
+      const [spot, to] = at(kind, i), seat = kind === 'kitchen' || kind === 'party' ? null : spot // to: the target room id. A counter or dance stay has no seat
       const side = kind === 'game' ? i & 1 : kind === 'chat' ? i : null, table = kind === 'game' ? i >> 1 : null
       const p = along(trip.path, a.s)
       return { ...p, ...rest, kind, room: to, seat, side, table, begin: trip.begin ?? null, doors: opens(office, d, { x: p.x, z: p.z, phase: a.phase, room: to }) }
