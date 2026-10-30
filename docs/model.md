@@ -235,7 +235,7 @@ The pick is the first stop whose key is not in `seen`, and `seen` gets its key. 
 
 ### Demo
 
-A `DEMO_PANES` row is `[paneId, tabId, kind, rect, phase, name, long]`. `kind` `null` is a shell. The comment above `DEMO_PANES` gives the `phase` rule that keeps all four `CYCLE` statuses on each tick. Only `w2:p2` and `w3:p3` have `long` (`[idle ticks, start tick]`), and they ignore `phase`. The row index gives `terminal_id` `term_demo<i>` and breaks `state_change_seq` ties with `* 16 + i`.
+A `DEMO_PANES` row is `[paneId, tabId, kind, rect, phase, name, long]`. `kind` `null` is a shell. The comment above `DEMO_PANES` gives the `phase` rule that keeps all four `CYCLE` statuses on each tick. Only `w1:p2`, `w2:p2`, and `w3:p3` have `long` (`[idle ticks, start tick]`), and they ignore `phase`. The row index gives `terminal_id` `term_demo<i>` and breaks `state_change_seq` ties with `* 16 + i`.
 
 `demoSnapshot(tick)` has the shape of a herdr `session.snapshot`. `w4:p1` is `unknown` while `tick < 3`. `done` in the focused tab `w1:t1` shows as `idle`.
 

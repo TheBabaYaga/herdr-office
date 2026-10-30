@@ -236,10 +236,11 @@ Pass a small `updateMs` (the tests use 10 to 80 ms). The default is one hour. Th
 
 2a1. For the clock light, open `?demo&time=03:00`, `?demo&time=07:00`, `?demo&time=15:00`, `?demo&time=19:30`, and `?demo&time=23:00`. The sun moves, and the light, the windows, and the background change. Add `season=none` from 24 October to 1 November, because the Halloween night then stays on all day.
 2b. For the winter decor, open `?demo&season=winter`. It shows the tree in the lobby and the snow outside the building. The demo has no terrace. For the terrace snow, start a fake herdr socket that serves the `synthetic()` snapshot of `test/model.test.mjs` (one terrace, `terrace:0`), and open `/?season=winter`. Check the snow grass, the hedge cap, the caps on the tree crowns, and the falling flakes. No browser check covered the half speed with reduce motion.
-3. For a party trip, watch `w2:p2` in the "web" room. It walks to the party room about 18 s after load and sits again about 51 s after load. Its second trip goes to the kitchen at about 100 s, and the status change at 110 s cuts it short.
-4. For a rush, watch `w3:p3` in the "docs" room. It turns `working` at tick 30, during the walk to its first lunch. A rush in the demo always shows `working`, never `blocked` or `done`.
-5. For a lunch, watch `w3:p3` again. It is idle again from tick 80. It walks to a kitchen chair about 97 s after load, sits there from about 144 s to 183 s, and sits at its desk again about 229 s after load.
-6. Stop the check bridge:
+3. For a party trip, watch `w3:p3` in the "docs" room. Its first party trip starts about 17 s after load, and the status change at 30 s cuts it short. Its next party trip walks out at about 347 s, dances from about 369 s, and sits again about 398 s after load.
+4. For a rush, watch `w3:p3` and `w1:p2` at 30 s after load. Both are on the way out (a party trip and a chat), and both turn `working` and run back. A rush in the demo always shows `working`, never `blocked` or `done`.
+5. For a lunch, watch `w3:p3` again. It is idle again from tick 80. Its lunch walks out at about 445 s, sits at a kitchen chair from about 491 s to 512 s, and the status change at 530 s cuts the walk back short.
+6. For a game and a chat, watch `w1:p2` in the "api" room. It plays a game with `w3:p3` from about 117 s (it walks out at about 90 s), and chats with `w2:p2` at the water cooler from about 383 s (it walks out at about 340 s). `w1:p2` plays again from about 617 s.
+7. Stop the check bridge:
    1. Get the PID with `lsof -nP -tiTCP:4848 -sTCP:LISTEN`. Do not use `$!`, because it can give the PID of a wrapper shell.
    2. Kill that PID.
    3. Run the `lsof` command again to make sure that the port is free.

@@ -290,7 +290,7 @@ The SketchyBar item lives outside this repo, in `~/dotfiles/sketchybar/.config/s
 - Near a door the arms of a walker hang still, and the mug hand stays low.
 - A desk can stand within 3 of its own door. The door then opens when the worker stands up, and closes after the worker sits down. In the test floor plans, 36 of 302 seats are that close.
 - In a room with two pod rows (wider than 30 units), the route of a worker can cross the lower pod row. Nothing tests that case.
-- The walk and run speeds (1.6 and 4 units a second) and the break times come from the first run in the demo. The user did not tune them. A kitchen trip in the demo takes about 100 s. The first party trip of `w2:p2` takes about 33 s.
+- The walk and run speeds (1.6 and 4 units a second) and the break times come from the first run in the demo. The user did not tune them. A kitchen trip in the demo takes about 100 s. The first full party trip of `w3:p3` takes about 51 s.
 - Section 5 of `docs/herdr-agent-model.md` lists ideas that nobody built and that the user did not decide on. Examples: worktree annex rooms, a focus marker in each pod, a per-viewer acknowledged map, the briefcase and headset badges. Ask the user before you build one.
 - No Safari check of the office yet. The user plans one, with `?demo`. In that check, also see what happens when a browser unloads a background tab (Chrome Memory Saver, Safari). That closes `/events`, and the bridge then exits 30 s later. Nobody checked this yet.
 - Nobody tested the `curl` install against a real release yet. As far as the spec knows, `curl` adds no quarantine flag, but this is not proven.
