@@ -552,7 +552,7 @@ export const pathLen = (path) => path.slice(1).reduce((s, q, i) => s + Math.hypo
 // kitchen chairs, the dance spots, and the chat spots at the cooler (2). A missing or 0 count means that the office has no such spot. tables: the kind of each game table
 // (office.games), or missing. Table t has the places 2t (west) and 2t + 1 (east), so the kind 'game' has 2 * tables.length places.
 // route(kind, i): the path to spot i of kind.
-// Returns { s, phase, got, play, talk, trip } for a worker on a trip, or null for a worker at the desk. trip.room is the kind: 'kitchen',
+// Returns { s, phase, got, play, talk, trip } for a worker on a trip, or null for a worker at the desk. trip.kind is the trip kind: 'kitchen',
 // 'lunch', 'party', 'game', or 'chat'. play: true while two players play their game or two workers chat. talk: true while play is true in
 // a chat and it is the turn of this worker. A turn lasts 2 + hash(begin) / 100 s, and the waiter (trip.first) talks in the even turns.
 // A game or chat trip also has partner (the desk id of the other worker, or null), begin and end (null until a join), and time (the
@@ -570,10 +570,10 @@ export function stepBreak(trips, claimed, id, { idle, seed, spots, route, tables
   if (!b.trip) {
     if (!idle) return trips.delete(id), null
     if (t < b.next) return null
-    const count = { ...spots, game: 2 * tables.length }, open = (room, j) => !claimed.has(`${room}:${j}`) && (room !== 'game' && room !== 'chat' || !claimed.has(`${room}:${j ^ 1}`))
-    const free = (room) => { // a free spot of the kind, from a start that differs for each worker. A free game or chat place has a free pair
-      const n = count[room] ?? 0, i = Array.from({ length: n }, (_, j) => (j + seed) % n).find((j) => open(room, j))
-      return i === undefined ? null : [room, i]
+    const count = { ...spots, game: 2 * tables.length }, open = (kind, j) => !claimed.has(`${kind}:${j}`) && (kind !== 'game' && kind !== 'chat' || !claimed.has(`${kind}:${j ^ 1}`))
+    const free = (kind) => { // a free spot of the kind, from a start that differs for each worker. A free game or chat place has a free pair
+      const n = count[kind] ?? 0, i = Array.from({ length: n }, (_, j) => (j + seed) % n).find((j) => open(kind, j))
+      return i === undefined ? null : [kind, i]
     }
     const plan = breakPlan(seed, b.n)
     let pick = null, mate = null
@@ -589,13 +589,13 @@ export function stepBreak(trips, claimed, id, { idle, seed, spots, route, tables
       pick = [...first, ...kinds].map(free).find(Boolean)
     }
     if (!pick) { b.next = t + breakPlan(seed, ++b.n).wait; return null } // no free spot: keep browsing
-    const [room, i] = pick, path = route(room, i)
-    claimed.set(`${room}:${i}`, id)
-    b.trip = { len: pathLen(path), start: t, stay: room === 'lunch' ? plan.lunch : room === 'game' || room === 'chat' ? WAIT : plan.stay, path, room, spot: `${room}:${i}`, got: false }
-    if (room === 'game' || room === 'chat') {
-      const time = room === 'chat' ? plan.chat : tables[i >> 1] === 'chess' ? 30 + 30 * plan.game : 20 + 20 * plan.game // the game or chat time, if this worker is the waiter
+    const [kind, i] = pick, path = route(kind, i)
+    claimed.set(`${kind}:${i}`, id)
+    b.trip = { len: pathLen(path), start: t, stay: kind === 'lunch' ? plan.lunch : kind === 'game' || kind === 'chat' ? WAIT : plan.stay, path, kind, spot: `${kind}:${i}`, got: false }
+    if (kind === 'game' || kind === 'chat') {
+      const time = kind === 'chat' ? plan.chat : tables[i >> 1] === 'chess' ? 30 + 30 * plan.game : 20 + 20 * plan.game // the game or chat time, if this worker is the waiter
       Object.assign(b.trip, { partner: null, begin: null, end: null, time })
-      if (room === 'game') b.trip.table = i >> 1
+      if (kind === 'game') b.trip.table = i >> 1
       if (mate !== null) { // the join: both stays end at the same time
         const other = trips.get(mate).trip, begin = Math.max(arrive(other), arrive(b.trip)), end = begin + other.time
         Object.assign(other, { partner: id, begin, end, stay: end - arrive(other), first: true })
@@ -613,9 +613,9 @@ export function stepBreak(trips, claimed, id, { idle, seed, spots, route, tables
     else trips.delete(id) // after a rush the next idle stretch starts fresh
     return null
   }
-  if (phase === 'stay' && trip.room === 'kitchen') trip.got = true // the mug at the counter. A lunch and a dance get none
+  if (phase === 'stay' && trip.kind === 'kitchen') trip.got = true // the mug at the counter. A lunch and a dance get none
   const play = inPlay(trip, phase, t)
-  return { s, phase, got: trip.got, play, talk: play && trip.room === 'chat' && ((t - trip.begin) / (2 + hash(String(trip.begin), 100) / 100) | 0) % 2 === (trip.first ? 0 : 1), trip }
+  return { s, phase, got: trip.got, play, talk: play && trip.kind === 'chat' && ((t - trip.begin) / (2 + hash(String(trip.begin), 100) / 100) | 0) % 2 === (trip.first ? 0 : 1), trip }
 }
 
 // True while two players play their game: the trip is in its stay, between begin and end.
@@ -648,15 +648,15 @@ export function nextStop(o, trips, t, seen = []) {
   const desk = (d) => stops.push({ key: `desk:${d.id}`, x: (d.away ?? d).x, z: (d.away ?? d).z, room: d.roomId, whole: false })
   for (const status of ['blocked', 'done']) o.desks.filter((d) => d.status === status).forEach(desk)
   const stays = [...trips.values()].map((e) => e.trip && { trip: e.trip, phase: tripAt(e.trip, t).phase }).filter((x) => x?.phase === 'stay')
-  const tables = new Set(stays.filter((x) => x.trip.room === 'game' && inPlay(x.trip, x.phase, t)).map((x) => x.trip.table))
+  const tables = new Set(stays.filter((x) => x.trip.kind === 'game' && inPlay(x.trip, x.phase, t)).map((x) => x.trip.table))
   for (const i of [...tables].sort((a, b) => a - b)) stops.push({ key: `game:${i}`, x: o.games[i].x, z: o.games[i].z, room: o.games[i].room, whole: false })
   const party = o.rooms.find((r) => r.id === 'party')
-  if (party?.floor && stays.some((x) => x.trip.room === 'party')) {
+  if (party?.floor && stays.some((x) => x.trip.kind === 'party')) {
     const [x0, z0, x1, z1] = party.floor
     stops.push({ key: 'dance', x: (x0 + x1) / 2, z: (z0 + z1) / 2, room: 'party', whole: false })
   }
   const tabs = o.rooms.find((r) => r.id === 'kitchen')?.tables
-  if (tabs?.length && stays.some((x) => x.trip.room === 'lunch'))
+  if (tabs?.length && stays.some((x) => x.trip.kind === 'lunch'))
     stops.push({ key: 'lunch', x: tabs.reduce((a, c) => a + c.x, 0) / tabs.length, z: tabs.reduce((a, c) => a + c.z, 0) / tabs.length, room: 'kitchen', whole: false })
   if (!stops.length) for (const r of o.rooms) stops.push({ key: `room:${r.id}`, x: r.x + r.w / 2, z: r.z + r.d / 2, room: r.id, whole: true })
   const fresh = stops.find((s) => !seen.includes(s.key))

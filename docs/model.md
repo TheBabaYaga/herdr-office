@@ -189,7 +189,7 @@ The legs follow the CLAUDE.md contract, in the order of the `pts` array. It read
 
 `hash(s, m = 360)` returns a string hash in `[0, m)`. `office.js` uses it for the hue of an unknown kind and of a floor, the clutter seed, and both the look and the break seed (`hash(d.terminalId ?? d.id, 1e9)`).
 
-`opens(o, d, a)` returns the room ids whose door the walker of desk `d` opens at `a = { x, z, phase, room }`. `room` is the target room id, from `trip.room`.
+`opens(o, d, a)` returns the room ids whose door the walker of desk `d` opens at `a = { x, z, phase, room }`. `room` is the target room id, from `trip.kind`.
 
 - Only the room of `d` and the room `a.room` can open, while the walker is less than 3 from the door center. Another door on the way stays closed, also the kitchen door for a party walker.
 - The 3 gives the door time to open (`SWING` in `office.js`) before a runner at `RUN` reaches the leaf, about 1.35 from the door center.
@@ -209,7 +209,7 @@ CLAUDE.md gives the contracts of `along()`, `tripAt()`, and `pathLen()`.
 - A rush of a player with a partner ends the game of the partner (`quit()`): its `end` becomes the rush time, and its stay ends then, or at its arrival if that is later. The partner walks back, not runs, and keeps its `partner`, so nobody joins it again. After the game end, both players already walk back, so a rush or `endBreak()` of one player does not change the other.
 - It returns `play`: true in the `stay` while `begin <= t < end`. A waiter alone never plays.
 - It returns `talk`: true only in a chat, while `play` is true and it is the turn of this worker. A turn lasts `2 + hash(String(begin), 100) / 100` s (2 to 3 s), counted from `begin`, the later arrival. The join sets `first: true` on the waiter, and the waiter talks in the even turns. So exactly one of the two talks at each time, also when both trips start in one frame.
-- `trip.room` is the kind, so a lunch trip has `room: 'lunch'`. `office.js` gives `opens()` the room id `kitchen` for it. For a game trip, `opens()` needs the room of the table: `o.games[trip.table].room`.
+- `trip.kind` is the trip kind, so a lunch trip has `kind: 'lunch'`. `office.js` gives `opens()` the room id `kitchen` for it. For a game trip, `opens()` needs the room of the table: `o.games[trip.table].room`.
 - A lunch trip stays `plan.lunch` (20 to 40 s). A game or chat trip stays `WAIT` until a join. The other trips stay `plan.stay`.
 - The spot search of a kind starts at `seed % n`, with `n` the spot count of that kind, so `seed` must be a non-negative integer.
 - A rush is final: an idle status after it does not stop it. After a rush, it deletes the state.
@@ -227,8 +227,8 @@ CLAUDE.md gives the contracts of `along()`, `tripAt()`, and `pathLen()`.
 | blocked desk | `desk:<id>` | `d.away ?? d` | `d.roomId` | each blocked desk, in `o.desks` order |
 | done desk | `desk:<id>` | `d.away ?? d` | `d.roomId` | each done desk, in `o.desks` order |
 | game | `game:<table>` | `o.games[table]` | the room of the table | each table with a player in play, by table index |
-| dance | `dance` | the center of the party `floor` | `party` | a trip in the phase `stay` with `room === 'party'` |
-| lunch | `lunch` | the mean of the kitchen `tables` | `kitchen` | a trip in the phase `stay` with `room === 'lunch'` |
+| dance | `dance` | the center of the party `floor` | `party` | a trip in the phase `stay` with `kind === 'party'` |
+| lunch | `lunch` | the mean of the kitchen `tables` | `kitchen` | a trip in the phase `stay` with `kind === 'lunch'` |
 | room | `room:<id>` | the room center | `r.id` | each room of `o.rooms`, only when the list above is empty |
 
 The pick is the first stop whose key is not in `seen`, and `seen` gets its key. When all stops are in `seen`, a new round starts. It picks the first stop whose key is not `seen.at(-1)`, else the first stop, and `seen` is `[key]`. So the same stop never comes two times in a row, unless it is the only stop. A new blocked desk comes next, also in the middle of a round. `office.js` calls it every 10 s. The play rule is `inPlay()`, which `stepBreak()` also uses for `play`.

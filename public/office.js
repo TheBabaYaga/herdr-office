@@ -675,7 +675,7 @@ function breaks(v, t) {
   const game = (i) => office.games[i >> 1]
   const go = (kind, i) => (kind === 'lunch' ? route(office, d.id, kit.chairs[i], 'kitchen') : kind === 'chat' ? route(office, d.id, kit.chat[i], 'kitchen') : kind === 'game' ? route(office, d.id, game(i).places[i & 1], game(i).room) : route(office, d.id, room(kind).spots[i], kind))
   const a = stepBreak(trips, claimed, d.id, { idle: d.status === 'idle' && !d.away, seed: v.seed, spots, route: go, tables: office.games.map((g) => g.kind) }, t)
-  const to = a?.trip.room === 'lunch' || a?.trip.room === 'chat' ? 'kitchen' : a?.trip.room === 'game' ? office.games[a.trip.table].room : a?.trip.room
+  const to = a?.trip.kind === 'lunch' || a?.trip.kind === 'chat' ? 'kitchen' : a?.trip.kind === 'game' ? office.games[a.trip.table].room : a?.trip.kind
   return a && { ...along(a.trip.path, a.s), ...a, room: to } // room: a room id for opens()
 }
 
@@ -703,12 +703,12 @@ const TAU = Math.PI * 2, HIT = 0.8 // HIT: the seconds of one ping-pong ball cro
 // In a chat stay the worker stands at the cooler and faces its partner. The talker waves the arm on the camera side under the speech bubble.
 function stroll(w, d, a, t) {
   const g = w.g, back = a.phase === 'back' || a.phase === 'rush', stay = a.phase === 'stay', tr = a.trip
-  const dance = stay && tr.room === 'party', h = hash(d.id, 1e6), b = t * Math.PI * (1.6 + (h % 100) / 125) + h, beat = Math.sin(b) // 1.6 to 2.4 steps a second: a step is half a turn of b
-  const chair = stay && tr.room === 'lunch' && office.rooms.find((r) => r.id === 'kitchen').chairs[+tr.spot.split(':')[1]] // tr.spot: 'lunch:<index>'
-  const side = tr.room === 'game' && +tr.spot.split(':')[1] & 1, table = stay && tr.room === 'game' && office.games[tr.table] // tr.spot: 'game:<index>'. side 0: west
-  const talk = stay && tr.room === 'chat' && office.rooms.find((r) => r.id === 'kitchen').chat[+tr.spot.split(':')[1]] // tr.spot: 'chat:<index>'
+  const dance = stay && tr.kind === 'party', h = hash(d.id, 1e6), b = t * Math.PI * (1.6 + (h % 100) / 125) + h, beat = Math.sin(b) // 1.6 to 2.4 steps a second: a step is half a turn of b
+  const chair = stay && tr.kind === 'lunch' && office.rooms.find((r) => r.id === 'kitchen').chairs[+tr.spot.split(':')[1]] // tr.spot: 'lunch:<index>'
+  const side = tr.kind === 'game' && +tr.spot.split(':')[1] & 1, table = stay && tr.kind === 'game' && office.games[tr.table] // tr.spot: 'game:<index>'. side 0: west
+  const talk = stay && tr.kind === 'chat' && office.rooms.find((r) => r.id === 'kitchen').chat[+tr.spot.split(':')[1]] // tr.spot: 'chat:<index>'
   const place = table && table.places[side], seat = chair || place || talk // a lunch chair point, a game place, or a chat spot: the heading of the stay
-  const to = dance ? (office.rooms.find((r) => r.id === tr.room).booth.z < a.z ? 0 : Math.PI) + 0.35 * Math.sin(b / 2) : seat ? (seat.rot * Math.PI) / 2 : stay ? 0 : Math.atan2(a.dx * (back ? 1 : -1), a.dz * (back ? 1 : -1))
+  const to = dance ? (office.rooms.find((r) => r.id === tr.kind).booth.z < a.z ? 0 : Math.PI) + 0.35 * Math.sin(b / 2) : seat ? (seat.rot * Math.PI) / 2 : stay ? 0 : Math.atan2(a.dx * (back ? 1 : -1), a.dz * (back ? 1 : -1))
   const sw = stay ? 0 : 0.7 * Math.sin(a.s * 5), c = calm(Math.min(...office.rooms.map((r) => Math.hypot(a.x - r.door.x, a.z - r.door.z))))
   const hand = stay ? 1.2 + 0.1 * Math.sin(t * 2) : 0.1 + 1.1 * c // the angle of the mug arm
   tr.rot = tr.rot == null ? to : tr.rot + (to - tr.rot - Math.round((to - tr.rot) / TAU) * TAU) * 0.25 // the heading lives on the trip: a rebuild makes a new group

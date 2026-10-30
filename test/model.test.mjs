@@ -928,7 +928,7 @@ const TOUR_OFFICE = {
   games: [{ room: 'party', kind: 'chess', x: 20, z: 5 }, { room: 'party', kind: 'pingpong', x: 17, z: 5 }],
 }
 const entry = (trip) => ({ n: 0, next: 0, trip }) // one value of the trips map
-const stayTrip = (room, more) => entry({ len: 0, start: 0, stay: 100, room, ...more }) // in its stay at t = 50
+const stayTrip = (kind, more) => entry({ len: 0, start: 0, stay: 100, kind, ...more }) // in its stay at t = 50
 const statuses = (o, map) => ({ ...o, desks: o.desks.map((d) => ({ ...d, status: map[d.id] ?? 'idle' })) })
 // n calls of nextStop(), each with the seen list of the call before. Returns the n stops.
 function round(o, trips, t, n, seen = []) {
@@ -985,8 +985,8 @@ test('nextStop: a new blocked desk is the next stop, also in the middle of a rou
 test('nextStop: only a stay is a stop, and a game only while in play', () => {
   const trips = new Map([
     ['a', stayTrip('kitchen')],
-    ['b', entry({ len: 160, start: 0, stay: 10, room: 'party' })],
-    ['c', entry({ len: 16, start: 0, stay: 100, room: 'party', rush: 49 })],
+    ['b', entry({ len: 160, start: 0, stay: 10, kind: 'party' })],
+    ['c', entry({ len: 16, start: 0, stay: 100, kind: 'party', rush: 49 })],
     ['d', stayTrip('game', { table: 1, partner: null, begin: null, end: null })],
   ])
   assert.equal(nextStop(statuses(TOUR_OFFICE, {}), trips, 50).stop.key, 'room:w1')
