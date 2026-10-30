@@ -660,7 +660,8 @@ function browse(v, t) {
   v.tex.needsUpdate = true // the texture uploads again, also when it came from a typing screen
 }
 
-// ---- idle breaks: after a wait, an idle worker walks to the kitchen counter, a kitchen chair for lunch, the party room, a game table, or the water cooler, and back ----
+// ---- idle breaks ----
+// After a wait, an idle worker walks to a spot, then back. The spot is a counter spot, a lunch chair, a dance spot, a game table, or the water cooler.
 // The clock is t of the animation loop. A trip lives in trips by desk id, so it survives a rebuild for a new subagent.
 // ponytail: a change of the route inputs (`lay`) clears every trip: the workers sit at their desks again. Tracking a trip across a new layout needs a new route.
 const trips = new Map() // desk id -> { n: the next trip, next: when it starts, trip: the one that runs now }
@@ -699,7 +700,7 @@ const TAU = Math.PI * 2, HIT = 0.8 // HIT: the seconds of one ping-pong ball cro
 // In the party room the stay is a dance: the worker faces the booth with a sway, at its own tempo and phase.
 // In a lunch stay the worker sits on its kitchen chair, faces the table, and eats from the plate.
 // In a game stay the worker sits at the chess table or stands with a paddle at the ping-pong table, and faces the table.
-// In a chat stay the worker stands at the cooler and faces its partner. The talker waves the right hand under the speech bubble.
+// In a chat stay the worker stands at the cooler and faces its partner. The talker waves the arm on the camera side under the speech bubble.
 function stroll(w, d, a, t) {
   const g = w.g, back = a.phase === 'back' || a.phase === 'rush', stay = a.phase === 'stay', tr = a.trip
   const dance = stay && tr.room === 'party', h = hash(d.id, 1e6), b = t * Math.PI * (1.6 + (h % 100) / 125) + h, beat = Math.sin(b) // 1.6 to 2.4 steps a second: a step is half a turn of b
@@ -723,10 +724,10 @@ function stroll(w, d, a, t) {
   w.arms[1].rotation.x = a.got ? hand : sw * c
   w.plate.visible = !!chair
   w.paddle.visible = table?.kind === 'pingpong'
-  if (talk) { // a chat at the cooler: standing, no mug, the left arm down. The speaker waves the right hand and shows the bubble over the head.
+  if (talk) { // a chat at the cooler: standing, no mug, both arms down. The talker waves the arm on the camera side and shows the bubble over the head.
     w.arms[0].rotation.x = w.arms[1].rotation.x = 0
     if (a.talk) {
-      w.arms[1].rotation.x = 0.85 + 0.15 * Math.sin(t * 6)
+      w.arms[+tr.spot.endsWith('0')].rotation.x = 0.85 + 0.15 * Math.sin(t * 6) // chat:0 (west, faces +x) waves arms[1], chat:1 waves arms[0]
       bubble.position.set(a.x, 1.8, a.z)
       bubble.visible = true
     }
