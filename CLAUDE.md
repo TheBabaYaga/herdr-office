@@ -66,7 +66,7 @@ npm run build                   # dist/herdr-office and its tar (see docs/releas
 - `install.sh`: the install script (`docs/release.md` "Install"). `test/install.test.mjs` tests it with a temp `HOME` and fake `uname` and `curl`.
 - `test/bridge.test.mjs`: the bridge against fake herdr sockets and a fake `~/.claude/projects` tree, and a fake Codex sessions tree. The update check runs against a fake `latest` and a fake `fetchFn`.
 - `test/model.test.mjs`: `buildOffice` against synthetic snapshots and the demo, and `ghosts()` and `ghostAt()` against three bounds. `assertPlan()` checks that rooms, corridors, and terraces tile the building, that each door opens into a corridor, and that desks stay apart. Its `assertRows()` checks the place and the width of the party room, each terrace, and the widths of the other rooms.
-- `test/walk.test.mjs`: the kitchen counter, spots, tables, and chairs, the party spots, floor, and booth, `route()` from each agent desk to each kitchen spot, each kitchen chair, each chat spot, and each dance spot in many floor plans (`checkRoute()` samples each route every 0.1), `opens`, `along`, `tripAt`, `breakPlan`, `pathLen`, `stepBreak`, `endBreak`, and the long-idle agents of the demo.
+- `test/walk.test.mjs`: the kitchen counter, spots, tables, and chairs, the party spots, floor, and booth, `route()` from each agent desk to each kitchen spot, each kitchen chair, each chat spot, and each dance spot in many floor plans (`checkRoute()` samples each route every 0.1), `opens`, `along`, `tripAt`, `breakPlan`, `pathLen`, `stepBreak`, `endBreak`, `idleBreaks` (the `idleBreaks:` tests), and the long-idle agents of the demo, whose run uses `idleBreaks()`.
 
 Contracts between the files:
 

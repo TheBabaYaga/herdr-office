@@ -656,7 +656,8 @@ export function idleBreaks() {
         office.corridors.at(-1),
         office.desks.map((d) => [d.id, d.x, d.z, d.roomId, d.podId]),
       ])
-      if (lay !== laid) { trips.clear(); claimed.clear(); laid = lay } // a change of the routes ends every trip
+      // ponytail: a change of the route inputs clears every trip: the workers sit at their desks again. Tracking a trip across a new layout needs a new route.
+      if (lay !== laid) { trips.clear(); claimed.clear(); laid = lay }
       for (const d of office.desks) if (d.away || !d.agent) endBreak(trips, claimed, d.id, t) // the worker sits at the meeting table, or the agent quit: no worker, no trip. The game of a partner ends at t
     },
     step(d, t) {

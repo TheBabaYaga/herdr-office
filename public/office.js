@@ -663,7 +663,7 @@ function browse(v, t) {
 // ---- idle breaks ----
 // After a wait, an idle worker walks to a spot, then back. The spot is a counter spot, a lunch chair, a dance spot, a game table, or the water cooler.
 // The clock is t of the animation loop. idleBreaks() in model.js keeps each trip by desk id, so a trip survives a rebuild for a new subagent.
-// ponytail: a change of the route inputs (`lay` in idleBreaks()) clears every trip: the workers sit at their desks again. Tracking a trip across a new layout needs a new route.
+// A new floor plan ends every trip (the ponytail note in use() of idleBreaks()).
 const breaks = idleBreaks() // use() in update(), step() in pose(): where the worker is now, or null at the desk. now() in rally() and tourStep()
 const heading = new Map() // desk id -> the eased heading of the worker on a trip. It lives by desk id: a rebuild makes a new group
 

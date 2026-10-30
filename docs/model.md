@@ -219,7 +219,7 @@ CLAUDE.md gives the contracts of `along()`, `tripAt()`, and `pathLen()`.
 - A rush of a player with a partner ends the game of the partner (`quit()`): its `end` becomes the rush time, and its stay ends then, or at its arrival if that is later. The partner walks back, not runs, and keeps its `partner`, so nobody joins it again. After the game end, both players already walk back, so a rush or `endBreak()` of one player does not change the other.
 - It returns `play`: true in the `stay` while `begin <= t < end`. A waiter alone never plays.
 - It returns `talk`: true only in a chat, while `play` is true and it is the turn of this worker. A turn lasts `2 + hash(String(begin), 100) / 100` s (2 to 3 s), counted from `begin`, the later arrival. The join sets `first: true` on the waiter, and the waiter talks in the even turns. So exactly one of the two talks at each time, also when both trips start in one frame.
-- `trip.kind` is the trip kind, so a lunch trip has `kind: 'lunch'`. `step()` gives `opens()` the room id `kitchen` for it. For a game trip, `opens()` needs the room of the table: `o.games[trip.table].room`.
+- `trip.kind` is the trip kind, so a lunch trip has `kind: 'lunch'`. `step()` gives `opens()` the room id `kitchen` for it. For a game trip, `opens()` needs the room of the table: `o.games[i >> 1].room`, with `i` the place index. One lookup in `step()`, `at(kind, i)`, gives the spot and the target room id of each kind, for the route, `seat`, and `room`.
 - A lunch trip stays `plan.lunch` (20 to 40 s). A game or chat trip stays `WAIT` until a join. The other trips stay `plan.stay`.
 - The spot search of a kind starts at `seed % n`, with `n` the spot count of that kind, so `seed` must be a non-negative integer.
 - A rush is final: an idle status after it does not stop it. After a rush, it deletes the state.
@@ -256,7 +256,7 @@ A `DEMO_PANES` row is `[paneId, tabId, kind, rect, phase, name, long]`. `kind` `
 ### A new room kind
 
 1. Push the room after the meeting rooms and before `lobby`, with the fields of the `['kitchen', 'lobby']` loop. The room order and the widths set the row and the door side. No option pins a room to a row, so a room that needs one door side needs a change to the band plan.
-2. If workers walk to it, extend `walkRects()`, the `r.walk` line, the strip depth in `route()`, the room pick in `stepBreak()`, and `spots`, the route lookup, and the room filter of `lay` in `idleBreaks()`. `opens()` already opens the door of the target room.
+2. If workers walk to it, extend `walkRects()`, the `r.walk` line, the strip depth in `route()`, the room pick in `stepBreak()`, and `spots`, the spot lookup `at()`, and the room filter of `lay` in `idleBreaks()`. `opens()` already opens the door of the target room.
 3. Add a decor function in `decor.js` and an entry in `DECOR` in `office.js`, else `build()` throws. Add a floor to `ROOM_FLOOR`, else it gets carpet.
 4. `sig` already holds each room position. A room that changes size at run time moves other rooms, so `lay` changes and each trip ends.
 5. Update `assertPlan()` and the room id list in "buildOffice maps rooms, pods and desks" in `test/model.test.mjs`. `assertPlan()` checks the exact room list (without the party room), and the label, `number`, `status`, `pods`, and minimum size of each room that is not a workspace. `normal()` in `test/model.test.mjs` copies the width of each room kind, so a new kind with another width needs a change there.

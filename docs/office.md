@@ -303,7 +303,7 @@ A new room kind on the 3D side:
 1. `buildOffice()` makes the room with `door` and `pods` (`[]` is valid).
 2. `decor.js`: export a decor function `(g, room, season)` in room-local coordinates, with props from `placer()`.
 3. `office.js`: import it and add it to `DECOR`, or `build()` throws. Add a `ROOM_FLOOR` entry, or the room gets carpet. `door()`, `swing()`, and `update()` need no change, and a room with `status: null` gets the `C.wood` light and sign.
-4. Routes use only the workspace rooms, the corridors, the kitchen, and the party room. For a walk to the new room, change `route()`, `stepBreak()`, and `idleBreaks()` (`spots`, the route lookup, and `lay`). `opens()` already opens the door of the target room. See the recipe "A new room kind" in `docs/model.md`.
+4. Routes use only the workspace rooms, the corridors, the kitchen, and the party room. For a walk to the new room, change `route()`, `stepBreak()`, and `idleBreaks()` (`spots`, the spot lookup `at()`, and `lay`). `opens()` already opens the door of the target room. See the recipe "A new room kind" in `docs/model.md`.
 5. Add the `kind` to `CLAUDE.md` "Contracts between the files", and update `assertPlan()` and the room id checks in `test/model.test.mjs`.
 
 A new color that changes in place:
