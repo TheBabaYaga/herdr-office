@@ -196,7 +196,7 @@ The legs follow the CLAUDE.md contract, in the order of the `pts` array. It read
 - The phase `stay` gives `[]`, so the door of the target room closes at the counter or on the dance floor.
 - A walker with `a.room` equal to its own room (a game table in its own room) gets `[]`. Its route never leaves the room.
 
-`breakPlan(seed, n)` is deterministic. `wait`, `stay`, `lunch`, `pick`, `game`, and `chat` use the value indices 0, 1, 3, 6, 7, and 8, so a change of one value keeps the other values. `game` sets the game time of a waiter: `30 + 30 * game` s for chess, `20 + 20 * game` s for ping-pong. `chat` is `10 + 15 * u(8)` s, the chat time of a waiter at the cooler. With the 4 kinds of the demo, the index 6 gives `w2:p2` a game first and `w3:p3` a dance first. The index 2 held the old party coin.
+`breakPlan(seed, n)` is deterministic. `wait`, `stay`, `lunch`, `pick`, `game`, and `chat` use the value indices 0, 1, 3, 6, 7, and 8, so a change of one value keeps the other values. `game` sets the game time of a waiter: `30 + 30 * game` s for chess, `20 + 20 * game` s for ping-pong. `chat` is `10 + 15 * u(8)` s, the chat time of a waiter at the cooler. With the 5 kinds of the demo, the index 6 gives `w1:p2` a game first, `w2:p2` a chat first, and `w3:p3` a dance first. The index 2 held the old party coin.
 
 CLAUDE.md gives the contracts of `along()`, `tripAt()`, and `pathLen()`.
 
@@ -264,7 +264,7 @@ A `DEMO_PANES` row is `[paneId, tabId, kind, rect, phase, name, long]`. `kind` `
 ### New break times or new speeds
 
 1. Change the ranges in `breakPlan()`, or `WALK` and `RUN`, and the test "breakPlan is deterministic and stays in range". The pick test copies the `wait` and `stay` formula in `before()`, so change it too.
-2. Run `npm test`. The long-idle demo test needs a full trip of each long-idle agent, a trip that a status change cuts short, and a game of the two. A longer trip needs larger `long` values.
+2. Run `npm test`. The long-idle demo test needs a full trip of each long-idle agent, a trip that a status change cuts short, a game, and a chat. A longer trip needs larger `long` values.
 3. A faster `RUN` gives a door less time. Keep `(3 - 1.35) / RUN` above `SWING` (0.25 s) in `office.js`, or change the 3 in `opens()`.
 4. Update the trip times in CLAUDE.md "Contracts between the files", the comment above `DEMO_PANES`, INTENT.md "Open items and known limits", and `docs/testing.md` "Visual check in the browser".
 5. INTENT.md decision 19 holds the times that the user approved. Ask the user before you change them. Then update decision 19 and the sentence "The user did not tune them" in INTENT.md "Open items and known limits".

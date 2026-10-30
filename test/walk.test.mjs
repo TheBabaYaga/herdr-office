@@ -913,7 +913,7 @@ test('a walker to a game place opens only its own door and the door of the game 
 })
 
 // ---- the demo ----
-test('the demo has two long-idle agents in different rooms: time for a trip, a trip that a status change cuts short, and a game of the two', () => {
+test('the demo has long-idle agents in different rooms: time for a trip, a trip that a status change cuts short, a game, and a chat', () => {
   const N = 700, ticks = Array.from({ length: N }, (_, t) => demoSnapshot(t)), o = buildOffice(ticks[0], demoMeetings(0))
   const kitchen = o.rooms.find(r => r.kind === 'kitchen'), party = o.rooms.find(r => r.kind === 'party')
   assert.ok(party, 'the demo has a party room')
@@ -933,8 +933,8 @@ test('the demo has two long-idle agents in different rooms: time for a trip, a t
   assert.ok(Math.max(...starts) - Math.min(...starts) >= 30, `the idle stretches start apart: ${starts}`)
   // Run the breaks of each agent desk as office.js does, 10 frames a second. The other agents never idle long enough for a trip.
   const places = o.games.flatMap((g) => g.places.map((p) => [p, g.room])), trips = new Map(), claimed = new Map()
-  const spots = { kitchen: kitchen.spots.length, lunch: kitchen.chairs.length, party: party.spots.length }, tables = o.games.map((g) => g.kind)
-  const to = { kitchen: (j) => [kitchen.spots[j], 'kitchen'], lunch: (j) => [kitchen.chairs[j], 'kitchen'], party: (j) => [party.spots[j], 'party'], game: (j) => places[j] }
+  const spots = { kitchen: kitchen.spots.length, lunch: kitchen.chairs.length, party: party.spots.length, chat: kitchen.chat.length }, tables = o.games.map((g) => g.kind)
+  const to = { kitchen: (j) => [kitchen.spots[j], 'kitchen'], lunch: (j) => [kitchen.chairs[j], 'kitchen'], party: (j) => [party.spots[j], 'party'], game: (j) => places[j], chat: (j) => [kitchen.chat[j], 'kitchen'] }
   const desks = o.desks.filter((d) => d.agent && !d.away), last = new Map(), done = new Map(), games = []
   let cut = 0
   for (let i = 0; i < N * 10; i++) {
@@ -943,13 +943,15 @@ test('the demo has two long-idle agents in different rooms: time for a trip, a t
       const idle = snap.agents.find((a) => a.pane_id === d.id).agent_status === 'idle', seed = hash(d.terminalId, 1e9)
       const r = stepBreak(trips, claimed, d.id, { idle, seed, spots, tables, route: (kind, j) => route(o, d.id, ...to[kind](j)) }, t), prev = last.get(d.id)
       if (!r && prev) prev.trip.rush == null ? done.set(d.id, (done.get(d.id) ?? 0) + 1) : cut++ // back at the desk: a full trip, or a run back
-      if (r?.play && !prev?.play) games.push([d.id, r.trip.partner])
+      if (r?.play && !prev?.play) games.push([d.id, r.trip.partner, r.trip.room])
       last.set(d.id, r)
     }
   }
   for (const d of long) assert.ok(done.get(d.id) >= 1, `${d.id}: no full trip in ${N} s`)
   assert.ok(cut >= 1, 'a status change catches a worker on a trip')
-  assert.ok(games.some(([a, b]) => long.some((d) => d.id === a) && long.some((d) => d.id === b)), 'the two long-idle agents play a game')
+  const of = (kind) => games.some(([a, b, room]) => room === kind && long.some((d) => d.id === a) && long.some((d) => d.id === b))
+  assert.ok(of('game'), 'two long-idle agents play a game')
+  assert.ok(of('chat'), 'two long-idle agents chat')
 })
 
 test('candleSpots: corridor candelabra stand clear of the edges, doors, junction mouths, and every route', () => {

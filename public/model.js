@@ -672,12 +672,13 @@ const DEMO_TABS = { 'w1:t1': 'server', 'w2:t1': 'app', 'w2:t2': 'tests', 'w3:t1'
 // pane id, tab id, agent kind (null = shell), rect [x, y, w, h] in cells inside AREA, status phase, agent name, long idle.
 // Outside the focused tab w1:t1, phases 0, 3, 6 and 9 sit one cycle step apart, so every tick shows all four CYCLE statuses.
 // The focused tab never shows done. Its phases give the idle agent while w4:p1 is still unknown.
-// A long-idle agent ([idle ticks, start tick in its cycle]) ignores the phase: it idles for a long time, so it goes on kitchen
-// and party trips. Then it works 20 s, waits for the user 15 s and finishes 15 s. The two idle times differ, so one trip finishes and a
-// status change cuts the other short. Their kitchen routes are 55 to 76 units long: a full kitchen trip takes about 100 s. A party trip is shorter.
+// A long-idle agent ([idle ticks, start tick in its cycle]) ignores the phase: it idles for a long time, so it goes on kitchen,
+// party, game, and chat trips. Three of them idle, because with two the fifth kind would hide the games.
+// Then it works 20 s, waits for the user 15 s and finishes 15 s. The idle times differ, so one trip finishes and a
+// status change cuts another short. Their kitchen routes are 55 to 76 units long: a full kitchen trip takes about 100 s. A party trip is shorter.
 const DEMO_PANES = [
   ['w1:p1', 'w1:t1', 'claude', [0, 0, 100, 30], 1, 'lead'],
-  ['w1:p2', 'w1:t1', 'codex', [100, 0, 100, 30], 5],
+  ['w1:p2', 'w1:t1', 'codex', [100, 0, 100, 30], 5, null, [200, 170]],
   ['w1:p3', 'w1:t1', null, [0, 30, 100, 30]],
   ['w1:p4', 'w1:t1', 'gemini', [100, 30, 100, 30], 10],
   ['w2:p1', 'w2:t1', 'opencode', [0, 0, 100, 60], 6],
