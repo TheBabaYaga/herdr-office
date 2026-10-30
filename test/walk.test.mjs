@@ -1031,6 +1031,20 @@ test('stepBreak: in a chat exactly one worker talks at each time, the waiter fir
   for (const u of turns) assert.ok(u >= 2 - 0.02 && u <= 3 + 0.02, `a turn of ${u} s`)
 })
 
+test('stepBreak: the turn length differs from one chat to the next, and each lies in 2 to 3 s', () => {
+  const lens = [1, 3, 5, 7].map((late) => { // b joins late s after a arrives, so each chat begins at another time
+    const w = world()
+    cstep(w, 0, 'a'); jstep(w, 0, 'b')
+    const a = cstep(w, 100, 'a').trip, b = jstep(w, arrive(a) + late, 'b').trip
+    const flips = []
+    for (let t = b.begin + 0.001, last = true; t < b.end; t += 0.01) { const x = cstep(w, t, 'a').talk; if (x !== last) { flips.push(t); last = x } }
+    assert.ok(flips.length >= 2, `late ${late}: ${flips.length} flips`)
+    return flips[1] - flips[0]
+  })
+  for (const u of lens) assert.ok(u >= 2 - 0.02 && u <= 3 + 0.02, `a turn of ${u} s`)
+  assert.ok(Math.max(...lens) - Math.min(...lens) > 0.05, `the turn lengths ${lens.map((u) => u.toFixed(2))} are all equal`)
+})
+
 test('stepBreak: no talk for a waiter alone, before the chat begins, after its end, or in a game', () => {
   { const { w, a } = cpair()
     assert.deepEqual([cstep(w, a.begin - 0.1, 'a').talk, jstep(w, a.begin - 0.1, 'b').talk], [false, false])
