@@ -13,7 +13,7 @@ These docs describe the code of herdr-office, with one doc for each source area.
 | The last reply and the chat window | `docs/office.md` "Panel", `docs/bridge.md` "`messagesIn(text)`", "`readMessages(projects, pane, limit = 100)`", "`GET /messages` branch" | `loadMessages()`, `renderMessages()`, `readMessages()`, `messagesIn()`, `readCodexMessages()`, `codexMessagesIn()` |
 | Camera and picking | `docs/office.md` "Camera", "Picking" | `resize()`, `fit()`, `frame()`, `keepInView()`, the camera tour, the canvas `pointerdown` and `click` handlers |
 | The floor plan, the room layout, and the terraces | `docs/model.md` "Pods and desks", "buildOffice(snap, meetings = [], prev = null)". `docs/office.md` "Floors and walls", "Build and bake" | `buildOffice()`, `podLayout()`, `spread()`, `build()`, `inner()`, `outer()`, `stub()` |
-| Kitchen and party trips, and routes | `docs/model.md` "Walk geometry", "route(o, deskId, spot, to = 'kitchen')", "Breaks". `docs/office.md` "Idle breaks" | `route()`, `walkRects()`, `stepBreak()`, `endBreak()`, `tripAt()`, `breakPlan()`, `along()`, `breaks()`, `stroll()` |
+| Kitchen and party trips, and routes | `docs/model.md` "Walk geometry", "route(o, deskId, spot, to = 'kitchen')", "Breaks". `docs/office.md` "Idle breaks". `docs/idr/0006-break-module.md` | `route()`, `walkRects()`, `idleBreaks()`, `stepBreak()`, `endBreak()`, `tripAt()`, `breakPlan()`, `along()`, `stroll()` |
 | Doors | `docs/office.md` "Floors and walls" (`door()`), "Idle breaks" (`swing()`), the recipe for the door leaf. `docs/model.md` "Breaks" (`opens()`). `docs/testing.md` "Change when a door opens" | `door()`, `swing()`, `opens()`, `calm()` |
 | Seasonal decor | `docs/decor.md` "Seasonal props". `docs/model.md` "season(date)", "snowflakes(t), flakeAt(f, s)", "outdoors(bounds)". `docs/office.md` "Frame loop and data source" (`SEASON`, the minute timer), "Winter snow". `INTENT.md` decisions 31 and 34 | `season()`, `SEASON`, `pumpkin()`, `bat()`, `web()`, `xmasTree`, `snow()`, `snowflakes()`, `flakeAt()`, `snowfall()` |
 | The Halloween night and the ghosts | `docs/office.md` "Halloween night". `docs/model.md` "candleSpots(o), lightningPlan(rand), flash(plan, s)" and "rng(s), ghosts(bounds), ghostAt(g, s)". `docs/decor.md` "Seasonal props" (`candleSpot()`). `docs/testing.md` "The Halloween night tests". `INTENT.md` decisions 31 to 33 | `night()`, `candelabra()`, `candles()`, `lightning()`, `ghost()`, `haunt()`, `candleSpots()`, `lightningPlan()`, `flash()`, `ghosts()`, `ghostAt()`, `candleSpot()` |
@@ -50,8 +50,7 @@ buildOffice(snapshot, meetings, office)     public/model.js, the old office is p
   |
   v
 update(next)
-  |-- lay changed: trips.clear(), claimed.clear()
-  |-- endBreak() for each desk with away or with no agent
+  |-- breaks.use(office, last): lay changed -> every trip ends. endBreak() for each desk with away or with no agent
   |-- sig changed: build() (DECOR[r.kind](), door(), partyLights(), terrace(), desk(), attendee(), bake()), frame() on the first build
   |-- night(): the light from CASTLE or daylight(clock()), on each update
   '-- in place: door lights, signs, pod lamps, badges, tags, spot, hud(), fill() when the panel is open
@@ -63,11 +62,11 @@ Each frame, `renderer.setAnimationLoop()` runs these calls in this order:
 follow -> tour -> goal glide -> zoom glide -> controls.update() -> keepInView() -> label font size
   -> moving = false, dancing = false, bubble hidden, ajar.clear()
   -> pose(v, t) for each view with a desk
-       breaks() -> stepBreak(), along()     where a worker on a trip is, and its target room
+       breaks.step() -> stepBreak()         where a worker on a trip is, its target room, and the doors to open (along(), opens())
        typing() or browse()                 the screen
-       stroll(), opens() -> ajar            the walk or the dance (sets dancing), and the doors to open: its own room and its target room
+       stroll(), walk.doors -> ajar         the walk or the dance (sets dancing), and the doors to open: its own room and its target room
   -> disco(t)                               the party room parts, on only while a worker dances
-  -> rally(t)                               the ping-pong balls, on only while both players of a table play
+  -> rally(t)                               the ping-pong balls from breaks.now(t), on only while both players of a table play
   -> snowfall(t)                            the winter flakes, at half speed with reduce motion
   -> candles(t)                             the candle flicker (Halloween night)
   -> haunt(t)                               the ghosts float (Halloween), at half speed with reduce motion, and show a clicked balloon for 2 s
@@ -170,11 +169,13 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - dance spot: a standing place on the dance floor of the party room, an entry of `room.spots` of that room. The spots stand in a front row and a back row, 2.0 apart in a row.
 - bubble: the one speech bubble of the office. It shows over the talker of a cooler chat, and the frame loop hides it each frame.
 - talker: the worker whose turn it is in a cooler chat (`a.talk`). It waves the right hand, and the bubble shows over it.
-- trip: one walk to a spot in the kitchen, the party room, at a game table, or at the water cooler, and back, `trips.get(deskId).trip`. `trip.kind` is `kitchen`, `lunch`, `party`, `game`, or `chat`, and `breakPlan().pick` picks the first kind. A worker that joins a waiter at a game table takes the kind `game`, whatever its pick. The same holds at the cooler for the kind `chat`. Its phases are `out`, `stay`, `back`, `rush`, and `done` (`tripAt()`).
+- break module: `idleBreaks()` in `model.js`. It owns `trips` and `claimed`. `office.js` calls `use()` on each update, `step()` for each worker each frame, and `now()` for the ping-pong ball and the camera tour.
+- trip kind: `kitchen`, `lunch`, `party`, `game`, or `chat`, the `kind` of a trip and of a step result. It is not a room id. `room` in a step result is the id of the target room.
+- trip: one walk to a spot in the kitchen, the party room, at a game table, or at the water cooler, and back. It lives inside the break module, as `trips.get(deskId).trip`. `trip.kind` is the trip kind, and `breakPlan().pick` picks the first kind. A worker that joins a waiter at a game table takes the kind `game`, whatever its pick. The same holds at the cooler for the kind `chat`. Its phases are `out`, `stay`, `back`, `rush`, and `done` (`tripAt()`).
 - rush: the run back at `RUN` (4) when the status leaves `idle` during a trip. `trip.rush` holds the start time of the run.
 - waiter: a worker alone at a game table or at the water cooler, with no partner and no rush, in its first `WAIT` s after it arrives. A new trip joins it, whatever its pick (`stepBreak()`).
-- claimed: the `Map` from a spot key `'<room>:<index>'` (for example `'kitchen:0'`, `'party:3'`, or `'chat:1'`) to the desk id that holds the spot. `stepBreak()` and `endBreak()` change it.
-- lay: the JSON of the route inputs in `update()`. A change clears `trips` and `claimed`, so every trip ends.
+- claimed: the `Map` from a spot key `'<kind>:<index>'` (for example `'kitchen:0'`, `'party:3'`, or `'chat:1'`) to the desk id that holds the spot. It lives inside the break module. Only `stepBreak()` and `endBreak()` change it, and `use()` clears it when `lay` changes.
+- lay: the JSON of the route inputs that `use()` of the break module compares. A change ends every trip.
 - browse: the idle screen at the desk, a fake web page or a video, from `browse()`.
 - ajar: the `Set` of room ids whose door a walker opens in this frame. `pose()` fills it from `opens()`, and `swing()` reads it.
 - hinge: the group in the room view that holds the door leaf and the knob. `swing()` sets `hinge.rotation.y`, and `doors` keeps the angle.
