@@ -640,7 +640,8 @@ export function endBreak(trips, claimed, id, t) {
 }
 
 // The idle breaks of one office. The state of stepBreak() (trips, claimed) and each lookup of a trip kind live in this closure.
-// use(office, t): the office model of this update. A change of the route inputs ends every trip, and so does a desk with away or no agent.
+// use(office, t): the office model of this update. A change of the route inputs ends every trip. A desk with away or no agent loses its own
+// trip, and the game or chat of its partner ends at t.
 // step(desk, t): where the worker of the desk is now, once a frame, or null at the desk. now(t): the games in play and the kinds in a stay.
 // A game is in play while both places hold a trip and begin <= t < the earlier end.
 export function idleBreaks() {
@@ -685,24 +686,22 @@ export function idleBreaks() {
   }
 }
 
-// The next stop of the camera tour. trips: the map of stepBreak(). seen: the keys of the stops of this round.
+// The next stop of the camera tour. now: the value of now() of idleBreaks(), { games, stays }. seen: the keys of the stops of this round.
 // The stops, in order: a blocked desk, a done desk, a game in play, a dance, a lunch. With none of these, each room.
 // It picks the first stop that is not in seen. When all are seen, a new round starts and skips the stop that came last.
 // Returns { stop: { key, x, z, room, whole }, seen }. whole: true for a room stop only.
-export function nextStop(o, trips, t, seen = []) {
+export function nextStop(o, now, seen = []) {
   const stops = []
   const desk = (d) => stops.push({ key: `desk:${d.id}`, x: (d.away ?? d).x, z: (d.away ?? d).z, room: d.roomId, whole: false })
   for (const status of ['blocked', 'done']) o.desks.filter((d) => d.status === status).forEach(desk)
-  const stays = [...trips.values()].map((e) => e.trip && { trip: e.trip, phase: tripAt(e.trip, t).phase }).filter((x) => x?.phase === 'stay')
-  const tables = new Set(stays.filter((x) => x.trip.kind === 'game' && inPlay(x.trip, x.phase, t)).map((x) => x.trip.table))
-  for (const i of [...tables].sort((a, b) => a - b)) stops.push({ key: `game:${i}`, x: o.games[i].x, z: o.games[i].z, room: o.games[i].room, whole: false })
+  for (const { table: i } of now.games) stops.push({ key: `game:${i}`, x: o.games[i].x, z: o.games[i].z, room: o.games[i].room, whole: false }) // now() sorts the games by table
   const party = o.rooms.find((r) => r.id === 'party')
-  if (party?.floor && stays.some((x) => x.trip.kind === 'party')) {
+  if (party?.floor && now.stays.includes('party')) {
     const [x0, z0, x1, z1] = party.floor
     stops.push({ key: 'dance', x: (x0 + x1) / 2, z: (z0 + z1) / 2, room: 'party', whole: false })
   }
   const tabs = o.rooms.find((r) => r.id === 'kitchen')?.tables
-  if (tabs?.length && stays.some((x) => x.trip.kind === 'lunch'))
+  if (tabs?.length && now.stays.includes('lunch'))
     stops.push({ key: 'lunch', x: tabs.reduce((a, c) => a + c.x, 0) / tabs.length, z: tabs.reduce((a, c) => a + c.z, 0) / tabs.length, room: 'kitchen', whole: false })
   if (!stops.length) for (const r of o.rooms) stops.push({ key: `room:${r.id}`, x: r.x + r.w / 2, z: r.z + r.d / 2, room: r.id, whole: true })
   const fresh = stops.find((s) => !seen.includes(s.key))

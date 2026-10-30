@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { daylight, STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, lightningPlan, flash, ghosts, ghostAt, snowflakes, flakeAt, twinkle, rng, outdoors, hash, season, route, along, calm, opens, stepBreak, endBreak, nextStop } from './model.js'
+import { daylight, STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, lightningPlan, flash, ghosts, ghostAt, snowflakes, flakeAt, twinkle, rng, outdoors, hash, season, calm, idleBreaks, nextStop } from './model.js'
 import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, party, terrace, SNOW, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
 
 const $ = (id) => document.getElementById(id)
@@ -662,22 +662,10 @@ function browse(v, t) {
 
 // ---- idle breaks ----
 // After a wait, an idle worker walks to a spot, then back. The spot is a counter spot, a lunch chair, a dance spot, a game table, or the water cooler.
-// The clock is t of the animation loop. A trip lives in trips by desk id, so it survives a rebuild for a new subagent.
-// ponytail: a change of the route inputs (`lay`) clears every trip: the workers sit at their desks again. Tracking a trip across a new layout needs a new route.
-const trips = new Map() // desk id -> { n: the next trip, next: when it starts, trip: the one that runs now }
-const claimed = new Map() // '<kind>:<spot index>' (kind: kitchen, lunch, party, game, or chat) -> desk id: two workers never stand on one spot or sit on one chair
-// Where the worker of this view is now: { x, z, dx, dz, s, phase, got, trip, room }, or null at the desk. stepBreak() in model.js keeps the state.
-function breaks(v, t) {
-  const d = v.desk, room = (id) => office.rooms.find((r) => r.id === id), kit = room('kitchen')
-  const spots = { kitchen: kit.spots.length, party: room('party')?.spots.length ?? 0, lunch: kit.chairs.length, chat: kit.chat.length }
-  // The trip kind: 'kitchen' (a counter spot), 'party' (a dance spot), 'lunch' (a kitchen chair), 'game' (a place at a game table), or 'chat' (a spot at the cooler).
-  // A lunch route ends at the chair point, a chat route at the chat spot. Game place i is place i & 1 of table i >> 1, in the room of that table.
-  const game = (i) => office.games[i >> 1]
-  const go = (kind, i) => (kind === 'lunch' ? route(office, d.id, kit.chairs[i], 'kitchen') : kind === 'chat' ? route(office, d.id, kit.chat[i], 'kitchen') : kind === 'game' ? route(office, d.id, game(i).places[i & 1], game(i).room) : route(office, d.id, room(kind).spots[i], kind))
-  const a = stepBreak(trips, claimed, d.id, { idle: d.status === 'idle' && !d.away, seed: v.seed, spots, route: go, tables: office.games.map((g) => g.kind) }, t)
-  const to = a?.trip.kind === 'lunch' || a?.trip.kind === 'chat' ? 'kitchen' : a?.trip.kind === 'game' ? office.games[a.trip.table].room : a?.trip.kind
-  return a && { ...along(a.trip.path, a.s), ...a, room: to } // room: a room id for opens()
-}
+// The clock is t of the animation loop. idleBreaks() in model.js keeps each trip by desk id, so a trip survives a rebuild for a new subagent.
+// ponytail: a change of the route inputs (`lay` in idleBreaks()) clears every trip: the workers sit at their desks again. Tracking a trip across a new layout needs a new route.
+const breaks = idleBreaks() // use() in update(), step() in pose(): where the worker is now, or null at the desk. now() in rally() and tourStep()
+const heading = new Map() // desk id -> the eased heading of the worker on a trip. It lives by desk id: a rebuild makes a new group
 
 // ---- doors: closed. A walker opens its own door and the door of its target room (opens() in model.js), and the door closes after it. ----
 // The angle lives by room id, outside views: a rebuild for a new subagent keeps a door open while a worker stands in it.
@@ -702,17 +690,18 @@ const TAU = Math.PI * 2, HIT = 0.8 // HIT: the seconds of one ping-pong ball cro
 // In a game stay the worker sits at the chess table or stands with a paddle at the ping-pong table, and faces the table.
 // In a chat stay the worker stands at the cooler and faces its partner. The talker waves the arm on the camera side under the speech bubble.
 function stroll(w, d, a, t) {
-  const g = w.g, back = a.phase === 'back' || a.phase === 'rush', stay = a.phase === 'stay', tr = a.trip
-  const dance = stay && tr.kind === 'party', h = hash(d.id, 1e6), b = t * Math.PI * (1.6 + (h % 100) / 125) + h, beat = Math.sin(b) // 1.6 to 2.4 steps a second: a step is half a turn of b
-  const chair = stay && tr.kind === 'lunch' && office.rooms.find((r) => r.id === 'kitchen').chairs[+tr.spot.split(':')[1]] // tr.spot: 'lunch:<index>'
-  const side = tr.kind === 'game' && +tr.spot.split(':')[1] & 1, table = stay && tr.kind === 'game' && office.games[tr.table] // tr.spot: 'game:<index>'. side 0: west
-  const talk = stay && tr.kind === 'chat' && office.rooms.find((r) => r.id === 'kitchen').chat[+tr.spot.split(':')[1]] // tr.spot: 'chat:<index>'
-  const place = table && table.places[side], seat = chair || place || talk // a lunch chair point, a game place, or a chat spot: the heading of the stay
-  const to = dance ? (office.rooms.find((r) => r.id === tr.kind).booth.z < a.z ? 0 : Math.PI) + 0.35 * Math.sin(b / 2) : seat ? (seat.rot * Math.PI) / 2 : stay ? 0 : Math.atan2(a.dx * (back ? 1 : -1), a.dz * (back ? 1 : -1))
+  const g = w.g, back = a.phase === 'back' || a.phase === 'rush', stay = a.phase === 'stay'
+  const dance = stay && a.kind === 'party', h = hash(d.id, 1e6), b = t * Math.PI * (1.6 + (h % 100) / 125) + h, beat = Math.sin(b) // 1.6 to 2.4 steps a second: a step is half a turn of b
+  const chair = stay && a.kind === 'lunch' && a.seat // a.seat: the kitchen chair of a lunch
+  const table = stay && a.kind === 'game' && office.games[a.table] // a.side: 0 west, 1 east
+  const talk = stay && a.kind === 'chat' && a.seat // a.seat: the chat spot at the cooler
+  const place = table && a.seat, seat = chair || place || talk // a lunch chair point, a game place, or a chat spot: the heading of the stay
+  const to = dance ? (office.rooms.find((r) => r.id === a.room).booth.z < a.z ? 0 : Math.PI) + 0.35 * Math.sin(b / 2) : seat ? (seat.rot * Math.PI) / 2 : stay ? 0 : Math.atan2(a.dx * (back ? 1 : -1), a.dz * (back ? 1 : -1))
   const sw = stay ? 0 : 0.7 * Math.sin(a.s * 5), c = calm(Math.min(...office.rooms.map((r) => Math.hypot(a.x - r.door.x, a.z - r.door.z))))
   const hand = stay ? 1.2 + 0.1 * Math.sin(t * 2) : 0.1 + 1.1 * c // the angle of the mug arm
-  tr.rot = tr.rot == null ? to : tr.rot + (to - tr.rot - Math.round((to - tr.rot) / TAU) * TAU) * 0.25 // the heading lives on the trip: a rebuild makes a new group
-  g.rotation.set(0, tr.rot, 0)
+  const was = heading.get(d.id), rot = was == null ? to : was + (to - was - Math.round((to - was) / TAU) * TAU) * 0.25 // the heading lives in heading by desk id: a rebuild makes a new group
+  heading.set(d.id, rot)
+  g.rotation.set(0, rot, 0)
   g.position.set(a.x - d.x, 0.5 + 0.04 * Math.abs(sw), a.z - d.z)
   w.sit.visible = false
   w.stand.visible = true
@@ -727,14 +716,14 @@ function stroll(w, d, a, t) {
   if (talk) { // a chat at the cooler: standing, no mug, both arms down. The talker waves the arm on the camera side and shows the bubble over the head.
     w.arms[0].rotation.x = w.arms[1].rotation.x = 0
     if (a.talk) {
-      w.arms[+tr.spot.endsWith('0')].rotation.x = 0.85 + 0.15 * Math.sin(t * 6) // chat:0 (west, faces +x) waves arms[1], chat:1 waves arms[0]
+      w.arms[1 - a.side].rotation.x = 0.85 + 0.15 * Math.sin(t * 6) // side 0 (west, faces +x) waves arms[1], side 1 waves arms[0]
       bubble.position.set(a.x, 1.8, a.z)
       bubble.visible = true
     }
     return
   }
   if (place) { // a game: the body at the place, facing the table. A waiter, and a player after the game end, keep the arms down.
-    const chess = table.kind === 'chess', u = t - tr.begin // u: the time since the game began
+    const chess = table.kind === 'chess', u = t - a.begin // u: the time since the game began
     g.position.set(place.x - d.x, 0.5, place.z - d.z)
     w.sit.visible = chess
     w.stand.visible = !chess
@@ -742,18 +731,18 @@ function stroll(w, d, a, t) {
     if (!a.play) return
     if (chess) { // both hands on the table. Each turn lasts 3 to 5 s (from begin, so both players agree). The west player moves in the
       // even turns. The player in turn leans to the board and reaches with the right hand, out and back in 1.2 s.
-      const turn = 3 + hash(`${tr.begin}`, 200) / 100, k = Math.floor(u / turn), f = u - k * turn
-      const r = k % 2 === side && f < 1.2 ? Math.sin((Math.PI * f) / 1.2) : 0
+      const turn = 3 + hash(`${a.begin}`, 200) / 100, k = Math.floor(u / turn), f = u - k * turn
+      const r = k % 2 === a.side && f < 1.2 ? Math.sin((Math.PI * f) / 1.2) : 0
       w.arms[0].rotation.x = 1.2
       w.arms[1].rotation.x = 1.2 + 0.3 * r // 1.5 or less: a hand over the shoulder means blocked
-      g.rotation.set(-0.2 * r, tr.rot, 0, 'YXZ') // YXZ: the lean turns the body about its own x axis, after the heading
+      g.rotation.set(-0.2 * r, rot, 0, 'YXZ') // YXZ: the lean turns the body about its own x axis, after the heading
     } else { // the ball reaches the west paddle at begin and then each 2 HIT s, the east paddle HIT s later (rally()). The right arm
       // stays at 1.4 or more, so the blade stays over the table top (0.77), and goes to 1.5 at the hit. The stroke is a turn of the
       // body: back by 0.35 0.3 s before the hit, through 0 at the hit, 0.35 through after it, then back again before the next hit.
-      const e = (u - side * HIT) % (2 * HIT), dt = e > HIT ? e - 2 * HIT : e // the time from the nearest hit of this player
+      const e = (u - a.side * HIT) % (2 * HIT), dt = e > HIT ? e - 2 * HIT : e // the time from the nearest hit of this player
       w.arms[0].rotation.x = 0.3
       w.arms[1].rotation.x = 1.4 + 0.1 * Math.max(0, Math.cos((Math.PI * dt) / 0.6))
-      g.rotation.y = tr.rot + 0.35 * (Math.abs(dt) <= 0.3 ? Math.sin((Math.PI * dt) / 0.6) : Math.cos(Math.PI * (dt > 0 ? dt - 0.3 : dt + 1.3)))
+      g.rotation.y = rot + 0.35 * (Math.abs(dt) <= 0.3 ? Math.sin((Math.PI * dt) / 0.6) : Math.cos(Math.PI * (dt > 0 ? dt - 0.3 : dt + 1.3)))
     }
     return
   }
@@ -844,12 +833,13 @@ function disco(t) {
 let balls = [] // table index -> the ball of a ping-pong table, or null for a chess table. build() makes them.
 const arc = (y0, y1, h, s) => y0 + (y1 - y0) * s + 4 * h * s * (1 - s) // from y0 to y1, h over the straight line at the middle
 function rally(t) {
+  const games = breaks.now(t).games // the tables in play: both players hold a place, and begin <= t < the earlier end (a rush ends the game of the partner)
   balls.forEach((ball, i) => {
     if (!ball) return
-    const [w, e] = [2 * i, 2 * i + 1].map((j) => trips.get(claimed.get(`game:${j}`))?.trip) // the west and the east player
-    ball.visible = w?.begin != null && e?.begin != null && w.begin <= t && t < Math.min(w.end, e.end) // a rush ends the game of the partner
-    if (!ball.visible) return
-    const { x, places: [p, q] } = office.games[i], u = (t - w.begin) / HIT, k = Math.floor(u), f = u - k // k: the crossing, f: the part of it
+    const play = games.find((m) => m.table === i)
+    ball.visible = !!play
+    if (!play) return
+    const { x, places: [p, q] } = office.games[i], u = (t - play.begin) / HIT, k = Math.floor(u), f = u - k // k: the crossing, f: the part of it
     const west = [p.x + 0.65, p.z + 0.32], east = [q.x - 0.65, q.z - 0.32], [a, b] = k % 2 ? [east, west] : [west, east]
     const fb = (x + (k % 2 ? -0.55 : 0.55) - a[0]) / (b[0] - a[0]) // the bounce, 0.55 from the net on the half of the receiver
     const y = f < fb ? arc(0.96, 0.805, 0.3, f / fb) : arc(0.805, 0.96, 0.15, (f - fb) / (1 - fb)) // 0.805: the ball center on the top (0.77)
@@ -878,7 +868,7 @@ let moving = false // a worker walks this frame: its badge moves, so declutter()
 const ARM = { working: [1.35, 1.35], blocked: [1.35, 3], done: [2.6, 2.6], idle: [0.2, 0.2], unknown: [0.2, 0.2] }
 function pose(v, t) {
   const s = v.desk.status, w = v.worker, k = v.phase
-  const walk = w && breaks(v, t) // on a trip: where the worker is now. null: at the desk.
+  const walk = w && breaks.step(v.desk, t) // on a trip: where the worker is now. null: at the desk.
   const typed = w && s === 'working' && !walk, browsing = w && s === 'idle' && !walk && !v.desk.away, m = v.screen.material // an empty chair types nothing
   if (typed) {
     typing(v, Math.floor(t * 10))
@@ -894,8 +884,9 @@ function pose(v, t) {
   if (walk) {
     stroll(w, v.desk, walk, t)
     moving = true
-    for (const id of opens(office, v.desk, walk)) ajar.add(id)
+    for (const id of walk.doors) ajar.add(id)
   } else {
+    heading.delete(v.desk.id) // the next trip starts with the heading of its first step
     const bob = s === 'working' ? 0.15 * Math.sin(t * 16 + k) : 0
     w.g.position.set(0, 0.5, 0.4)
     w.g.rotation.set(s === 'idle' ? 0.25 : 0, 0, 0)
@@ -928,20 +919,14 @@ function declutter() {
 }
 
 // ---- update from a new office model ----
-let office = null, sig = '', laid = '' // sig: the build signature. laid: the route inputs of the last update
+let office = null, sig = '' // sig: the build signature
 
 function update(next) {
   office = next
   const rooms = office.rooms.map((r) => [r.id, r.x, r.z, r.w, r.d, r.pods.map((p) => [p.id, p.x, p.z, p.w, p.d])])
-  const lay = JSON.stringify([ // the inputs of route(): the workspace rooms, the kitchen and the party room with their doors, the cross corridor and the desks
-    office.rooms.filter((r) => r.kind === 'workspace' || r.kind === 'kitchen' || r.kind === 'party').map((r) => [r.id, r.x, r.z, r.w, r.d, r.door, r.pods.map((p) => [p.id, p.x, p.z, p.w, p.d])]),
-    office.corridors.at(-1),
-    office.desks.map((d) => [d.id, d.x, d.z, d.roomId, d.podId]),
-  ])
   const se = SEASON ?? season(new Date())
   const s = JSON.stringify([rooms, office.terraces, office.desks.map((d) => [d.id, d.x, d.z, d.agent ? d.agent.kind ?? '?' : 0, d.away]), office.subagents.map((s) => [s.id, s.x, s.z, s.rot, s.model]), se])
-  if (lay !== laid) { trips.clear(); claimed.clear(); laid = lay } // a change of the routes ends every trip
-  for (const d of office.desks) if (d.away || !d.agent) endBreak(trips, claimed, d.id, last) // the worker sits at the meeting table, or the agent quit: no worker, no trip. last: the frame time, so the game of a partner ends now
+  breaks.use(office, last) // a change of the routes ends every trip, and a desk with away or no agent loses its trip. last: the frame time, so the game of a partner ends now
   if (s !== sig) {
     build(office, se)
     if (!sig) frame(office.rooms.find((r) => r.id === office.focus.workspaceId) ?? { x: 0, z: 0, w: office.bounds.w, d: office.bounds.d })
@@ -1063,7 +1048,7 @@ const TOUR = 300, HOLD = 10
 let input = 0 // the time of the last input in seconds, from the same origin as the frame time
 let tour = null // null, or { at: the stop, next: the time of the next stop, seen: the stop keys of this round }
 function tourStep(t) {
-  const { stop, seen: keys } = nextStop(office, trips, t, tour?.seen)
+  const { stop, seen: keys } = nextStop(office, breaks.now(t), tour?.seen)
   const r = office.rooms.find((x) => x.id === stop.room), z = fit(r.w, r.d)
   tour = { at: new THREE.Vector3(stop.x, 0, stop.z), next: t + HOLD, seen: keys }
   zoomTo = stop.whole ? z : Math.min(controls.maxZoom, 1.5 * z)

@@ -1,6 +1,6 @@
 # public/model.js: the office model
 
-`public/model.js` turns a herdr snapshot and the meeting list into the office plan: rooms, pods, desks, corridors, terraces, meeting seats, kitchen spots, kitchen tables and chairs, the party room, and the game tables. It also plans the idle routes, keeps the break timing, and makes the demo data. For the Halloween night, it plans the corridor candelabra, the lightning, and the ghosts. It has no imports and no DOM, so the Node tests import it. `public/office.js` imports `STATUS_RANK`, `STATUS_COLOR`, `buildOffice`, `demoSnapshot`, `demoMeetings`, `candleSpots`, `lightningPlan`, `flash`, `ghosts`, `ghostAt`, `snowflakes`, `flakeAt`, `twinkle`, `rng`, `outdoors`, `hash`, `season`, `daylight`, `route`, `along`, `calm`, `opens`, `stepBreak`, `endBreak`, and `nextStop`. `public/decor.js` imports only `hash` and `rng`, to seed its fill pass with `room.id`. It reads the room fields `id`, `walk`, `counter`, `tables`, `chairs`, `cooler`, `table`, `seats`, `session`, `number`, `door`, `pods`, `booth`, and `floor`, and the terrace fields `id`, `w`, and `d`. The shapes of the office, a room, a desk, and most exported functions are in CLAUDE.md "Contracts between the files".
+`public/model.js` turns a herdr snapshot and the meeting list into the office plan: rooms, pods, desks, corridors, terraces, meeting seats, kitchen spots, kitchen tables and chairs, the party room, and the game tables. It also plans the idle routes, keeps the break timing, and makes the demo data. For the Halloween night, it plans the corridor candelabra, the lightning, and the ghosts. It has no imports and no DOM, so the Node tests import it. `public/office.js` imports `STATUS_RANK`, `STATUS_COLOR`, `buildOffice`, `demoSnapshot`, `demoMeetings`, `candleSpots`, `lightningPlan`, `flash`, `ghosts`, `ghostAt`, `snowflakes`, `flakeAt`, `twinkle`, `rng`, `outdoors`, `hash`, `season`, `daylight`, `calm`, `idleBreaks`, and `nextStop`. `public/decor.js` imports only `hash` and `rng`, to seed its fill pass with `room.id`. It reads the room fields `id`, `walk`, `counter`, `tables`, `chairs`, `cooler`, `table`, `seats`, `session`, `number`, `door`, `pods`, `booth`, and `floor`, and the terrace fields `id`, `w`, and `d`. The shapes of the office, a room, a desk, and most exported functions are in CLAUDE.md "Contracts between the files".
 
 ## When to read this doc
 
@@ -12,7 +12,7 @@
 
 ## Module state
 
-The file has no mutable state. Each `buildOffice()` call makes new objects. The break state lives in Maps that `office.js` owns.
+The file has no mutable state at module level. Each `buildOffice()` call makes new objects. Each `idleBreaks()` call makes a closure that holds its own break state.
 
 | Name | Holds | Used by |
 |---|---|---|
@@ -25,7 +25,7 @@ The file has no mutable state. Each `buildOffice()` call makes new objects. The 
 | `WAIT` | how long a waiter stays at a game table or the cooler (20 s) if nobody joins it | `stepBreak()`, `test/walk.test.mjs` |
 | `DRIFT` | the ghost speed (0.8 a second) | `ghostAt()` |
 | `AREA`, `CYCLE`, `DEMO_*` | the demo data | `demoSnapshot()`, `demoMeetings()` |
-| `trips`, `claimed` (`office.js`) | desk id to `{ n, next, trip }`, and the spot key `'<kind>:<index>'` to desk id | `stepBreak()`, `endBreak()`. `update()` clears both when `lay` changes |
+| `trips`, `claimed` (in the `idleBreaks()` closure) | desk id to `{ n, next, trip }`, and the spot key `'<kind>:<index>'` to desk id | `stepBreak()`, `endBreak()`, `now()`. `use()` clears both when `lay` changes |
 | `ajar` (`office.js`) | the room ids from `opens()` in this frame | `pose()` fills it, `swing()` reads it |
 
 ## Flow
@@ -42,7 +42,7 @@ At import, no function runs. For each update, `office.js` calls `buildOffice(sna
 8. Set the meeting `table` and `seats`, the orchestrator `away`, and `subagents`.
 9. Set `counts`, `focus`, `bounds`, `entrance`, and `games` (each table of each room, in `rooms` order, with its room id).
 
-Each frame, `pose()` calls `breaks()` for each view with a worker. `breaks()` calls `stepBreak()` and `along()`. `stepBreak()` calls its `route(kind, i)` callback only when a trip starts. `stroll()` calls `calm()`, and `pose()` calls `opens()` for each walker. A subagent view has the desk `{ status: 'working' }` with no `id`, so `stepBreak()` returns `null` for it.
+`office.js` makes one `idleBreaks()` at load, and `update()` calls its `use()` with each new office. Each frame, `pose()` calls `step()` for each view with a worker. `step()` calls `stepBreak()`, `along()`, and `opens()`. `stepBreak()` calls its `route(kind, i)` callback only when a trip starts. `stroll()` calls `calm()`. `rally()` and `tourStep()` call `now()`. A subagent view has the desk `{ status: 'working' }` with no `id`. Its status is not `idle`, so `step()` returns `null` for it.
 
 ## Functions
 
@@ -189,7 +189,7 @@ The legs follow the CLAUDE.md contract, in the order of the `pts` array. It read
 
 `hash(s, m = 360)` returns a string hash in `[0, m)`. `office.js` uses it for the hue of an unknown kind and of a floor, the clutter seed, and both the look and the break seed (`hash(d.terminalId ?? d.id, 1e9)`).
 
-`opens(o, d, a)` returns the room ids whose door the walker of desk `d` opens at `a = { x, z, phase, room }`. `room` is the target room id, from `trip.kind`.
+`opens(o, d, a)` returns the room ids whose door the walker of desk `d` opens at `a = { x, z, phase, room }`. `room` is the target room id. `step()` of `idleBreaks()` maps the trip kind to it.
 
 - Only the room of `d` and the room `a.room` can open, while the walker is less than 3 from the door center. Another door on the way stays closed, also the kitchen door for a party walker.
 - The 3 gives the door time to open (`SWING` in `office.js`) before a runner at `RUN` reaches the leaf, about 1.35 from the door center.
@@ -203,7 +203,7 @@ CLAUDE.md gives the contracts of `along()`, `tripAt()`, and `pathLen()`.
 `idleBreaks()` returns `{ use, step, now }`, the breaks of one office. Its closure holds `trips`, `claimed`, the office of the last `use()`, and every lookup of a trip kind.
 
 - `use(office, t)` takes the office of an update. When the route inputs change, it clears both maps. The route inputs are the workspace rooms, the kitchen, and the party room with their doors and pods, the cross corridor, and the desks. Then it calls `endBreak()` with `t` for each desk with `away` or no `agent`.
-- `step(desk, t)` calls `stepBreak()` once a frame, with the seed `hash(desk.terminalId ?? desk.id, 1e9)` and `idle` as `desk.status === 'idle' && !desk.away`. It returns `null` at the desk. A desk with no id (the subagent view desk `{ status: 'working' }`) gets `null` and no state.
+- `step(desk, t)` calls `stepBreak()` once a frame, with the seed `hash(desk.terminalId ?? desk.id, 1e9)` and `idle` as `desk.status === 'idle' && !desk.away`. It returns `null` at the desk. The subagent view desk `{ status: 'working' }` has no id. Its status is not `idle`, so it gets `null` and no state.
 - On a trip, `step()` returns `{ x, z, dx, dz, s, phase, kind, room, seat, side, table, begin, got, play, talk, doors }`. `room` is the target room id: `kitchen` for the kinds `kitchen`, `lunch`, and `chat`, `party` for `party`, and the room of the table for `game`.
 - `seat` is the chair (lunch), the game place, or the chat spot, else `null`. For spot index `i`, `side` is `i & 1` for a game and `i` for a chat, and `table` is `i >> 1` for a game. Else both are `null`. `begin` is `null` until a join. `doors` is `opens()` at `(x, z)`.
 - `now(t)` returns `{ games: [{ table, begin, end }], stays }`. A game is in play while both places of its table hold a trip and `begin <= t < end`, with `end` the earlier end of the two trips (the rule of `rally()` in `office.js`). So a rush of one player removes the game at once. `stays` holds each kind with a trip in its stay, in the order `kitchen`, `lunch`, `party`, `game`, `chat`.
@@ -219,29 +219,29 @@ CLAUDE.md gives the contracts of `along()`, `tripAt()`, and `pathLen()`.
 - A rush of a player with a partner ends the game of the partner (`quit()`): its `end` becomes the rush time, and its stay ends then, or at its arrival if that is later. The partner walks back, not runs, and keeps its `partner`, so nobody joins it again. After the game end, both players already walk back, so a rush or `endBreak()` of one player does not change the other.
 - It returns `play`: true in the `stay` while `begin <= t < end`. A waiter alone never plays.
 - It returns `talk`: true only in a chat, while `play` is true and it is the turn of this worker. A turn lasts `2 + hash(String(begin), 100) / 100` s (2 to 3 s), counted from `begin`, the later arrival. The join sets `first: true` on the waiter, and the waiter talks in the even turns. So exactly one of the two talks at each time, also when both trips start in one frame.
-- `trip.kind` is the trip kind, so a lunch trip has `kind: 'lunch'`. `office.js` gives `opens()` the room id `kitchen` for it. For a game trip, `opens()` needs the room of the table: `o.games[trip.table].room`.
+- `trip.kind` is the trip kind, so a lunch trip has `kind: 'lunch'`. `step()` gives `opens()` the room id `kitchen` for it. For a game trip, `opens()` needs the room of the table: `o.games[trip.table].room`.
 - A lunch trip stays `plan.lunch` (20 to 40 s). A game or chat trip stays `WAIT` until a join. The other trips stay `plan.stay`.
 - The spot search of a kind starts at `seed % n`, with `n` the spot count of that kind, so `seed` must be a non-negative integer.
 - A rush is final: an idle status after it does not stop it. After a rush, it deletes the state.
 - At `done` it returns `null` in the same call, so a walk phase is never `done`.
-- `got` becomes true in the `stay` of a kitchen trip, so the mug stays in the hand. A lunch trip and a party trip never get it. `stroll()` writes `trip.rot`.
+- `got` becomes true in the `stay` of a kitchen trip, so the mug stays in the hand. A lunch trip and a party trip never get it. The heading of a walker is not on the trip: `stroll()` keeps it in `heading` in `office.js`.
 
 `endBreak(trips, claimed, id, t)` frees the spot of a running trip (the `claimed` key in `trip.spot`), ends the game of its partner at `t` (as a rush does), and deletes the state. Pass `t`. Without it, `quit()` compares `undefined < end`, which is false, so the game of the partner runs to its old end.
 
-### nextStop(o, trips, t, seen)
+### nextStop(o, now, seen)
 
-`nextStop()` picks the next stop of the camera tour. It reads `trips` (the map of `stepBreak()`) and the phase from `tripAt()`. It returns `{ stop: { key, x, z, room, whole }, seen }`. `whole` is `true` for a room stop only.
+`nextStop()` picks the next stop of the camera tour. It reads `now`, the value of `now(t)` of `idleBreaks()`: `now.games` (sorted by table) and `now.stays`. A test passes a plain value, for example `{ games: [], stays: ['party'] }`. It returns `{ stop: { key, x, z, room, whole }, seen }`. `whole` is `true` for a room stop only.
 
 | Kind | Key | x, z | room | Rule |
 |---|---|---|---|---|
 | blocked desk | `desk:<id>` | `d.away ?? d` | `d.roomId` | each blocked desk, in `o.desks` order |
 | done desk | `desk:<id>` | `d.away ?? d` | `d.roomId` | each done desk, in `o.desks` order |
-| game | `game:<table>` | `o.games[table]` | the room of the table | each table with a player in play, by table index |
-| dance | `dance` | the center of the party `floor` | `party` | a trip in the phase `stay` with `kind === 'party'` |
-| lunch | `lunch` | the mean of the kitchen `tables` | `kitchen` | a trip in the phase `stay` with `kind === 'lunch'` |
+| game | `game:<table>` | `o.games[table]` | the room of the table | each table of `now.games`, in that order (by table index) |
+| dance | `dance` | the center of the party `floor` | `party` | `now.stays` holds `party` |
+| lunch | `lunch` | the mean of the kitchen `tables` | `kitchen` | `now.stays` holds `lunch` |
 | room | `room:<id>` | the room center | `r.id` | each room of `o.rooms`, only when the list above is empty |
 
-The pick is the first stop whose key is not in `seen`, and `seen` gets its key. When all stops are in `seen`, a new round starts. It picks the first stop whose key is not `seen.at(-1)`, else the first stop, and `seen` is `[key]`. So the same stop never comes two times in a row, unless it is the only stop. A new blocked desk comes next, also in the middle of a round. `office.js` calls it every 10 s. The play rule is `inPlay()`, which `stepBreak()` also uses for `play`.
+The pick is the first stop whose key is not in `seen`, and `seen` gets its key. When all stops are in `seen`, a new round starts. It picks the first stop whose key is not `seen.at(-1)`, else the first stop, and `seen` is `[key]`. So the same stop never comes two times in a row, unless it is the only stop. A new blocked desk comes next, also in the middle of a round. `tourStep()` in `office.js` calls it every 10 s, with `breaks.now(t)`. The play rule is the rule of `now()`, the same rule as the ball of `rally()`.
 
 ### Demo
 
@@ -256,7 +256,7 @@ A `DEMO_PANES` row is `[paneId, tabId, kind, rect, phase, name, long]`. `kind` `
 ### A new room kind
 
 1. Push the room after the meeting rooms and before `lobby`, with the fields of the `['kitchen', 'lobby']` loop. The room order and the widths set the row and the door side. No option pins a room to a row, so a room that needs one door side needs a change to the band plan.
-2. If workers walk to it, extend `walkRects()`, the `r.walk` line, the strip depth in `route()`, the room pick in `stepBreak()`, `spots` in `breaks()`, and the room filter of `lay` in `office.js`. `opens()` already opens the door of the target room.
+2. If workers walk to it, extend `walkRects()`, the `r.walk` line, the strip depth in `route()`, the room pick in `stepBreak()`, and `spots`, the route lookup, and the room filter of `lay` in `idleBreaks()`. `opens()` already opens the door of the target room.
 3. Add a decor function in `decor.js` and an entry in `DECOR` in `office.js`, else `build()` throws. Add a floor to `ROOM_FLOOR`, else it gets carpet.
 4. `sig` already holds each room position. A room that changes size at run time moves other rooms, so `lay` changes and each trip ends.
 5. Update `assertPlan()` and the room id list in "buildOffice maps rooms, pods and desks" in `test/model.test.mjs`. `assertPlan()` checks the exact room list (without the party room), and the label, `number`, `status`, `pods`, and minimum size of each room that is not a workspace. `normal()` in `test/model.test.mjs` copies the width of each room kind, so a new kind with another width needs a change there.
@@ -283,7 +283,7 @@ A `DEMO_PANES` row is `[paneId, tabId, kind, rect, phase, name, long]`. `kind` `
 
 1. Add the field in the `podDesks` map. Put an agent-only field inside `agent`.
 2. Add it to the `deepEqual` of `desk('w2:p2')` in "buildOffice maps rooms, pods and desks" in `test/model.test.mjs`. That assertion fails on any new key.
-3. If geometry depends on it, add it to `sig` in `update()`. If a route depends on it, add it to `lay`.
+3. If geometry depends on it, add it to `sig` in `update()`. If a route depends on it, add it to `lay` in `use()` of `idleBreaks()`.
 4. Show text from herdr with `textContent` only.
 5. For a new snapshot key, add it to `demoSnapshot()`, `KEYS`, and the `pane()` or `agent()` helper that `synthetic()` uses in `test/model.test.mjs`.
 6. The field must not move a desk on a status change. "positions do not change when only statuses change" checks this.
@@ -305,7 +305,7 @@ A `DEMO_PANES` row is `[paneId, tabId, kind, rect, phase, name, long]`. `kind` `
 1. Change `route()` and the matching rects in `walkRects()`. Each route point in a room must be in a pod or a walk rect, else `checkRoute()` fails.
 2. A route through a third door needs a change in `opens()`. No test finds this, because `checkRoute()` treats each door within 3 as open.
 3. A door change touches `door()` and `OPEN` in `office.js`, the walk helpers, `calm()`, the 3 in `opens()`, and the leaf checks in `checkRoute()`.
-4. If `route()` reads a new office field, add it to `lay` in `update()`.
+4. If `route()` reads a new office field, add it to `lay` in `use()` of `idleBreaks()`.
 5. Update the `route()` and `calm()` lines in CLAUDE.md "Contracts between the files", and the route items in INTENT.md "Open items and known limits".
 
 ## Pitfalls
@@ -324,7 +324,7 @@ A `DEMO_PANES` row is `[paneId, tabId, kind, rect, phase, name, long]`. `kind` `
 - Room widths have float noise. Compare positions with a tolerance, as `route()` does.
 - A status change can move `away` to another desk, because the orchestrator choice prefers a `working` desk. That changes `sig` and rebuilds the scene.
 - A desk with an agent record and no `agent` key gets `kind: null`. `sig` stores it as `'?'`.
-- A trip keeps its `path` after a new office arrives. That is why `office.js` clears `trips` when `lay` changes.
+- A trip keeps its `path` after a new office arrives. That is why `use()` of `idleBreaks()` clears `trips` when `lay` changes.
 - A `claimed` key is a string `'<kind>:<index>'`, for example `'lunch:2'` or `'game:3'`. A number key never matches.
 - A new `breakPlan()` value needs a free index: 2, 4, 5, or 9 or more. The index of an old value changes its numbers, for example the pick of each trip. A new pick index changes the trips of the demo agents.
 - A new row in the middle of `DEMO_PANES` changes the terminal id, the look, and the break seed of each later row. The long-idle demo test can then fail.
