@@ -660,11 +660,11 @@ function browse(v, t) {
   v.tex.needsUpdate = true // the texture uploads again, also when it came from a typing screen
 }
 
-// ---- idle breaks: after a wait, an idle worker walks to the kitchen counter, a kitchen chair for lunch, the party room, or a game table, and back ----
+// ---- idle breaks: after a wait, an idle worker walks to the kitchen counter, a kitchen chair for lunch, the party room, a game table, or the water cooler, and back ----
 // The clock is t of the animation loop. A trip lives in trips by desk id, so it survives a rebuild for a new subagent.
 // ponytail: a change of the route inputs (`lay`) clears every trip: the workers sit at their desks again. Tracking a trip across a new layout needs a new route.
 const trips = new Map() // desk id -> { n: the next trip, next: when it starts, trip: the one that runs now }
-const claimed = new Map() // '<kind>:<spot index>' (kind: kitchen, lunch, party, or game) -> desk id: two workers never stand on one spot or sit on one chair
+const claimed = new Map() // '<kind>:<spot index>' (kind: kitchen, lunch, party, game, or chat) -> desk id: two workers never stand on one spot or sit on one chair
 // Where the worker of this view is now: { x, z, dx, dz, s, phase, got, trip, room }, or null at the desk. stepBreak() in model.js keeps the state.
 function breaks(v, t) {
   const d = v.desk, room = (id) => office.rooms.find((r) => r.id === id), kit = room('kitchen')
@@ -699,6 +699,7 @@ const TAU = Math.PI * 2, HIT = 0.8 // HIT: the seconds of one ping-pong ball cro
 // In the party room the stay is a dance: the worker faces the booth with a sway, at its own tempo and phase.
 // In a lunch stay the worker sits on its kitchen chair, faces the table, and eats from the plate.
 // In a game stay the worker sits at the chess table or stands with a paddle at the ping-pong table, and faces the table.
+// In a chat stay the worker stands at the cooler and faces its partner. The talker waves the right hand under the speech bubble.
 function stroll(w, d, a, t) {
   const g = w.g, back = a.phase === 'back' || a.phase === 'rush', stay = a.phase === 'stay', tr = a.trip
   const dance = stay && tr.room === 'party', h = hash(d.id, 1e6), b = t * Math.PI * (1.6 + (h % 100) / 125) + h, beat = Math.sin(b) // 1.6 to 2.4 steps a second: a step is half a turn of b
