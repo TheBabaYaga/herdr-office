@@ -17,14 +17,15 @@
 | Name | Holds | Written by | Lifetime |
 |---|---|---|---|
 | `office` | the last `buildOffice()` result, `null` at first | `update()` | page |
-| `sig`, `laid` | the build signature and the last `lay` (route inputs), as JSON | `update()` | page |
+| `sig` | the build signature, as JSON | `update()` | page |
 | `SEASON` | the value of `?season`, or `null` | page load | page |
 | `TIME` | the match of `?time=HH:MM`, or `null`. `clock()` gives the minutes since midnight from it, else from `new Date()` | page load | page |
 | `CASTLE` | the Halloween light, in the shape of `daylight()` | none | page |
 | `reach` | the shadow radius `R`. `night()` puts the sun at `2 * reach` | `build()` | page |
 | `views` | id -> view (see "View shapes") | the build and screen functions, `pose()`, `update()` (`v.desk`) | one build |
 | `world`, `live` | the group of one build, and the objects that `bake()` does not merge | `build()` and the build functions | one build |
-| `trips`, `claimed` | desk id -> `{ n, next, trip }`, and the spot key `'<kind>:<index>'` (kind: `kitchen`, `lunch` for a kitchen chair, `party`, `game` for a place at a game table, or `chat` for a spot at the cooler) -> desk id | `stepBreak()`, `endBreak()`, `update()` (clears on a `lay` change), `stroll()` (`trip.rot`) | page |
+| `breaks` | the one `idleBreaks()` of the page. Its closure holds the trips, the claimed spots, and the route inputs (`lay`). See `docs/model.md` "Breaks" | `use()` in `update()`, `step()` in `pose()` | page |
+| `heading` | desk id -> the eased heading of a worker on a trip | `stroll()` sets it, `pose()` deletes it at the desk | page. A rebuild keeps it |
 | `doors` | room id -> the door angle now | `swing()` | page. A rebuild keeps it |
 | `bubble` | the speech bubble of the cooler chat (in `live`), hidden | `build()` makes it, the frame loop hides it, `stroll()` shows it | one build |
 | `balls` | table index in `office.games` -> the ball of a ping-pong table (in `live`), or `null` for a chess table | `build()` | one build |
@@ -53,7 +54,7 @@
 
 - Room view, from `door(r)`: `light`, `sign` (the `div.sign`), and `hinge` (the group of the leaf and the knob). `light` and `hinge` are in `live`. The party room view also has `tiles` (the 3 tile materials), `ball` (in `live`), `beams` (a group in `ball`), `speakers` (2 groups, in `live`), and `cones` (`[group, pulses a second]`), from `partyLights(r)`.
 - Pod view, from `build()`: `lamp`, in `live`.
-- Desk view, from `desk(d)`: `desk` (`update()` replaces it each update), `screen` (the monitor, or the head seat laptop when `d.away` is set), `halo` and `logo` (from the head seat only, but `pose()` makes a desk halo on the first typing frame), `phase`, `seed` (for the breaks and the browse picture), and `worker` (`null` for a shell pane).
+- Desk view, from `desk(d)`: `desk` (`update()` replaces it each update), `screen` (the monitor, or the head seat laptop when `d.away` is set), `halo` and `logo` (from the head seat only, but `pose()` makes a desk halo on the first typing frame), `phase`, `seed` (for the browse picture. `step()` of `breaks` makes the same seed for the breaks), and `worker` (`null` for a shell pane).
 - Subagent view, from `attendee(s)`: `desk` is a fixed `{ status: 'working' }` that `update()` never replaces. It has `screen`, `halo`, `logo` (`false` for `rot` 0 or 1), `phase`, and `worker`, and no `seed`.
 - Later fields: `ctx` and `tex` (`screenCtx()`), `typed` (`typing()`), `shown` (`browse()`).
 
@@ -116,16 +117,17 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 ### Idle breaks
 
-- `breaks(v, t)`: calls `stepBreak()` with the counts of the kitchen spots, the party spots (0 without a party room), the kitchen `chairs` (`lunch`), the kitchen `chat` spots (`chat`), `tables` (the kind of each table in `office.games`), and a route for each trip kind. A lunch route goes to `kitchen.chairs[i]` and a chat route to `kitchen.chat[i]`, both in the room `kitchen`. Game place `i` is `places[i & 1]` of table `office.games[i >> 1]`, and its route goes to the room of that table. Then it calls `along()`. It returns where the worker is on its trip, or `null` at the desk (always for a subagent). Its `room` is the target room id, because `opens()` takes a room id: `kitchen` for a lunch or a chat trip, and `office.games[trip.table].room` for a game trip. `a.trip.room` keeps the kind. `pose()` passes this result to `opens()`.
-- `stroll(w, d, a, t)`: poses a worker on a trip, as `CLAUDE.md` "Scene conventions" describes. The arm swing and the mug hand use `calm()` of the nearest door. In the stay of a party trip, it adds the dance and sets `dancing`. In the stay of a lunch trip, it puts the body group on the chair point (`chairs[i]` from the `lunch:<i>` key in `trip.spot`) at y 0.5, turns it to `rot` quarter turns, shows `sit` and `plate`, and hides `stand`. The left arm rests at 1.2. The right arm rests at 1.2, and in each bite it goes to 2.0 and back in 1 s (a sine). A bite starts every 3 to 5 s, and the period and the phase come from `hash(d.id)`. In each other phase it hides `plate`.
-- `stroll()` in the stay of a game trip: it puts the body group on the place (`places[side]`, side from the `game:<i>` key, `i & 1`, 0 for west) at y 0.5, with no 0.4 offset, and turns it to `rot` quarter turns. Chess shows `sit`, ping-pong shows `stand` and `paddle`. A waiter, and a player after the game end, keep both arms at 0. While `play`:
-  - Chess: both arms rest at 1.2 on the table. A turn lasts 3 to 5 s, `3 + hash(String(trip.begin), 200) / 100`, so both players get the same turns. Turn `k` counts from `begin`, and the west player moves when `k` is even. The player in turn reaches with the right arm to 1.5 and back in 1.2 s (a sine), and leans 0.2 forward. The lean uses the Euler order `YXZ`, so it turns the body about its own x axis.
+- `breaks`: the one `idleBreaks()` of the page. `update()` calls `breaks.use(office, last)`, `pose()` calls `breaks.step(v.desk, t)`, and `rally()` and `tourStep()` call `breaks.now(t)`. `step()` returns where the worker is on its trip, or `null` at the desk (always for a subagent). `a.kind` is the trip kind, `a.room` the target room id, `a.seat`, `a.side`, and `a.table` the spot, and `a.doors` the room ids for `ajar`. `docs/model.md` "Breaks" gives each field.
+- `heading`: desk id -> the eased heading of a worker on a trip. `stroll()` eases it 0.25 of the shortest way toward the target heading each frame, and sets it at once on the first step of a trip. `pose()` deletes it while the worker is at the desk.
+- `stroll(w, d, a, t)`: poses a worker on a trip, as `CLAUDE.md` "Scene conventions" describes. The arm swing and the mug hand use `calm()` of the nearest door. In the stay of a party trip, it adds the dance and sets `dancing`. The dance faces the booth of the room `a.room`. In the stay of a lunch trip, it puts the body group on the chair point (`a.seat`) at y 0.5, turns it to `rot` quarter turns, shows `sit` and `plate`, and hides `stand`. The left arm rests at 1.2. The right arm rests at 1.2, and in each bite it goes to 2.0 and back in 1 s (a sine). A bite starts every 3 to 5 s, and the period and the phase come from `hash(d.id)`. In each other phase it hides `plate`.
+- `stroll()` in the stay of a game trip: it puts the body group on the place (`a.seat`, the place `a.side` of `office.games[a.table]`, 0 for west) at y 0.5, with no 0.4 offset, and turns it to `rot` quarter turns. Chess shows `sit`, ping-pong shows `stand` and `paddle`. A waiter, and a player after the game end, keep both arms at 0. While `play`:
+  - Chess: both arms rest at 1.2 on the table. A turn lasts 3 to 5 s, `3 + hash(String(a.begin), 200) / 100`, so both players get the same turns. Turn `k` counts from `begin`, and the west player moves when `k` is even. The player in turn reaches with the right arm to 1.5 and back in 1.2 s (a sine), and leans 0.2 forward. The lean uses the Euler order `YXZ`, so it turns the body about its own x axis.
   - Ping-pong: the left arm rests at 0.3. The right arm is `1.4 + 0.1 * max(0, cos(pi * dt / 0.6))`, with `dt` the time from the nearest hit of this player. So it goes to 1.5 at the hit. Below 1.4 the blade goes into the table top (0.72 to 0.77), so the arm never goes lower during a game. The stroke is a turn of the body about y, added to the heading: `0.35 * sin(pi * dt / 0.6)` within 0.3 s of the hit (back before it, through after it), and a cosine back to the start between two hits. It is 0 at the hit. The west player hits at `begin + 2 * HIT * n`, the east player `HIT` s later.
   - Each arm angle stays at 1.5 or less. `stroll()` hides `paddle` in each other phase, and the desk branch of `pose()` hides it too.
-- `stroll()` in the stay of a chat trip: the worker keeps the standing legs, with no mug, and turns to `rot` quarter turns of `kitchen.chat[i]` (`i` from the `chat:<i>` key). Both arms stay at 0. While `a.talk` is true, the right arm is `0.85 + 0.15 * sin(6 t)` and the `bubble` shows at (x, 1.8, z) of the worker.
-- `rally(t)`: runs once a frame after `disco()`. For each ball in `balls`, it reads the trips of the two places of its table through `claimed` and `trips`. The ball shows while both trips have `begin`, and `begin <= t < min(end)`. A rush ends the game of the partner, so the ball then hides. Crossing `k` counts from `begin` in steps of `HIT` (0.8 s), and an even `k` flies east. A crossing starts at the hit point of the hitter: 0.65 from its place toward the table, 0.32 to its right (`+z` for west, `-z` for east), and 0.96 high. That is the blade at the right arm angle 1.5. The ball moves in a straight line in x and z. It bounces 0.55 past the net, on the half of the receiver, at the ball center height 0.805 (the top is at 0.77). The first arc rises 0.3 over its chord and clears the net. The second arc rises 0.15 to the hit point of the receiver. So each rally of two crossings bounces once on each half. `arc(y0, y1, h, s)` gives the height.
+- `stroll()` in the stay of a chat trip: the worker keeps the standing legs, with no mug, and turns to `rot` quarter turns of the chat spot `a.seat`. Both arms stay at 0. While `a.talk` is true, the arm `arms[1 - a.side]` (on the camera side) is `0.85 + 0.15 * sin(6 t)` and the `bubble` shows at (x, 1.8, z) of the worker.
+- `rally(t)`: runs once a frame after `disco()`. It reads `breaks.now(t).games` once. The ball of table `i` shows while that list holds `i`: both places hold a trip, and `begin <= t <` the earlier end. A rush ends the game of the partner, so the ball then hides. Crossing `k` counts from `begin` in steps of `HIT` (0.8 s), and an even `k` flies east. A crossing starts at the hit point of the hitter: 0.65 from its place toward the table, 0.32 to its right (`+z` for west, `-z` for east), and 0.96 high. That is the blade at the right arm angle 1.5. The ball moves in a straight line in x and z. It bounces 0.55 past the net, on the half of the receiver, at the ball center height 0.805 (the top is at 0.77). The first arc rises 0.3 over its chord and clears the net. The second arc rises 0.15 to the hit point of the receiver. So each rally of two crossings bounces once on each half. `arc(y0, y1, h, s)` gives the height.
 - `swing(dt)`: turns each door toward `OPEN` when `ajar` has its room id, else toward 0, at a speed set by `SWING`. It writes `doors` and `hinge.rotation.y`.
-- `opens()` in `model.js` gives the doors that one walker opens: its own room door and the door of its target room. See `docs/model.md` "Breaks".
+- `opens()` in `model.js` gives the doors that one walker opens: its own room door and the door of its target room. `step()` puts them in `a.doors`. See `docs/model.md` "Breaks".
 
 ### Winter snow
 
@@ -160,11 +162,11 @@ The castle night is on only with `season === 'halloween'`, all day. Without it, 
 
 `pose(v, t)` runs each frame for each view with a `desk`, and writes each animated value of a visible part. Order:
 
-1. `walk = worker && breaks(v, t)`.
+1. `walk = worker && breaks.step(v.desk, t)`.
 2. `typed` (working, not walking) calls `typing()` and shows the halo and the `logo`. `browsing` (idle, not walking, not away) calls `browse()`.
 3. The screen gets `v.tex` while `typed` or `browsing`, else `COLOR[status]`, or `SHELL` for a shell desk.
 4. A view with no worker stops here.
-5. On a walk: `stroll()`, `moving = true`, and the ids from `opens()` go into `ajar`. At the desk: reset the position and rotation, show `sit`, hide `stand`, `mug`, `plate`, and `paddle`, and set the arms from `ARM`. In both cases, `w.out = !!walk`.
+5. On a walk: `stroll()`, `moving = true`, and the ids of `walk.doors` go into `ajar`. At the desk: delete the `heading` of the desk, reset the position and rotation, show `sit`, hide `stand`, `mug`, `plate`, and `paddle`, and set the arms from `ARM`. In both cases, `w.out = !!walk`.
 6. In both cases: `paper` for `done`, `beacon` for `blocked`, and opacity 0.35 for `unknown`. So a run back shows these parts.
 
 ### declutter()
@@ -176,8 +178,8 @@ The castle night is on only with `season === 'halloween'`, all day. Without it, 
 
 `update(next)` order:
 
-1. Store `office`, and build `lay` and the signature `s`. `CLAUDE.md` "Scene conventions" lists what each holds. No status, label, or focus goes into either.
-2. On a `lay` change, clear `trips` and `claimed`. Call `endBreak()` for each desk with `away` or with no agent, with `last` (the time of the last frame) as `t`, so the game of its partner ends now.
+1. Store `office`, and build the signature `s`. `CLAUDE.md` "Scene conventions" lists what it holds. No status, label, or focus goes into it.
+2. Call `breaks.use(office, last)`, with `last` (the time of the last frame) as `t`. On a change of the route inputs (`lay`), it clears every trip. It ends the trip of each desk with `away` or with no agent, so the game of its partner ends now.
 3. On a `sig` change, `build()`. After the first build only, `frame()` the focused workspace room or the whole building.
 4. Call `night(se === 'halloween')`, so the light follows the clock. It runs on each update, with or without a build.
 5. Set the door lights, the signs, the pod lamps, `v.desk`, and the badges in place.
@@ -197,7 +199,7 @@ The castle night is on only with `season === 'halloween'`, all day. Without it, 
 - `resize()` sets the frustum from `VIEW` and the window. `fit(w, d)`: the zoom that fits a floor, after `resize()`. `frame(rect)`: centers the camera on the rect at that zoom.
 - `keepInView()`: sets `controls.minZoom` to the building fit, and clamps the target near the building center (the limit grows with the zoom). A clamp clears `goal`.
 - Follow: while `follow` is set, the frame loop sets `goal` to the world position of that worker each frame, on a trip and after it sits down. The follow ends when the view is gone or has no worker.
-- Tour: `TOUR` (300 s) with no input starts it. `tourStep(t)` calls `nextStop(office, trips, t, tour?.seen)` every `HOLD` (10 s), sets `tour`, `zoomTo`, and clears `follow`, and shows `#tour`. The zoom is `fit(r.w, r.d)` for a room stop (`whole`), else `min(controls.maxZoom, 1.5 * fit(r.w, r.d))`. `stopTour()` clears `tour`, `goal`, and `zoomTo`, and hides `#tour`. The camera stays. The frame loop runs the tour after the follow and before the goal glide, and sets `goal = tour.at` each frame, because a `keepInView()` clamp clears `goal` at a low zoom. The tour stops when `online` is false. It never calls `open()`, `act()`, or `fetch`.
+- Tour: `TOUR` (300 s) with no input starts it. `tourStep(t)` calls `nextStop(office, breaks.now(t), tour?.seen)` every `HOLD` (10 s), sets `tour`, `zoomTo`, and clears `follow`, and shows `#tour`. The zoom is `fit(r.w, r.d)` for a room stop (`whole`), else `min(controls.maxZoom, 1.5 * fit(r.w, r.d))`. `stopTour()` clears `tour`, `goal`, and `zoomTo`, and hides `#tour`. The camera stays. The frame loop runs the tour after the follow and before the goal glide, and sets `goal = tour.at` each frame, because a `keepInView()` clamp clears `goal` at a low zoom. The tour stops when `online` is false. It never calls `open()`, `act()`, or `fetch`.
 - Zoom glide: while `zoomTo` is set, the frame loop moves `camera.zoom` 0.15 of the way to it each frame. It clears `zoomTo` within 0.01.
 
 ### Panel
@@ -218,7 +220,7 @@ The castle night is on only with `season === 'halloween'`, all day. Without it, 
 
 - One listener each for `pointerdown`, `wheel`, and `keydown` on `window` (`capture`, `passive`) sets `input` and calls `stopTour()` when `tour` is set. Without a tour it clears nothing. It also sees input over the HUD and the panel.
 - The pointerdown handler stores `down` and clears `goal`, `follow`, and `zoomTo`. A `wheel` event clears `zoomTo`, so the zoom glide never fights the user's zoom.
-- The click handler ignores a drag over 4 px. It casts a ray against one box for each desk, each away head seat, each subagent seat, each worker on a trip, and each ghost, and takes the nearest hit. The desk and seat boxes come from the model, because `bake()` merged the desk meshes. The box of a worker on a trip is at the world position of its group. The handler makes it for each worker with `out` set (by `pose()`), so a seated lunch eater and a seated chess player get one too. It does not call `breaks()`. A new clickable object needs its own box. A ghost box is 0.56 x 0.56 round its group position, from its base y to 1.2 above it. An entry has an optional seventh and eighth element, `y0` and `y1` (else 0 and 1.8), for this height.
+- The click handler ignores a drag over 4 px. It casts a ray against one box for each desk, each away head seat, each subagent seat, each worker on a trip, and each ghost, and takes the nearest hit. The desk and seat boxes come from the model, because `bake()` merged the desk meshes. The box of a worker on a trip is at the world position of its group. The handler makes it for each worker with `out` set (by `pose()`), so a seated lunch eater and a seated chess player get one too. It does not call `breaks.step()`. A new clickable object needs its own box. A ghost box is 0.56 x 0.56 round its group position, from its base y to 1.2 above it. An entry has an optional seventh and eighth element, `y0` and `y1` (else 0 and 1.8), for this height.
 - When the nearest hit is a ghost, the handler sets its `until` to `performance.now() / 1000 + 2` and returns. It does not call `open()`, and it sets no `follow` or `zoomTo`. The pointerdown before the click still clears `goal`, `follow`, and `zoomTo`, as for each click. The rAF time and `performance.now()` count from the same origin, so `haunt(t)` compares `t` with `until`.
 - A walker box has a sixth element, `true`. When the nearest hit is a walker box, the handler sets `follow` and `zoomTo` (1.5 times the zoom, at most `controls.maxZoom`) after `open()`, because `open()` clears `follow`.
 
@@ -239,16 +241,16 @@ Two agents in one region need a split by function.
 | desk | `desk()`, `seatAt()`, `attendee()`, `deskChair` | worker, pose, picking (seat offset) |
 | worker | `worker()`, `shirt()`, `SHIRT` | pose, breaks, update, `test/walk.test.mjs` |
 | screens | `screenCtx()`, `typing()`, `browse()`, `rnd()`, `glow`, `haloGeo`, `IDLE`, `INK`, `PIC` | pose, build |
-| breaks | `breaks()`, `stroll()`, `rally()`, `snowfall()`, `arc()`, `balls`, `bubble`, `flakes`, `HIT`, `trips`, `claimed` | update, pose, `model.js`, `test/walk.test.mjs` |
+| breaks | `breaks`, `heading`, `stroll()`, `rally()`, `snowfall()`, `arc()`, `balls`, `bubble`, `flakes`, `HIT` | update, pose, camera (`tourStep()`), `model.js`, `test/walk.test.mjs` |
 | doors | `swing()`, `doors`, `ajar`, `OPEN`, `SWING` | build (`door()`), pose, frame loop, `model.js`, `test/walk.test.mjs` |
 | party | `partyLights()`, `disco()`, `kick()`, `DISCO`, `BEAT`, `dancing` | build (the call after `door(r)`), breaks (`stroll()` sets `dancing`), frame loop, `decor.js` `party()` (the speaker rect) |
 | night | `night()`, `CASTLE`, `reach`, `TIME`, `clock()`, `candle()`, `candelabra()`, `pool()`, `candles()`, `lightning()`, `ghost()`, `haunt()`, `flames`, `pools`, `dark`, `strike`, `CALM`, `blob`, `poolGeo`, `glowMat()`, `SHEET`, `spooks` | build (the calls), `update()` (calls `night()`), frame loop, picking (`spooks`), `decor.js` (`candleSpot()`), `model.js` |
 | pose | `pose()`, `ARM`, `moving` | screens, breaks, doors, frame loop |
 | declutter | `declutter()`, `tags`, `seen`, `nextPass` | update, frame loop |
-| update | `update()`, `family()`, `office`, `sig`, `laid` | all regions |
+| update | `update()`, `family()`, `office`, `sig` | all regions |
 | hud | `hud()`, `el()`, `rows`, `setOnline()`, `online`, `who()`, `plural()`, `offerUpdate()`, `offer`, `offered`, the `#update`, `#updateNote`, `#updateClose`, `#updateLater`, and `#updateCopy` handlers | fill, camera (`goal`), `index.html` |
 | fill | `open()`, `close()`, `fill()`, `act()`, `loadMessages()`, `renderMessages()`, `timer`, `msgs`, `msgKey`, the focus button, `#say`, `#chatOpen`, `#chatClose`, and `#reply` handlers | hud, picking, camera (`follow`), `index.html` |
-| camera | `fit()`, `frame()`, `keepInView()`, `TOUR`, `HOLD`, `input`, `tour`, `tourStep()`, `stopTour()`, the tour listeners, `resize()`, `VIEW`, `OFFSET`, `controls`, the `goal` glide, `follow`, `zoomTo`, `tracked`, the zoom glide | hud (`online`), breaks (`trips`), update, picking, fill |
+| camera | `fit()`, `frame()`, `keepInView()`, `TOUR`, `HOLD`, `input`, `tour`, `tourStep()`, `stopTour()`, the tour listeners, `resize()`, `VIEW`, `OFFSET`, `controls`, the `goal` glide, `follow`, `zoomTo`, `tracked`, the zoom glide | hud (`online`), breaks (`breaks.now()`), update, picking, fill |
 | picking | the pointerdown, wheel, and click handlers | fill, desk (seat geometry), camera (`follow`, `zoomTo`), night (`spooks`, `until`) |
 
 Give a change to `label()`, `fresh()`, `shared()`, a shared constant, or the import lines to one agent only. A new decor function changes the `./decor.js` import and `DECOR`, so it goes to the build agent.
@@ -292,7 +294,7 @@ New geometry that depends on a new desk field:
 
 1. `buildOffice()`: add the field to the desk, with a test in `test/model.test.mjs`.
 2. `desk()`: draw the part. `update()`: add the field to the desk tuple in `s`, or the scene keeps the old geometry.
-3. If `route()` reads the field, add it to `lay` too. A `lay` change ends every trip, so keep a field that changes often out of it.
+3. If `route()` reads the field, add it to `lay` in `use()` of `idleBreaks()` too. A `lay` change ends every trip, so keep a field that changes often out of it.
 4. If the part changes after the build, add it to `live` and to the desk view.
 5. Update the signature line in `CLAUDE.md` "Scene conventions" and the desk line in "Contracts between the files".
 
@@ -301,7 +303,7 @@ A new room kind on the 3D side:
 1. `buildOffice()` makes the room with `door` and `pods` (`[]` is valid).
 2. `decor.js`: export a decor function `(g, room, season)` in room-local coordinates, with props from `placer()`.
 3. `office.js`: import it and add it to `DECOR`, or `build()` throws. Add a `ROOM_FLOOR` entry, or the room gets carpet. `door()`, `swing()`, and `update()` need no change, and a room with `status: null` gets the `C.wood` light and sign.
-4. Routes use only the workspace rooms, the corridors, the kitchen, and the party room. For a walk to the new room, change `route()`, `stepBreak()`, `breaks()`, and `lay`. `opens()` already opens the door of the target room. See the recipe "A new room kind" in `docs/model.md`.
+4. Routes use only the workspace rooms, the corridors, the kitchen, and the party room. For a walk to the new room, change `route()`, `stepBreak()`, and `idleBreaks()` (`spots`, the spot lookup `at()`, and `lay`). `opens()` already opens the door of the target room. See the recipe "A new room kind" in `docs/model.md`.
 5. Add the `kind` to `CLAUDE.md` "Contracts between the files", and update `assertPlan()` and the room id checks in `test/model.test.mjs`.
 
 A new color that changes in place:

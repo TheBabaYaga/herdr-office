@@ -927,14 +927,13 @@ const TOUR_OFFICE = {
   ],
   games: [{ room: 'party', kind: 'chess', x: 20, z: 5 }, { room: 'party', kind: 'pingpong', x: 17, z: 5 }],
 }
-const entry = (trip) => ({ n: 0, next: 0, trip }) // one value of the trips map
-const stayTrip = (room, more) => entry({ len: 0, start: 0, stay: 100, room, ...more }) // in its stay at t = 50
+const EMPTY = { games: [], stays: [] } // a now() value with no game in play and no stay
 const statuses = (o, map) => ({ ...o, desks: o.desks.map((d) => ({ ...d, status: map[d.id] ?? 'idle' })) })
 // n calls of nextStop(), each with the seen list of the call before. Returns the n stops.
-function round(o, trips, t, n, seen = []) {
+function round(o, now, n, seen = []) {
   const stops = []
   for (let i = 0; i < n; i++) {
-    const r = nextStop(o, trips, t, seen)
+    const r = nextStop(o, now, seen)
     stops.push(r.stop)
     seen = r.seen
   }
@@ -943,13 +942,7 @@ function round(o, trips, t, n, seen = []) {
 const keys = (stops) => stops.map((s) => s.key)
 
 test('nextStop: a blocked desk comes first, then done desks, games in play, a dance, and a lunch', () => {
-  const trips = new Map([
-    ['a', stayTrip('game', { table: 0, begin: 10, end: 90 })],
-    ['b', stayTrip('game', { table: 0, begin: 10, end: 90 })],
-    ['c', stayTrip('party')],
-    ['d', stayTrip('lunch')],
-  ])
-  const stops = round(TOUR_OFFICE, trips, 50, 7)
+  const stops = round(TOUR_OFFICE, { games: [{ table: 0, begin: 10, end: 90 }], stays: ['party', 'lunch'] }, 7)
   assert.deepEqual(keys(stops), ['desk:w1:p2', 'desk:w1:p4', 'desk:w1:p1', 'game:0', 'dance', 'lunch', 'desk:w1:p2'])
   assert.deepEqual([stops[1].x, stops[1].z], [25, 3])
   assert.deepEqual([stops[3].x, stops[3].z, stops[3].room], [20, 5, 'party'])
@@ -960,48 +953,34 @@ test('nextStop: a blocked desk comes first, then done desks, games in play, a da
 
 test('nextStop: the same stop never comes two times in a row, unless it is the only stop', () => {
   const one = statuses(TOUR_OFFICE, { 'w1:p2': 'blocked' })
-  assert.deepEqual(keys(round(one, new Map(), 50, 2)), ['desk:w1:p2', 'desk:w1:p2'])
+  assert.deepEqual(keys(round(one, EMPTY, 2)), ['desk:w1:p2', 'desk:w1:p2'])
   const two = statuses(TOUR_OFFICE, { 'w1:p1': 'done', 'w1:p2': 'blocked' })
-  assert.deepEqual(keys(round(two, new Map(), 50, 6)), ['desk:w1:p2', 'desk:w1:p1', 'desk:w1:p2', 'desk:w1:p1', 'desk:w1:p2', 'desk:w1:p1'])
-  assert.equal(nextStop(two, new Map(), 50, ['desk:w1:p1', 'desk:w1:p2']).stop.key, 'desk:w1:p1')
+  assert.deepEqual(keys(round(two, EMPTY, 6)), ['desk:w1:p2', 'desk:w1:p1', 'desk:w1:p2', 'desk:w1:p1', 'desk:w1:p2', 'desk:w1:p1'])
+  assert.equal(nextStop(two, EMPTY, ['desk:w1:p1', 'desk:w1:p2']).stop.key, 'desk:w1:p1')
 })
 
 test('nextStop: with no stop of the other kinds, the tour visits each room in office.rooms order', () => {
-  const stops = round(statuses(TOUR_OFFICE, {}), new Map(), 50, 5)
+  const stops = round(statuses(TOUR_OFFICE, {}), EMPTY, 5)
   assert.deepEqual(keys(stops), ['room:w1', 'room:kitchen', 'room:party', 'room:meeting', 'room:w1'])
   assert.deepEqual([stops[0].x, stops[0].z, stops[0].whole], [4, 3, true])
+  // A stay at the counter, at a game table, or at the cooler is no stop. Only a game in play (now.games) is.
+  assert.equal(nextStop(statuses(TOUR_OFFICE, {}), { games: [], stays: ['kitchen', 'game', 'chat'] }).stop.key, 'room:w1')
 })
 
 test('nextStop: a new blocked desk is the next stop, also in the middle of a round', () => {
-  const trips = new Map([['c', stayTrip('party')]])
-  const first = nextStop(statuses(TOUR_OFFICE, { 'w1:p1': 'done' }), trips, 50)
+  const now = { games: [], stays: ['party'] }
+  const first = nextStop(statuses(TOUR_OFFICE, { 'w1:p1': 'done' }), now)
   assert.equal(first.stop.key, 'desk:w1:p1')
   const o2 = statuses(TOUR_OFFICE, { 'w1:p1': 'done', 'w1:p2': 'blocked' })
-  const second = nextStop(o2, trips, 50, first.seen)
+  const second = nextStop(o2, now, first.seen)
   assert.equal(second.stop.key, 'desk:w1:p2')
-  assert.equal(nextStop(o2, trips, 50, second.seen).stop.key, 'dance')
-})
-
-test('nextStop: only a stay is a stop, and a game only while in play', () => {
-  const trips = new Map([
-    ['a', stayTrip('kitchen')],
-    ['b', entry({ len: 160, start: 0, stay: 10, room: 'party' })],
-    ['c', entry({ len: 16, start: 0, stay: 100, room: 'party', rush: 49 })],
-    ['d', stayTrip('game', { table: 1, partner: null, begin: null, end: null })],
-  ])
-  assert.equal(nextStop(statuses(TOUR_OFFICE, {}), trips, 50).stop.key, 'room:w1')
+  assert.equal(nextStop(o2, now, second.seen).stop.key, 'dance')
 })
 
 test('nextStop: each stop of the demo office lies inside the building', () => {
   for (const tick of [0, 30, 60, 90]) {
     const o = buildOffice(demoSnapshot(tick), demoMeetings(tick))
-    const trips = new Map([
-      ['a', stayTrip('party')],
-      ['b', stayTrip('lunch')],
-      ['c', stayTrip('game', { table: 0, begin: 10, end: 90 })],
-      ['d', stayTrip('game', { table: 0, begin: 10, end: 90 })],
-    ])
-    for (const s of round(o, trips, 50, 30)) {
+    for (const s of round(o, { games: [{ table: 0, begin: 10, end: 90 }], stays: ['party', 'lunch'] }, 30)) {
       assert.ok(s.x >= 0 && s.x <= o.bounds.w && s.z >= 0 && s.z <= o.bounds.d, `${s.key} at tick ${tick}`)
       assert.ok(o.rooms.some((r) => r.id === s.room), `${s.room} at tick ${tick}`)
     }
