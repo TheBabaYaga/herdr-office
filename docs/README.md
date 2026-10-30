@@ -166,11 +166,12 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - bake: `bake()` merges the static meshes of a build into one mesh for each material.
 - route: the path `[[x, z], ...]` from the worker seat to a spot in the kitchen, the party room, or at a game table, from `route()` in `model.js`.
 - lane: a strip of floor that a route follows: the lane behind the desk row, the row lane (`laneZ()`), and the door lane (`stepX()`). A walk rect reaches `LANE` (0.3) to each side of a route line.
-- spot: a standing place at the end of a trip, an entry of `room.spots`: in front of the kitchen counter, or a dance spot in the party room. One worker holds a spot at a time (`claimed`).
+- spot: a standing place at the end of a trip, an entry of `room.spots`: in front of the kitchen counter, a dance spot in the party room, or a chat spot at the water cooler. One worker holds a spot at a time (`claimed`).
 - dance spot: a standing place on the dance floor of the party room, an entry of `room.spots` of that room. The spots stand in a front row and a back row, 2.0 apart in a row.
-- trip: one walk to a spot in the kitchen, the party room, or at a game table and back, `trips.get(deskId).trip`. `trip.room` is `kitchen`, `lunch`, `party`, or `game`, and `breakPlan().pick` picks the first kind. A worker that joins a waiter at a game table takes the kind `game`, whatever its pick. Its phases are `out`, `stay`, `back`, `rush`, and `done` (`tripAt()`).
+- trip: one walk to a spot in the kitchen, the party room, at a game table, or at the water cooler, and back, `trips.get(deskId).trip`. `trip.room` is `kitchen`, `lunch`, `party`, `game`, or `chat`, and `breakPlan().pick` picks the first kind. A worker that joins a waiter at a game table takes the kind `game`, whatever its pick. The same holds at the cooler for the kind `chat`. Its phases are `out`, `stay`, `back`, `rush`, and `done` (`tripAt()`).
 - rush: the run back at `RUN` (4) when the status leaves `idle` during a trip. `trip.rush` holds the start time of the run.
-- claimed: the `Map` from a spot key `'<room>:<index>'` (for example `'kitchen:0'` or `'party:3'`) to the desk id that holds the spot. `stepBreak()` and `endBreak()` change it.
+- waiter: a worker alone at a game table or at the water cooler, with no partner and no rush, in its first `WAIT` s after it arrives. A new trip joins it, whatever its pick (`stepBreak()`).
+- claimed: the `Map` from a spot key `'<room>:<index>'` (for example `'kitchen:0'`, `'party:3'`, or `'chat:1'`) to the desk id that holds the spot. `stepBreak()` and `endBreak()` change it.
 - lay: the JSON of the route inputs in `update()`. A change clears `trips` and `claimed`, so every trip ends.
 - browse: the idle screen at the desk, a fake web page or a video, from `browse()`.
 - ajar: the `Set` of room ids whose door a walker opens in this frame. `pose()` fills it from `opens()`, and `swing()` reads it.

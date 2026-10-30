@@ -349,12 +349,18 @@ test('breakPlan is deterministic and stays in range', () => {
       assert.ok(p.lunch >= 20 && p.lunch <= 40, `seed ${seed} n ${n}: lunch ${p.lunch}`)
       assert.ok(p.pick >= 0 && p.pick < 1, `seed ${seed} n ${n}: pick ${p.pick}`)
       assert.ok(p.game >= 0 && p.game < 1, `seed ${seed} n ${n}: game ${p.game}`)
-      assert.deepEqual(Object.keys(p), ['wait', 'stay', 'lunch', 'pick', 'game'])
+      assert.ok(p.chat >= 10 && p.chat <= 25, `seed ${seed} n ${n}: chat ${p.chat}`)
+      assert.deepEqual(Object.keys(p), ['wait', 'stay', 'lunch', 'pick', 'game', 'chat'])
       if (!n) firsts.add(p.wait.toFixed(3))
     }
   }
   assert.ok(firsts.size > 150, 'the seeds spread the first trips')
   assert.notDeepEqual(breakPlan(5, 1), breakPlan(5, 2), 'each trip has its own plan')
+})
+
+test('breakPlan: the chat value keeps the other values', () => {
+  const { chat, ...rest } = breakPlan(7, 0)
+  assert.deepEqual(rest, { wait: 12.767192198662087, stay: 8.823785769520327, lunch: 26.875684433616698, pick: 0.6198440259322524, game: 0.5614819778129458 })
 })
 
 test('breakPlan: a pick for each trip gives each of 3 kinds about a third, with the same wait and stay as before the pick', () => {
@@ -392,6 +398,93 @@ const pair = () => {
   const a = gstep(w, 100, 'a'), b = kstep(w, arrive(a.trip) + 5, 'b')
   return { w, a: a.trip, b: b.trip }
 }
+
+const KC = ['kitchen', 'chat'], CHAT = { kitchen: 3, chat: 2 }
+const cstep = (w, t, id, over = {}) => stepBreak(w.trips, w.claimed, id, { idle: true, seed: seedFor('chat', KC), spots: CHAT, route: () => PATH, ...over }, t) // first pick: chat
+const jstep = (w, t, id, over = {}) => cstep(w, t, id, { seed: seedFor('kitchen', KC), ...over }) // first pick: the counter
+// a waits at the cooler, and b joins it 5 s into the wait of a.
+const cpair = () => {
+  const w = world()
+  cstep(w, 0, 'a'); jstep(w, 0, 'b')
+  const a = cstep(w, 100, 'a'), b = jstep(w, arrive(a.trip) + 5, 'b')
+  return { w, a: a.trip, b: b.trip }
+}
+
+test('stepBreak: a chat waiter goes to a free chat spot and walks back after 20 s alone', () => {
+  const w = world()
+  assert.equal(cstep(w, 0, 'a'), null)
+  const a = cstep(w, 100, 'a')
+  assert.equal(a.trip.room, 'chat'); assert.match(a.trip.spot, /^chat:[01]$/); assert.equal(a.play, false)
+  assert.deepEqual([a.trip.partner, a.trip.begin, a.trip.end], [null, null, null])
+  assert.deepEqual([...w.claimed], [[a.trip.spot, 'a']])
+  const end = arrive(a.trip) + WAIT
+  assert.deepEqual([cstep(w, end - 0.1, 'a').phase, cstep(w, end - 0.1, 'a').play], ['stay', false])
+  assert.equal(cstep(w, end + 0.1, 'a').phase, 'back')
+  assert.equal(cstep(w, end + OUT + 0.1, 'a'), null)
+  assert.equal(w.claimed.size, 0)
+})
+
+test('stepBreak: a new trip joins a chat waiter, whatever its pick, and both end at the same time', () => {
+  const { w, a, b } = cpair()
+  assert.equal(b.room, 'chat'); assert.notEqual(b.spot, a.spot)
+  assert.deepEqual([...w.claimed.keys()].sort(), ['chat:0', 'chat:1'])
+  assert.equal(a.partner, 'b'); assert.equal(b.partner, 'a')
+  assert.equal(a.begin, Math.max(arrive(a), arrive(b))); assert.equal(a.end, b.end)
+  close(a.end - a.begin, breakPlan(seedFor('chat', KC), 0).chat, 'the chat time comes from the plan of the waiter')
+  close(arrive(a) + a.stay, a.end, 'the stay of a ends at the chat end')
+  close(arrive(b) + b.stay, b.end, 'the stay of b ends at the chat end')
+  assert.equal(cstep(w, a.begin - 0.1, 'a').play, false); assert.equal(cstep(w, a.begin + 0.1, 'a').play, true)
+})
+
+test('stepBreak: a rush of one talker ends the chat of the other, and endBreak() does too', () => {
+  { // b rushes during the chat
+    const { w, a } = cpair(), tr = a.begin + 5
+    assert.equal(jstep(w, tr, 'b', { idle: false }).phase, 'rush')
+    assert.equal(a.end, tr, 'the chat of a ends at the rush')
+    const r = cstep(w, tr + 0.1, 'a')
+    assert.deepEqual([r.phase, r.play], ['back', false], 'a walks back, it does not run')
+  }
+  { // b leaves the breaks during the chat
+    const { w, a } = cpair(), te = a.begin + 5
+    endBreak(w.trips, w.claimed, 'b', te)
+    assert.deepEqual([...w.claimed.values()], ['a'], 'only the spot of b is free')
+    assert.equal(a.end, te)
+  }
+})
+
+test('stepBreak: a third worker takes another kind while the chat spots are taken or a lone waiter walks back', () => {
+  { // both spots taken
+    const { w, a } = cpair()
+    cstep(w, 0, 'c')
+    const c = cstep(w, a.begin + 1, 'c')
+    assert.equal(c.trip.room, 'kitchen', 'c picks chat, finds it full, and takes the next free kind')
+    assert.equal(a.partner, 'b')
+  }
+  { // a lone waiter walks back after its 20 s. Its spot stays claimed, and nobody takes the other spot.
+    const w = world()
+    cstep(w, 0, 'a'); cstep(w, 0, 'c')
+    const a = cstep(w, 100, 'a').trip, t = arrive(a) + WAIT + 0.1
+    assert.equal(cstep(w, t, 'a').phase, 'back')
+    assert.equal(cstep(w, t, 'c').trip.room, 'kitchen')
+    assert.equal(a.partner, null)
+  }
+})
+
+test('stepBreak: with 5 kinds each kind gets about a fifth, and with 3 kinds about a third', () => {
+  const tally = (spots, tables) => {
+    const n = {}
+    for (let seed = 0; seed < 400; seed++) {
+      const w = world(), over = { seed: seed * 7919, spots, tables }
+      step(w, 0, over)
+      const room = step(w, w.trips.get('a').next, over).trip.room
+      n[room] = (n[room] ?? 0) + 1
+    }
+    return n
+  }
+  const five = tally({ ...ALL, chat: 2 }, ['chess', 'pingpong']), three = tally({ kitchen: 3, lunch: 4, chat: 2 }, [])
+  for (const kind of [...KINDS4, 'chat']) assert.ok(five[kind] >= 56 && five[kind] <= 104, `${five[kind]} of 400 picks are ${kind}`)
+  for (const kind of ['kitchen', 'lunch', 'chat']) assert.ok(three[kind] >= 100 && three[kind] <= 170, `${three[kind]} of 400 picks are ${kind}`)
+})
 
 test('stepBreak: a waiter goes to a free game place and walks back after 20 s alone', () => {
   const w = world()
