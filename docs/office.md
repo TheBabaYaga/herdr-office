@@ -25,6 +25,10 @@
 | `views` | id -> view (see "View shapes") | the build and screen functions, `pose()`, `update()` (`v.desk`) | one build |
 | `world`, `live` | the group of one build, and the objects that `bake()` does not merge | `build()` and the build functions | one build |
 | `breaks` | the one `idleBreaks()` of the page. Its closure holds the trips, the claimed spots, and the route inputs (`lay`). See `docs/model.md` "Breaks" | `use()` in `update()`, `step()` in `pose()` | page |
+| `cat` | the one `officeCat()` of the page. Its closure holds the cycle, the sleep end, and the visit or patrol. See `docs/model.md` "Cat" | `use()` in `update()`, `step()` in `moveCat()` | page |
+| `kitty` | the cat view `{ g, torso, head, legs, tail, boo, until }`, in `world` and in `live`. `until` is the end of the balloon | `catBody()` makes it in `build()`, the click handler sets `until`, `moveCat()` reads it | one build. A rebuild keeps `until` |
+| `catRot` | the eased heading of the cat, `null` at first | `moveCat()` | page. A rebuild keeps it |
+| `napped` | the west clutter group that the cat hides now, or `null` | `moveCat()` | page |
 | `heading` | desk id -> the eased heading of a worker on a trip | `stroll()` sets it, `pose()` deletes it at the desk | page. A rebuild keeps it |
 | `doors` | room id -> the door angle now | `swing()` | page. A rebuild keeps it |
 | `bubble` | the speech bubble of the cooler chat (in `live`), hidden | `build()` makes it, the frame loop hides it, `stroll()` shows it | one build |
@@ -54,7 +58,7 @@
 
 - Room view, from `door(r)`: `light`, `sign` (the `div.sign`), and `hinge` (the group of the leaf and the knob). `light` and `hinge` are in `live`. The party room view also has `tiles` (the 3 tile materials), `ball` (in `live`), `beams` (a group in `ball`), `speakers` (2 groups, in `live`), and `cones` (`[group, pulses a second]`), from `partyLights(r)`.
 - Pod view, from `build()`: `lamp`, in `live`.
-- Desk view, from `desk(d)`: `desk` (`update()` replaces it each update), `screen` (the monitor, or the head seat laptop when `d.away` is set), `halo` and `logo` (from the head seat only, but `pose()` makes a desk halo on the first typing frame), `phase`, `seed` (for the browse picture. `step()` of `breaks` makes the same seed for the breaks), and `worker` (`null` for a shell pane).
+- Desk view, from `desk(d)`: `desk` (`update()` replaces it each update), `screen` (the monitor, or the head seat laptop when `d.away` is set), `halo` and `logo` (from the head seat only, but `pose()` makes a desk halo on the first typing frame), `phase`, `seed` (for the browse picture. `step()` of `breaks` makes the same seed for the breaks), `west` (the west clutter group of an agent desk, in `live`, so `moveCat()` can hide it. `null` for a shell desk), and `worker` (`null` for a shell pane).
 - Subagent view, from `attendee(s)`: `desk` is a fixed `{ status: 'working' }` that `update()` never replaces. It has `screen`, `halo`, `logo` (`false` for `rot` 0 or 1), `phase`, and `worker`, and no `seed`.
 - Later fields: `ctx` and `tex` (`screenCtx()`), `typed` (`typing()`), `shown` (`browse()`).
 
@@ -85,7 +89,7 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 - `run()` puts one box on a wall line, and `pieces()` gives the solid spans around the gaps.
 - `outer()` draws the far walls (west, north) with windows, and `stub()` the cut camera-side walls (east, south, with the entrance). The north wall skips a first-row terrace: `run()` draws a low hedge there (0.9 high, `T + 0.06` thick, `C.hedge`, and in winter a `SNOW` cap 0.05 high and `T + 0.1` thick on top), and the cross corridor keeps its piece of the wall.
 - `inner()`: a glass inner wall. Its comment says why the header stays thin.
-- `door(r)`: the posts, the lintel, the transom, the status `light`, and a `hinge` group with the leaf and the knob. The hinge starts at `doors.get(r.id) ?? 0`, so a rebuild keeps an open door open. The leaf and the knob use cached colors. Sets the room view.
+- `door(r)`: the posts, the lintel, the transom, the status `light`, and a `hinge` group with the leaf, the knob, and the cat flap. The flap is a static box (0.3 x 0.46 x 0.07, `#2b2a33`) at hinge x `-s * 0.685`, y 0.04. It is 0.07 thick, so it shows on both faces. It turns with the leaf. The hinge starts at `doors.get(r.id) ?? 0`, so a rebuild keeps an open door open. The leaf and the knob use cached colors. Sets the room view.
 
 ### Build and bake
 
@@ -103,7 +107,7 @@ The update path, the frame order, and the click path are in `docs/README.md` "Da
 
 ### Desks, seats, and workers
 
-- `desk(d)`: the desk, the monitor, the `screen` (in `live`), the keyboard and mouse for an agent, the chair, and `clutter()`. With `d.away`, `seatAt(d.away)` makes the head seat, the worker sits there, and the desk screen stays black. Sets the desk view.
+- `desk(d)`: the desk, the monitor, the `screen` (in `live`), the keyboard and mouse for an agent, the chair, and `clutter()`. `clutter()` returns the west group. For an agent desk, `desk()` adds that group to `live`, so `bake()` does not merge it, and keeps it as `v.west`. A shell desk never gets a nap, so its west item merges. With `d.away`, `seatAt(d.away)` makes the head seat, the worker sits there, and the desk screen stays black. Sets the desk view.
 - `seatAt(s)`: a group at the seat, turned `s.rot` quarter turns, with a laptop, a `screen` and a `halo` (in `live`), and a `logo` when `s.rot > 1`. The chair comes from `meeting()` in `decor.js`.
 - `attendee(s)`: `seatAt(s)` and a worker with the shirt of the model family. It has its own family match, with `'subagent'` as the fallback. Sets the subagent view.
 - `worker(parent, d)`: builds the worker in `g`. Each part gets its own material (`lit()` or `fresh()`), so `pose()` can set the opacity per worker. The look comes from `hash(d.terminalId ?? d.id, 1e9)` through the local mixer `r(n, i)`, and the shirt from `shirt(d.agent.kind)` only. In winter (the `winter` flag, set by `build()`), it adds 13 knit boxes of one own material before `mats`, so they fade with the body: a hem, a chest band, a yoke, six dots, and a cuff and a ring in each arm group. The knit is off-white, or navy when the shirt lightness in sRGB is 0.8 or more. It collects `mats`, then makes `plate` and `paddle` with cached colors. Only an idle worker shows them, so they never fade.
@@ -158,6 +162,31 @@ The castle night is on only with `season === 'halloween'`, all day. Without it, 
 - `disco(t)`: runs once a frame after the `pose()` loop, and does nothing without a party room. While `dancing` is true, it sets the tile `emissive` colors from `DISCO` (the pattern moves twice a second), shows the beams, and turns the ball. It also scales the speakers (3%) and the cones (15%) with `kick()`. Else the tiles are dark, the beams hide, the ball keeps its angle, and each scale is 1.
 - `kick(t, f)`: one pulse at `f` pulses a second. It goes up in a tenth of a pulse and falls back slowly. A woofer pulses at `BEAT` (2), a tweeter at twice `BEAT`, and the speaker box at `BEAT`. The box pulses because the cones of a south-row room face away from the camera.
 
+### Cat
+
+- `catBody()`: makes the cat group in `world` and in `live`, and returns the view. `build()` calls it before `lightBulbs()` and `bake()`, so the shadow pass and `bake()` see the group. The group is 0.45 long, and its y 0 is the floor under the paws. It faces +z before the turn. The colors are cached `box()` colors: black `#1a1a1a` (`CAT`) for the torso, head, ears, and tail, and white `#f4f1ea` (`CATW`) for the chest, the muzzle, and the four paws. It has no eye color, so no part reads as a status. Its one label is the balloon `Miauw!` (class `boo`), hidden at first.
+- `moveCat(t)`: runs once a frame after `haunt(t)`, only when `office` is set. It calls `cat.step(office.desks, t)`, puts the group at `(x, y, z)`, and eases `catRot` toward `atan2(dx, dz)` by 0.25 each frame, the short way round. A pose sets the parts:
+
+```text
+Pose     Body                                   Tail
+sleep    curled: torso y 0.02, legs hidden      slow sway, 0.25 * sin(1.2 t)
+nap      the same, on the desk (y 0.8)          the same
+walk     legs swing in diagonal pairs, 0.5 rad  up, sway 0.15 * sin(3 t)
+sit      torso tipped back 0.5, legs folded     up, slow sway
+jump     front legs forward, rear legs back     up
+```
+
+- Reduce motion (`CALM`) halves the tail sway only. The walk and the jump keep their speed.
+- The west clutter item hides during `nap` and `jump`. `moveCat()` shows the old `napped` group first, then reads `views.get(c.desk)?.west` each frame. A rebuild makes a new desk group, so the next frame hides the new group.
+- The balloon shows while `t < kitty.until`. It is not in `tags`, so `declutter()` never hides it. A rebuild keeps `until`.
+- The cat has no view in `views`, no badge, and no status. The build signature does not change for the cat.
+
+```text
+Example: w1:p2 naps at 163.3 s. Frame at 200 s: napped = the west group of w1:p2, hidden.
+         A new subagent forces a rebuild at 210 s. Frame at 210.02 s: the new west group of w1:p2 hides, the old one is gone.
+         w1:p2 turns working at 280 s: the jump down ends at 280.4 s, napped = null, the item shows.
+```
+
 ### pose()
 
 `pose(v, t)` runs each frame for each view with a `desk`, and writes each animated value of a visible part. Order:
@@ -180,6 +209,7 @@ The castle night is on only with `season === 'halloween'`, all day. Without it, 
 
 1. Store `office`, and build the signature `s`. `CLAUDE.md` "Scene conventions" lists what it holds. No status, label, or focus goes into it.
 2. Call `breaks.use(office, last)`, with `last` (the time of the last frame) as `t`. On a change of the route inputs (`lay`), it clears every trip. It ends the trip of each desk with `away` or with no agent, so the game of its partner ends now.
+   Then call `cat.use(office, last)`. On a change of its `lay`, it puts the cat in its basket in a new sleep.
 3. On a `sig` change, `build()`. After the first build only, `frame()` the focused workspace room or the whole building.
 4. Call `night(se === 'halloween')`, so the light follows the clock. It runs on each update, with or without a build.
 5. Set the door lights, the signs, the pod lamps, `v.desk`, and the badges in place.
@@ -220,13 +250,23 @@ The castle night is on only with `season === 'halloween'`, all day. Without it, 
 
 - One listener each for `pointerdown`, `wheel`, and `keydown` on `window` (`capture`, `passive`) sets `input` and calls `stopTour()` when `tour` is set. Without a tour it clears nothing. It also sees input over the HUD and the panel.
 - The pointerdown handler stores `down` and clears `goal`, `follow`, and `zoomTo`. A `wheel` event clears `zoomTo`, so the zoom glide never fights the user's zoom.
-- The click handler ignores a drag over 4 px. It casts a ray against one box for each desk, each away head seat, each subagent seat, each worker on a trip, and each ghost, and takes the nearest hit. The desk and seat boxes come from the model, because `bake()` merged the desk meshes. The box of a worker on a trip is at the world position of its group. The handler makes it for each worker with `out` set (by `pose()`), so a seated lunch eater and a seated chess player get one too. It does not call `breaks.step()`. A new clickable object needs its own box. A ghost box is 0.56 x 0.56 round its group position, from its base y to 1.2 above it. An entry has an optional seventh and eighth element, `y0` and `y1` (else 0 and 1.8), for this height.
+- The click handler ignores a drag over 4 px. It casts a ray against one box for each desk, each away head seat, each subagent seat, each worker on a trip, and each ghost, and takes the nearest hit. The cat has its own rule (below). The desk and seat boxes come from the model, because `bake()` merged the desk meshes. The box of a worker on a trip is at the world position of its group. The handler makes it for each worker with `out` set (by `pose()`), so a seated lunch eater and a seated chess player get one too. It does not call `breaks.step()`. A new clickable object needs its own box. A ghost box is 0.56 x 0.56 round its group position, from its base y to 1.2 above it. An entry has an optional seventh and eighth element, `y0` and `y1` (else 0 and 1.8), for this height.
 - When the nearest hit is a ghost, the handler sets its `until` to `performance.now() / 1000 + 2` and returns. It does not call `open()`, and it sets no `follow` or `zoomTo`. The pointerdown before the click still clears `goal`, `follow`, and `zoomTo`, as for each click. The rAF time and `performance.now()` count from the same origin, so `haunt(t)` compares `t` with `until`.
+- The cat box is 0.5 x 0.45 x 0.5: x and z within 0.25 of the cat, and y from its base to 0.45 above. The box of a desk (2.0 x 1.8 x 1.7) holds the whole cat box of a nap or a sit, so the nearest-entry rule would always pick the desk. So `span()` gives where the ray enters and leaves a box. For each best box, the handler keeps its exit. The cat wins when the ray enters the cat box before it leaves the best box.
+- When the cat wins, the handler sets `kitty.until` to `performance.now() / 1000 + 2` and returns. It opens no panel and sets no `follow` or `zoomTo`. `moveCat(t)` shows the balloon until then.
+
+```text
+Example: the cat naps on w1:p2 at (4.40, 2.25), y 0.8. A ray hits the cat box at distance 31.2 and leaves the desk box at 33.0 -> Miauw!.
+         A ray hits the screen of w1:p2 and misses the cat box -> the panel of w1:p2 opens.
+         A ray leaves the desk box at 31.9 and enters the cat box at 32.4 (the cat walks behind the desk) -> the panel opens.
+```
+
 - A walker box has a sixth element, `true`. When the nearest hit is a walker box, the handler sets `follow` and `zoomTo` (1.5 times the zoom, at most `controls.maxZoom`) after `open()`, because `open()` clears `follow`.
 
 ### Frame loop and data source
 
 - Season: `update()` computes `se = SEASON ?? season(new Date())`, puts it last in `sig`, and calls `build(office, se)` when `sig` changes. `?season=halloween` shows the Halloween props on any date. `?season=winter` shows the winter props on any date. Another value, for example `?season=none`, shows none. A `setInterval` of 60 s calls `update(office)`, because the live stream sends nothing while herdr does not change, and the date and the clock light change with time.
+- Each frame, after `haunt(t)`, `moveCat(t)` poses the cat when `office` is set.
 - Demo (`?demo`): disables the focus button and the message field, and calls `update()` with `demoSnapshot()` and `demoMeetings()` at once and each 1000 ms.
 - Live: `es.onmessage` calls `setOnline()`, `offerUpdate(m.update)`, and `update()` only when `m.snapshot` is set. An offline message keeps the old scene, dimmed.
 - `es.onerror` sets `es.onopen` to `location.reload()`, so the page gets the new token of a restarted bridge. A herdr outage with a live bridge sends an offline message, and the page does not reload.
@@ -245,13 +285,14 @@ Two agents in one region need a split by function.
 | doors | `swing()`, `doors`, `ajar`, `OPEN`, `SWING` | build (`door()`), pose, frame loop, `model.js`, `test/walk.test.mjs` |
 | party | `partyLights()`, `disco()`, `kick()`, `DISCO`, `BEAT`, `dancing` | build (the call after `door(r)`), breaks (`stroll()` sets `dancing`), frame loop, `decor.js` `party()` (the speaker rect) |
 | night | `night()`, `CASTLE`, `reach`, `TIME`, `clock()`, `candle()`, `candelabra()`, `pool()`, `candles()`, `lightning()`, `ghost()`, `haunt()`, `flames`, `pools`, `dark`, `strike`, `CALM`, `blob`, `poolGeo`, `glowMat()`, `SHEET`, `spooks` | build (the calls), `update()` (calls `night()`), frame loop, picking (`spooks`), `decor.js` (`candleSpot()`), `model.js` |
+| cat | `cat`, `kitty`, `catRot`, `napped`, `CAT`, `CATW`, `catBody()`, `moveCat()` | build (the `catBody()` call), update (`cat.use()`), the frame loop (the `moveCat()` call), picking (`kitty.until`), desk (`v.west`) |
 | pose | `pose()`, `ARM`, `moving` | screens, breaks, doors, frame loop |
 | declutter | `declutter()`, `tags`, `seen`, `nextPass` | update, frame loop |
 | update | `update()`, `family()`, `office`, `sig` | all regions |
 | hud | `hud()`, `el()`, `rows`, `setOnline()`, `online`, `who()`, `plural()`, `offerUpdate()`, `offer`, `offered`, the `#update`, `#updateNote`, `#updateClose`, `#updateLater`, and `#updateCopy` handlers | fill, camera (`goal`), `index.html` |
 | fill | `open()`, `close()`, `fill()`, `act()`, `loadMessages()`, `renderMessages()`, `timer`, `msgs`, `msgKey`, the focus button, `#say`, `#chatOpen`, `#chatClose`, and `#reply` handlers | hud, picking, camera (`follow`), `index.html` |
 | camera | `fit()`, `frame()`, `keepInView()`, `TOUR`, `HOLD`, `input`, `tour`, `tourStep()`, `stopTour()`, the tour listeners, `resize()`, `VIEW`, `OFFSET`, `controls`, the `goal` glide, `follow`, `zoomTo`, `tracked`, the zoom glide | hud (`online`), breaks (`breaks.now()`), update, picking, fill |
-| picking | the pointerdown, wheel, and click handlers | fill, desk (seat geometry), camera (`follow`, `zoomTo`), night (`spooks`, `until`) |
+| picking | the pointerdown, wheel, and click handlers, `span()` | fill, desk (seat geometry), camera (`follow`, `zoomTo`), night (`spooks`, `until`), cat (`kitty`) |
 
 Give a change to `label()`, `fresh()`, `shared()`, a shared constant, or the import lines to one agent only. A new decor function changes the `./decor.js` import and `DECOR`, so it goes to the build agent.
 
@@ -303,7 +344,7 @@ A new room kind on the 3D side:
 1. `buildOffice()` makes the room with `door` and `pods` (`[]` is valid).
 2. `decor.js`: export a decor function `(g, room, season)` in room-local coordinates, with props from `placer()`.
 3. `office.js`: import it and add it to `DECOR`, or `build()` throws. Add a `ROOM_FLOOR` entry, or the room gets carpet. `door()`, `swing()`, and `update()` need no change, and a room with `status: null` gets the `C.wood` light and sign.
-4. Routes use only the workspace rooms, the corridors, the kitchen, and the party room. For a walk to the new room, change `route()`, `stepBreak()`, and `idleBreaks()` (`spots`, the spot lookup `at()`, and `lay`). `opens()` already opens the door of the target room. See the recipe "A new room kind" in `docs/model.md`.
+4. Worker routes use only the workspace rooms, the corridors, the kitchen, and the party room. The cat routes also use the lobby. For a walk to the new room, change `route()`, `stepBreak()`, and `idleBreaks()` (`spots`, the spot lookup `at()`, and `lay`). `opens()` already opens the door of the target room. See the recipe "A new room kind" in `docs/model.md`.
 5. Add the `kind` to `CLAUDE.md` "Contracts between the files", and update `assertPlan()` and the room id checks in `test/model.test.mjs`.
 
 A new color that changes in place:
@@ -342,4 +383,10 @@ A change to the door leaf, the open angle, or the door speed:
 - `test/walk.test.mjs` copies numbers from this file: the door posts at 0.6, the leaf tip, the arm length 0.5, the 0.7 swing, the mug size and offset, and `0.1 + 1.1 * calm`. Change them together.
 - Text from outside the page goes into the DOM through `textContent` only (`el()`, `update()`, `hud()`, `fill()`). Never use `innerHTML`.
 - Keep the demo guard in `fill()` (`DEMO || !target`).
+- `catBody()` must run before `bake()` and before the shadow pass in `build()`. After `bake()`, the cat meshes merge, and the cat cannot move.
+- Set `napped` from `views.get(c.desk)?.west` each frame, never once at the nap start. A rebuild makes a new west group.
+- A new desk clutter item must draw into the group that `clutter()` passes to `CLUTTER[a]`, or it cannot hide (`docs/idr/0008-nap-clutter-live.md`).
+- The cat flap x copies `doorX()` in `model.js` (0.145 from the door center). Move both together.
+- Do not put the `Miauw!` label into `tags`. It shows for 2 s only, as the ghost balloon does.
+- Never change the color of a cached material for the cat. Every box with that color changes.
 - A new three.js addon import needs an `integrity` entry. See `CLAUDE.md` "Run and check".

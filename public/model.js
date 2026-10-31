@@ -77,6 +77,10 @@ const hits = (a, b) => a[0] < b[2] - 1e-9 && b[0] < a[2] - 1e-9 && a[1] < b[3] -
 // In the kitchen the strip also reaches each chair, and a lane runs from the strip to each chair.
 function walkRects(r, desks) {
   const x = doorX(r), y = stepX(r), j = stepZ(r)
+  if (r.kind === 'lobby') { // the cat: the flap to the lane, the lane west to the basket, south to the basket, and its footprint
+    const b = r.basket, z = r.door.z - sgn(r) * 1.4 // example: demo lobby -> b (13.425, 34), z 31.4, lane [13.125, 31.1, 15.07, 31.7]
+    return [R(x - LANE, r.door.z, x + LANE, z), R(b.x - LANE, z - LANE, x + LANE, z + LANE), R(b.x - LANE, z, b.x + LANE, b.z), R(b.x - 0.31, b.z - 0.33, b.x + 0.31, b.z + 0.33)]
+  }
   const door = [R(x - LANE, r.door.z, x + LANE, j), R(Math.min(x, y) - LANE, j - LANE, Math.max(x, y) + LANE, j + LANE)] // through the door, the sidestep
   if (r.kind === 'kitchen' || r.kind === 'party') { // the door lane, then the strip in front of the counter or the dance floor
     const z = r.kind === 'kitchen' ? kitchenZ(r) : partyZ(r), seats = r.chairs ?? [], xs = [y, ...r.spots.map(p => p.x), ...seats.map(c => c.x)], zs = [z, ...r.spots.map(p => p.z)]
@@ -143,6 +147,19 @@ function games(r) {
   return out.map(({ kind, x, z, places }) => ({ kind, x, z, places }))
 }
 
+// Drop repeated points and the middle point of three points on one line. It ignores the direction, so it drops the dead end of an out-and-back path.
+// Example: [[0, 0], [0, 5], [0, 9], [3, 9]] -> [[0, 0], [0, 9], [3, 9]]
+function tidy(pts) {
+  const out = []
+  for (const q of pts) {
+    const b = out.at(-1), a = out.at(-2)
+    if (b && b[0] === q[0] && b[1] === q[1]) continue
+    if (a && ((a[0] === b[0] && b[0] === q[0]) || (a[1] === b[1] && b[1] === q[1]))) out.pop()
+    out.push(q)
+  }
+  return out
+}
+
 // The way from the seat of a desk to a spot in the room `to` (the kitchen, the party room, or the room of a game table): [[x, z], ...] with axis-aligned
 // segments. Out of the chair to the side, then to the lane behind the desk row, around the pod on its east side (the lamp post
 // stands on the west side), along the pod row to the door lane, through the door on the free side of the leaf, along the corridor
@@ -167,14 +184,32 @@ export function route(o, deskId, spot, to = 'kitchen') {
     pts.push([kx, kz], [kx, stepZ(k)], [stepX(k), stepZ(k)], [stepX(k), sz])
   }
   pts.push([spot.x, sz], [spot.x, spot.z])
-  const out = []
-  for (const q of pts) { // drop repeated points and the middle point of a straight run
-    const b = out.at(-1), a = out.at(-2)
-    if (b && b[0] === q[0] && b[1] === q[1]) continue
-    if (a && ((a[0] === b[0] && b[0] === q[0]) || (a[1] === b[1] && b[1] === q[1]))) out.pop()
-    out.push(q)
-  }
-  return out
+  return tidy(pts)
+}
+
+// Cat routes. The cat starts at the basket, leaves the lobby at the flap (doorX), and uses the corridor center lines, as a worker does.
+// catRoute() ends at the sit point on the west side of a desk. The cat walks the same path back.
+// patrolRoute() goes to the west dead end of a band corridor and back along the same points.
+// Rule:    catRoute(o, id) ends at the sit point (d.x - 1.2, d.z - 0.35).
+// Example: demo w1:p2 -> starts at the basket (13.425, 34), ends at (3.9, 2.25), length 62.31
+// Rule:    patrolRoute(o, i) turns at (c.x + 0.8, center z of band corridor i), and ends at the basket.
+// Example: demo i 1 -> 9 points, turns at (0.8, 28.5), length 41.63
+// Rule:    the corridor z of the lobby and of the target is one value when they differ by less than 1e-6 (float noise).
+// Example: demo patrol 1 -> the corridor z is 28.5 and bandZ(lobby) is 28.5 (float noise apart), so the path has no cross corridor point
+const snapZ = (z, z0) => Math.abs(z - z0) < 1e-6 ? z0 : z
+function catOut(o, z) { // the basket to the corridor line z (the lobby lane, the flap, then the cross corridor when z is another corridor)
+  const L = o.rooms.find(r => r.kind === 'lobby'), b = L.basket, x = doorX(L), lz = L.door.z - sgn(L) * 1.4, z0 = bandZ(L), X = o.corridors.at(-1), c = X.x + X.w / 2
+  return [[b.x, b.z], [b.x, lz], [x, lz], [x, z0], ...(z === z0 ? [] : [[c, z0], [c, z]])]
+}
+export function catRoute(o, id) {
+  const d = o.desks.find(k => k.id === id), r = o.rooms.find(k => k.id === d.roomId), p = r.pods.find(q => q.id === d.podId), L = o.rooms.find(k => k.kind === 'lobby')
+  const zr = snapZ(bandZ(r), bandZ(L)), z = laneZ(r, p), e = p.x + p.w + 0.4, x = doorX(r)
+  return tidy([...catOut(o, zr), [x, zr], [x, z], [e, z], [e, d.z + 1.1], [d.x - 1.2, d.z + 1.1], [d.x - 1.2, d.z - 0.35]])
+}
+export function patrolRoute(o, i) {
+  const c = o.corridors[i], L = o.rooms.find(r => r.kind === 'lobby'), z = snapZ(c.z + c.d / 2, bandZ(L))
+  const out = tidy([...catOut(o, z), [c.x + 0.8, z]]) // tidy the way out first: tidy() on the whole path would drop the dead end
+  return [...out, ...out.slice(0, -1).reverse()]
 }
 
 // Corridor candelabra: a spot every 4 along each corridor, in turn on its two edges, 0.4 in. A spot near a door on its edge, or in a band corridor mouth, is dropped.
@@ -393,7 +428,9 @@ export function buildOffice(snap, meetings = [], prev = null) {
     party.floor = R(party.spots[0].x - 1, partyZ(party), party.spots[nf - 1].x + 1, zb - s)
     party.booth = { x: cx, z: zb - s * 1.6, rot: s > 0 ? 0 : 2 }
   }
-  for (const r of rooms) if (r.kind === 'workspace' || r === kit || r === party) r.walk = walkRects(r, desks) // decor.js keeps props off them
+  const lob = rooms.at(-1) // the basket takes the old west pumpkin spot: (x + w/2 - 1.2, z + d - 3), example (13.425, 34) in the demo
+  lob.basket = { x: lob.x + lob.w / 2 - 1.2, z: lob.z + lob.d - 3 }
+  for (const r of rooms) if (r.kind === 'workspace' || r.kind === 'lobby' || r === kit || r === party) r.walk = walkRects(r, desks) // decor.js keeps props off them
   for (const r of rooms) r.games = games(r) // after the walk rects: a table keeps off them, and its lanes join them
 
   // Meeting tables: centered, a chair at the head (the -x end: a back wall, so the orchestrator faces the camera) and
@@ -510,13 +547,23 @@ export function ghostAt(g, s) {
 // waiter (chess 30 to 60 s, ping-pong 20 to 40 s). chat: the chat time in seconds (10 to 25) of a waiter at the cooler. Each value has its own index i, so a new value keeps the others. The index 2 held
 // the old party coin.
 export function breakPlan(seed, n) {
-  const u = (i) => { // a mixed number in [0, 1) for each plan value i
-    let h = Math.imul((seed ^ Math.imul(n + 1, 0x9e3779b1)) + i * 0x85ebca6b, 0xc2b2ae35)
-    h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d)
-    return ((h ^ (h >>> 13)) >>> 0) / 4294967296
-  }
+  const u = (i) => mix(seed, n, i)
   const [lo, hi] = n ? [20, 60] : [5, 30]
   return { wait: lo + u(0) * (hi - lo), stay: 6 + u(1) * 9, lunch: 20 + u(3) * 20, pick: u(6), game: u(7), chat: 10 + u(8) * 15 }
+}
+
+// A mixed number in [0, 1) for the plan value i of cycle n. The same inputs always give the same number.
+const mix = (seed, n, i) => {
+  let h = Math.imul((seed ^ Math.imul(n + 1, 0x9e3779b1)) + i * 0x85ebca6b, 0xc2b2ae35)
+  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d)
+  return ((h ^ (h >>> 13)) >>> 0) / 4294967296
+}
+
+// The plan of cat cycle n, in seconds: sleep (120 to 300) in the basket, nap (180 to 360) on a desk.
+// pick in [0, 1) picks the idle desk. corridor in [0, 1) picks the band of a patrol.
+// Example: catPlan(13, 0) -> { sleep: 122.94, nap: 245.44, pick: 0.0086, corridor: 0.438 }
+export function catPlan(seed, n) {
+  return { sleep: 120 + 180 * mix(seed, n, 0), nap: 180 + 180 * mix(seed, n, 1), pick: mix(seed, n, 2), corridor: mix(seed, n, 3) }
 }
 
 // The point at distance s on a polyline (s is clamped) and the unit direction of its segment.
@@ -639,6 +686,13 @@ export function endBreak(trips, claimed, id, t) {
   trips.delete(id)
 }
 
+// The inputs of route(): the workspace rooms, the kitchen and the party room with their doors, the cross corridor and the desks.
+const layOf = (o) => [
+  o.rooms.filter((r) => r.kind === 'workspace' || r.kind === 'kitchen' || r.kind === 'party').map((r) => [r.id, r.x, r.z, r.w, r.d, r.door, r.pods.map((p) => [p.id, p.x, p.z, p.w, p.d])]),
+  o.corridors.at(-1),
+  o.desks.map((d) => [d.id, d.x, d.z, d.roomId, d.podId]),
+]
+
 // The idle breaks of one office. The state of stepBreak() (trips, claimed) and each lookup of a trip kind live in this closure.
 // use(office, t): the office model of this update. A change of the route inputs ends every trip. A desk with away or no agent loses its own
 // trip, and the game or chat of its partner ends at t.
@@ -651,11 +705,7 @@ export function idleBreaks() {
   return {
     use(o, t) {
       office = o
-      const lay = JSON.stringify([ // the inputs of route(): the workspace rooms, the kitchen and the party room with their doors, the cross corridor and the desks
-        office.rooms.filter((r) => r.kind === 'workspace' || r.kind === 'kitchen' || r.kind === 'party').map((r) => [r.id, r.x, r.z, r.w, r.d, r.door, r.pods.map((p) => [p.id, p.x, p.z, p.w, p.d])]),
-        office.corridors.at(-1),
-        office.desks.map((d) => [d.id, d.x, d.z, d.roomId, d.podId]),
-      ])
+      const lay = JSON.stringify(layOf(office))
       // ponytail: a change of the route inputs clears every trip: the workers sit at their desks again. Tracking a trip across a new layout needs a new route.
       if (lay !== laid) { trips.clear(); claimed.clear(); laid = lay }
       for (const d of office.desks) if (d.away || !d.agent) endBreak(trips, claimed, d.id, t) // the worker sits at the meeting table, or the agent quit: no worker, no trip. The game of a partner ends at t
@@ -685,6 +735,74 @@ export function idleBreaks() {
       })
       const stays = new Set([...trips.values()].filter((b) => b.trip && tripAt(b.trip, t).phase === 'stay').map((b) => b.trip.kind))
       return { games, stays: ['kitchen', 'lunch', 'party', 'game', 'chat'].filter((k) => stays.has(k)) }
+    },
+  }
+}
+
+// The office cat: one cat for one office. The cycle: sleep in the basket, then a visit (walk to the west side of an idle desk, sit, jump up,
+// nap on the desk, jump down, walk back) or, with no idle desk, a patrol of one band corridor. Then sleep again, with the next cat plan.
+// use(office, t): the office model of this update. The first call starts the sleep of n 0. A change of lay starts a full sleep of n + 1
+// with the cat in its basket at once. step(desks, t): { x, y, z, dx, dz, pose, desk, doors }, once a frame. pose: sleep, walk, sit, jump, nap.
+// doors is always []: the cat uses the cat flaps. Idle for the cat: status idle, an agent, and no away. A worker on a break still counts.
+// Rule:    a target that leaves idle ends the visit: walk back at WALK, or jump down first when the cat sits on the desk or jumps up.
+// Example: t=280.0 w1:p2 turns working -> t=280.4 on the floor -> t=319.4 sleep in the basket
+// Rule:    a quit in the jump up lets the jump finish, then the jump down starts at once. The cat never hangs in the air.
+// Example: jump up from t=162.9, quit at t=163.0 -> jump down 163.3 to 163.7 -> walk back
+// Rule:    a visit or a patrol starts at the step that sees t >= the sleep end, not at the sleep end itself.
+// Example: the sleep ends at 122.94, the steps come at 122.90 and 122.95 -> the visit starts at 122.95 with s 0
+const CAT = 13, SIT = 1, JUMP = 0.4 // CAT: the seed of the office cat. With 13 the first visit in the demo naps on w1:p2
+// A visit at time t: { pose, s, home } or null when the cat is back in the basket. v: { len, start, nap, back }.
+// back: { at, s } when the cat turned on its way out or at the sit. A quit in the jump up or the nap shortens v.nap instead.
+function visitAt(v, t) {
+  const sit = v.start + v.len / WALK, up = sit + SIT, nap = up + JUMP, down = nap + v.nap, home = down + JUMP
+  const walk = (s, back) => (s > 0 ? { pose: 'walk', s, home: back } : null)
+  if (v.back) return walk(v.back.s - WALK * (t - v.back.at), true)
+  if (t < sit) return { pose: 'walk', s: WALK * (t - v.start), home: false }
+  if (t < up) return { pose: 'sit' }
+  if (t < nap) return { pose: 'jump', f: (t - up) / JUMP }
+  if (t < down) return { pose: 'nap' }
+  if (t < home) return { pose: 'jump', f: 1 - (t - down) / JUMP }
+  return walk(v.len - WALK * (t - home), true)
+}
+export function officeCat() {
+  let office = null, laid = '', n = 0, end = 0, cur = null // end: the end of the sleep. cur: null (sleep), a visit or a patrol
+  const lobby = () => office.rooms.find((r) => r.kind === 'lobby')
+  const sleep = (t) => { end = t + catPlan(CAT, n).sleep; cur = null }
+  const visitable = (d) => d && d.status === 'idle' && d.agent && !d.away
+  return {
+    use(o, t) {
+      office = o
+      const L = lobby(), lay = JSON.stringify([layOf(o), o.corridors, L.x, L.z, L.w, L.d, L.door, L.basket])
+      if (laid) { if (lay !== laid) { n++; sleep(t) } } else sleep(t)
+      laid = lay
+    },
+    step(desks, t) {
+      const b = lobby().basket, home = { x: b.x, y: 0.1, z: b.z, dx: 0, dz: 1, pose: 'sleep', desk: null, doors: [] }
+      if (!cur && t >= end) {
+        const plan = catPlan(CAT, n), idle = desks.filter(visitable), d = idle[Math.floor(plan.pick * idle.length)]
+        if (d) { const path = catRoute(office, d.id); cur = { visit: true, desk: d.id, path, len: pathLen(path), start: t, nap: plan.nap, back: null, quit: false } }
+        else { const path = patrolRoute(office, Math.floor(plan.corridor * (office.corridors.length - 1))); cur = { path, len: pathLen(path), start: t } }
+      }
+      if (!cur) return home
+      if (!cur.visit) {
+        const s = WALK * (t - cur.start)
+        if (s >= cur.len) { n++; sleep(t); return home }
+        return { ...along(cur.path, s), y: 0, pose: 'walk', desk: null, doors: [] }
+      }
+      const v = cur, sit = v.start + v.len / WALK
+      if (!v.quit && !visitable(desks.find((d) => d.id === v.desk))) { // a quit happens once, in the walk out, the sit, the jump up, or the nap
+        const a = visitAt(v, t)
+        if (a.pose === 'walk') { v.back = { at: t, s: a.s }; v.quit = true }
+        else if (a.pose === 'sit') { v.back = { at: t, s: v.len }; v.quit = true }
+        else if (a.pose === 'nap' || (a.pose === 'jump' && t < sit + SIT + JUMP)) { v.nap = Math.max(0, t - (sit + SIT + JUMP)); v.quit = true } // jump up or nap. A jump down stays
+      }
+      const a = visitAt(v, t)
+      if (!a) { n++; sleep(t); return home }
+      const [wx, sz] = v.path.at(-1), r = { desk: v.desk, doors: [] }
+      if (a.pose === 'walk') { const p = along(v.path, a.s), k = a.home ? -1 : 1; return { x: p.x, z: p.z, dx: k * p.dx, dz: k * p.dz, y: 0, pose: 'walk', ...r } }
+      if (a.pose === 'sit') return { x: wx, y: 0, z: sz, dx: 1, dz: 0, pose: 'sit', ...r }
+      if (a.pose === 'jump') { const f = a.f, up = t < v.start + v.len / WALK + SIT + JUMP; return { x: wx + 0.5 * f ** 3, y: 0.8 * f + 2 * f * (1 - f), z: sz, dx: up ? 1 : -1, dz: 0, pose: 'jump', ...r } }
+      return { x: wx + 0.5, y: 0.8, z: sz, dx: 0, dz: 1, pose: 'nap', ...r }
     },
   }
 }

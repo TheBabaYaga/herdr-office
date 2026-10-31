@@ -18,6 +18,7 @@ These docs describe the code of herdr-office, with one doc for each source area.
 | Seasonal decor | `docs/decor.md` "Seasonal props". `docs/model.md` "season(date)", "snowflakes(t), flakeAt(f, s)", "outdoors(bounds)". `docs/office.md` "Frame loop and data source" (`SEASON`, the minute timer), "Winter snow". `INTENT.md` decisions 31 and 34 | `season()`, `SEASON`, `pumpkin()`, `bat()`, `web()`, `xmasTree`, `snow()`, `snowflakes()`, `flakeAt()`, `snowfall()` |
 | The Halloween night and the ghosts | `docs/office.md` "Halloween night". `docs/model.md` "candleSpots(o), lightningPlan(rand), flash(plan, s)" and "rng(s), ghosts(bounds), ghostAt(g, s)". `docs/decor.md` "Seasonal props" (`candleSpot()`). `docs/testing.md` "The Halloween night tests". `INTENT.md` decisions 31 to 33 | `night()`, `candelabra()`, `candles()`, `lightning()`, `ghost()`, `haunt()`, `candleSpots()`, `lightningPlan()`, `flash()`, `ghosts()`, `ghostAt()`, `candleSpot()` |
 | The clock light (day and night) | `docs/office.md` "Halloween night" (`night()`, `CASTLE`, `reach`, `TIME`, `clock()`). `docs/model.md` "daylight(min)". `docs/testing.md` (the `daylight()` tests, the `?time` check) | `daylight()`, `night()`, `clock()`, `TIME`, `CASTLE`, `?time` |
+| The office cat | `docs/model.md` "Cat" (`catPlan()`, `catRoute()`, `patrolRoute()`, `officeCat()`) and "Walk geometry" (the lobby rects). `docs/office.md` "Cat", "Picking", "Floors and walls" (the flap). `docs/decor.md` "Room decor" (`lobby()`), "Desk clutter". `docs/idr/0008-nap-clutter-live.md`. `INTENT.md` decision 41 | `catPlan()`, `catRoute()`, `patrolRoute()`, `officeCat()`, `layOf()`, `catBody()`, `moveCat()`, `lobby()`, `clutter()` |
 | Decor and props | `docs/decor.md` | `box()`, `placer()`, `workspaceDecor()`, `kitchen()`, `meeting()`, `lobby()`, `terrace()`, `plant()`, `clutter()` |
 | The bridge: poll, SSE, action, guards | `docs/bridge.md` "Flow", "`startBridge(options)`", "`GET /events` branch", "`GET /messages` branch", "`POST /action` branch" | `startBridge()`, `handle()`, `poll()`, `send()`, `herdrRequest()`, `socketPath()` |
 | The build and the release of the single binary | `docs/release.md` "Build", "Make a release". `docs/idr/0007-public-repo.md` | `threeFiles()`, `sha384()`, `localHtml()` in `build.mjs`. `release-please-config.json` |
@@ -51,6 +52,7 @@ buildOffice(snapshot, meetings, office)     public/model.js, the old office is p
   v
 update(next)
   |-- breaks.use(office, last): lay changed -> every trip ends. endBreak() for each desk with away or with no agent
+  |-- cat.use(office, last): the cat lay changed -> the cat sleeps in its basket (n + 1)
   |-- sig changed: build() (DECOR[r.kind](), door(), partyLights(), terrace(), desk(), attendee(), bake()), frame() on the first build
   |-- night(): the light from CASTLE or daylight(clock()), on each update
   '-- in place: door lights, signs, pod lamps, badges, tags, spot, hud(), fill() when the panel is open
@@ -70,6 +72,7 @@ follow -> tour -> goal glide -> zoom glide -> controls.update() -> keepInView() 
   -> snowfall(t)                            the winter flakes, at half speed with reduce motion
   -> candles(t)                             the candle flicker (Halloween night)
   -> haunt(t)                               the ghosts float (Halloween), at half speed with reduce motion, and show a clicked balloon for 2 s
+  -> moveCat(t)                             the cat poses from cat.step(), hides the west clutter item in a nap, and shows a clicked balloon for 2 s
   -> bulbLights(t)                          the tree bulb halos twinkle (winter), at half swing with reduce motion
   -> lightning(t)                           the night flash, off with reduce motion
   -> swing(t - last)
@@ -84,6 +87,7 @@ click on a desk, a seat, or a worker on a trip (not a drag), or a HUD row
   -> open(id) -> fill()           target = the pane id, or the orchestrator desk of a subagent
   -> a worker on a trip only      follow = id, zoomTo = 1.5 times the zoom
   -> a ghost hit (Halloween)      no open(): until = now + 2 s, and haunt() shows the balloon until then
+  -> a cat hit                    no open(), no follow: kitty.until = now + 2 s, and moveCat() shows the balloon. The cat wins when the ray enters its box before it leaves the best other box
   -> "Focus in herdr" button      act(): fetch POST /action, header x-office-token, body { type: 'focus', pane_id }
   -> bridge.mjs handle()          Host check, token check, body check
   -> herdrRequest(sock, 'pane.focus', { pane_id })

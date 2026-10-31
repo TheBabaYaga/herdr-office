@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildOffice, candleSpots, lightningPlan, flash, demoSnapshot, demoMeetings, along, tripAt, breakPlan, route, hash, calm, opens, pathLen, stepBreak, endBreak, idleBreaks, WALK, RUN, WAIT } from '../public/model.js'
+import { buildOffice, candleSpots, lightningPlan, flash, demoSnapshot, demoMeetings, along, tripAt, breakPlan, route, catRoute, patrolRoute, officeCat, catPlan, hash, calm, opens, pathLen, stepBreak, endBreak, idleBreaks, WALK, RUN, WAIT } from '../public/model.js'
 
 // Synthetic snapshots. All values are made up.
 const AREA = { x: 10, y: 2, width: 100, height: 40 }
@@ -894,6 +894,77 @@ test('every route runs from a seat to a kitchen spot through rooms, doors and co
   assert.ok(n > 500, `${n} routes`)
 })
 
+// A cat route: a box 0.09 to each side, 0.27 ahead (the nose) and 0.17 behind (the rump), from catBody() in office.js. The tail is up in a walk.
+// A desk is its top and side panels (x +-0.9, z -0.75..0.05) and its chair with the seated worker (x +-0.39, z 0.05..0.77), from desk() and worker().
+// The cat crosses each door wall at the flap: doorX() in model.js, 0.145 off the door center on the free side of the leaf.
+// Each door within 3 counts as open, as in checkRoute(): a worker can open it. The leaf is 0.06 thick, so the box keeps 0.03 from the leaf line.
+// The real gap at the flap is 0.078. A door post is 0.12 wide and 0.36 deep.
+// This departs from the spec "no point in a desk or a pod": the sit point is in the pod, so the check tests the desk and chair boxes instead.
+function checkCat(tag, o, path, end) {
+  const b = o.rooms.find(r => r.kind === 'lobby').basket
+  assert.deepEqual(path[0], [b.x, b.z], `${tag}: starts at the basket`)
+  assert.deepEqual(path.at(-1), end, `${tag}: ends at ${end}`)
+  path.slice(1).forEach(([x, z], i) => assert.ok(x === path[i][0] || z === path[i][1], `${tag}: segment ${i} is axis-aligned`))
+  const len = pathLen(path), cuts = path.map((_, i) => pathLen(path.slice(0, i + 1)))
+  const samples = [...new Set([...Array.from({ length: Math.floor(len / 0.1) + 1 }, (_, i) => i * 0.1), ...cuts])].sort((a, b) => a - b)
+  const walls = [...o.rooms, { x: 0, z: 0, w: o.bounds.w, d: o.bounds.d }]
+  let prev = null
+  for (const s of samples) {
+    const p = along(path, s), at = `${tag} at (${p.x.toFixed(2)}, ${p.z.toFixed(2)})`
+    const room = o.rooms.find(r => strictIn(p, r)), cor = o.corridors.find(c => strictIn(p, c))
+    if (!room && !cor) assert.ok(o.rooms.some(r => inDoor(p, r)) || o.corridors.filter(c => closedIn(p, c)).length > 1, `${at}: on a wall line outside a door`)
+    for (const r of walls) assert.ok(edge(p, r) >= 0.3 - EPS || inDoor(p, r), `${at}: closer than 0.3 to the wall of ${r.id ?? 'the building'}`)
+    for (const q of o.rooms.flatMap(r => r.pods)) assert.ok(Math.hypot(p.x - (q.x - 0.5), p.z - (q.z + 0.4)) >= 0.4 - EPS, `${at}: closer than 0.4 to the lamp post of ${q.id}`)
+    if (room) assert.ok(room.pods.some(q => closedIn(p, q)) || room.walk.some(w => inRect(p, w)), `${at}: in ${room.id}, not in a pod and not in a walk rect`)
+    for (const a of [along(path, s), along(path, Math.max(0, s - 1e-7))]) { // at a corner both directions count
+      const ax = Math.abs(a.dx) > 0.5, k = ax ? a.dx : a.dz, lo = k > 0 ? -0.17 : -0.27, hi = k > 0 ? 0.27 : 0.17
+      const cat = ax ? [p.x + lo, p.z - 0.09, p.x + hi, p.z + 0.09] : [p.x - 0.09, p.z + lo, p.x + 0.09, p.z + hi]
+      for (const q of o.desks) for (const f of [[q.x - 0.9, q.z - 0.75, q.x + 0.9, q.z + 0.05], [q.x - 0.39, q.z + 0.05, q.x + 0.39, q.z + 0.77]])
+        assert.ok(!(cat[0] < f[2] - EPS && f[0] < cat[2] - EPS && cat[1] < f[3] - EPS && f[1] < cat[3] - EPS), `${at}: the cat touches the desk of ${q.id}`)
+      for (const r of o.rooms) if (Math.hypot(p.x - r.door.x, p.z - r.door.z) < 3) { // the open leaf (door() in office.js) and the two posts
+        const k = r.door.side === 'south' ? 1 : -1
+        for (let i = 0; i <= 30; i++) {
+          const f = i / 30, lx = r.door.x + k * (0.54 - 0.49 * f), lz = r.door.z - k * 0.96 * f
+          assert.ok(lx < cat[0] - 0.03 || lx > cat[2] + 0.03 || lz < cat[1] - 0.03 || lz > cat[3] + 0.03, `${at}: the cat touches the open leaf of ${r.id} (${lx.toFixed(2)}, ${lz.toFixed(2)})`)
+        }
+        for (const px of [-0.6, 0.6]) assert.ok(r.door.x + px < cat[0] - 0.06 || r.door.x + px > cat[2] + 0.06 || r.door.z < cat[1] - 0.18 + EPS || r.door.z > cat[3] + 0.18 - EPS, `${at}: the cat touches a post of ${r.id}`)
+      }
+    }
+    const label = room ? room.id : cor ? 'corridor' : null
+    if (label && prev && prev.label !== label) { // a crossing: a room and a corridor, at the flap of the room door
+      const r = room ?? o.rooms.find(r => r.id === prev.label), other = room ? prev.label : label
+      assert.ok(r && other === 'corridor', `${at}: from ${prev.label} to ${label}`)
+      const mid = { x: (p.x + prev.p.x) / 2, z: (p.z + prev.p.z) / 2 }, flap = r.door.x - (r.door.side === 'south' ? 1 : -1) * 0.145
+      assert.ok(Math.abs(mid.z - r.door.z) <= 0.15 && Math.abs(mid.x - flap) < 1e-6, `${at}: crosses the wall of ${r.id} at (${mid.x}, ${mid.z}), not at the flap x ${flap}`)
+    }
+    if (label) prev = { label, p }
+  }
+}
+
+test('every cat route runs from the basket to the sit point beside an agent desk', () => {
+  let n = 0
+  for (const [name, o] of offices) for (const d of o.desks.filter(d => d.agent && !d.away)) {
+    checkCat(`${name}: ${d.id}`, o, catRoute(o, d.id), [d.x - 1.2, d.z - 0.35]); n++
+  }
+  assert.ok(n > 200, `${n} routes`)
+})
+
+test('every patrol runs from the basket to the west dead end of its band corridor and back', () => {
+  for (const [name, o] of offices) {
+    const L = o.rooms.find(r => r.kind === 'lobby'), X = o.corridors.at(-1)
+    o.corridors.slice(0, -1).forEach((c, i) => {
+      const path = patrolRoute(o, i), half = path.slice(0, (path.length + 1) / 2), z = path[half.length - 1][1]
+      checkCat(`${name}: patrol ${i}`, o, path, [L.basket.x, L.basket.z])
+      assert.equal(path.length % 2, 1, `${name}: patrol ${i}: one dead end`)
+      assert.deepEqual(half.at(-1), [c.x + 0.8, z], `${name}: patrol ${i}: the dead end`)
+      assert.ok(Math.abs(z - (c.z + c.d / 2)) < 1e-6, `${name}: patrol ${i}: on the center line`)
+      assert.deepEqual(path, [...half, ...half.slice(0, -1).reverse()], `${name}: patrol ${i}: back the same way`)
+      const own = Math.abs(L.door.z - 1.5 - z) < 1e-6 // the corridor in front of the lobby
+      assert.equal(path.some(([x]) => x === X.x + X.w / 2), !own, `${name}: patrol ${i}: the cross corridor only for another corridor`)
+    })
+  }
+})
+
 test('a small kitchen has its chat spots and its cooler at the worked values', () => {
   const at = (name) => { const k = offices.find(([n]) => n === name)[1].rooms.find(r => r.kind === 'kitchen'); return [k.door.side, ...[k.chat[0].x, k.cooler.x, k.chat[1].x].map(x => +(x - k.x).toFixed(2))] }
   assert.deepEqual(at('1 small workspaces'), ['north', 5.28, 5.73, 6.18])
@@ -1125,14 +1196,16 @@ test('candleSpots: corridor candelabra stand clear of the edges, doors, junction
       for (const t of spots) if (t !== s && home(t) === c) assert.ok(Math.hypot(s.x - t.x, s.z - t.z) >= 3 - EPS, `${name}: spots apart`)
     }
     const kitchen = o.rooms.find(r => r.kind === 'kitchen'), party = o.rooms.find(r => r.kind === 'party')
-    const clear = (d, spot, to) => {
-      const path = route(o, d.id, spot, to), len = pathLen(path)
-      for (let s = 0; s <= len; s += 0.1) { const p = along(path, s); for (const c of spots) assert.ok(Math.hypot(p.x - c.x, p.z - c.z) >= 0.5 - EPS, `${name}: ${d.id} to ${to} passes (${p.x.toFixed(2)}, ${p.z.toFixed(2)}) near the candles at (${c.x}, ${c.z})`) }
+    const clear = (tag, path) => {
+      const len = pathLen(path)
+      for (let s = 0; s <= len; s += 0.1) { const p = along(path, s); for (const c of spots) assert.ok(Math.hypot(p.x - c.x, p.z - c.z) >= 0.5 - EPS, `${name}: ${tag} passes (${p.x.toFixed(2)}, ${p.z.toFixed(2)}) near the candles at (${c.x}, ${c.z})`) }
     }
     for (const d of o.desks.filter(d => d.agent)) {
-      for (const spot of kitchen.spots) clear(d, spot, 'kitchen')
-      if (party) for (const spot of party.spots) clear(d, spot, 'party')
+      for (const spot of kitchen.spots) clear(`${d.id} to kitchen`, route(o, d.id, spot, 'kitchen'))
+      if (party) for (const spot of party.spots) clear(`${d.id} to party`, route(o, d.id, spot, 'party'))
     }
+    for (const d of o.desks.filter(d => d.agent && !d.away)) clear(`cat to ${d.id}`, catRoute(o, d.id))
+    o.corridors.slice(0, -1).forEach((_, i) => clear(`patrol ${i}`, patrolRoute(o, i)))
   }
 })
 
@@ -1229,4 +1302,146 @@ test('stepBreak: a joiner whose waiter rushes on its way never talks', () => {
   const { w, b } = cpair(), tr = b.start + 2
   cstep(w, tr, 'a', { idle: false })
   for (let t = tr; t < arrive(b) + OUT; t += 0.1) { const r = jstep(w, t, 'b'); assert.ok(!r?.talk, `b talks at ${t}`) }
+})
+
+// ---- The office cat. ----
+const BASKET = ROOM(O, 'lobby').basket
+const idleOnly = (o, ids) => o.desks.map((d) => ({ ...d, status: ids.includes(d.id) ? 'idle' : 'working' })) // the other desks work
+// Steps the cat every dt s from t until ok(r). Each result must have doors []. Returns that time and result, and each pose change.
+const catUntil = (c, desks, t, ok, dt = 0.05) => {
+  for (const seen = []; t < 2000; t += dt) {
+    const r = c.step(typeof desks === 'function' ? desks(t) : desks, t)
+    assert.deepEqual(r.doors, [], `t ${t}: no door opens for the cat`)
+    if (seen.at(-1)?.[0] !== r.pose) seen.push([r.pose, t])
+    if (ok(r)) return { t, r, seen }
+  }
+  assert.fail('never')
+}
+const fresh = (o = O, t = 0) => { const c = officeCat(); c.use(o, t); return c }
+const CAT = 13 // the seed of the office cat (CAT in model.js). The demo test and the patrol band test depend on it
+const DESK = O.desks.find((d) => d.id === 'w1:p2')
+const CPATH = catRoute(O, 'w1:p2'), LEN = pathLen(CPATH)
+// Every frame (dt 0.05) from 0 to t1, as { t, ...r }, and the pose runs [key, start]. A jump up has the key 'jump+', a jump down 'jump-'.
+const cframes = (c, desks, t1) => {
+  const out = []
+  for (let t = 0; t < t1; t += 0.05) out.push({ t, ...c.step(typeof desks === 'function' ? desks(t) : desks, t) })
+  return out
+}
+const runs = (fs) => fs.reduce((a, f) => {
+  const k = f.pose + (f.pose === 'jump' ? (f.dx > 0 ? '+' : '-') : '')
+  return a.at(-1)?.[0] === k ? a : [...a, [k, f.t]]
+}, [])
+const wake = (c, desks) => catUntil(c, desks, 0, (r) => r.pose !== 'sleep').t
+const IDLE = idleOnly(O, ['w1:p2']), WORK = idleOnly(O, [])
+
+test('officeCat: the cat starts in its basket in its sleep, and sleeps 120 to 300 s', () => {
+  const c = fresh()
+  assert.deepEqual(c.step(IDLE, 0), { x: BASKET.x, y: 0.1, z: BASKET.z, dx: 0, dz: 1, pose: 'sleep', desk: null, doors: [] })
+  const { t } = catUntil(c, IDLE, 0, (r) => r.pose !== 'sleep')
+  assert.ok(t >= 120 && t <= 300 + 0.05, `the first sleep ends at ${t}`)
+})
+
+test('officeCat: a visit walks to the one idle desk, sits, jumps, naps, jumps down, and walks back to the basket', () => {
+  const fs = cframes(fresh(), IDLE, 800), rs = runs(fs)
+  assert.deepEqual(rs.slice(0, 8).map(([k]) => k), ['sleep', 'walk', 'sit', 'jump+', 'nap', 'jump-', 'walk', 'sleep'])
+  const len = (i) => rs[i + 1][1] - rs[i][1]
+  assert.ok(Math.abs(len(1) - LEN / WALK) < 0.1, `walk out ${len(1)}`)
+  assert.ok(Math.abs(len(2) - 1) < 0.1, `sit ${len(2)}`)
+  assert.ok(Math.abs(len(3) - 0.4) < 0.1 && Math.abs(len(5) - 0.4) < 0.1, 'jumps')
+  assert.ok(len(4) >= 180 - 0.1 && len(4) <= 360 + 0.1, `nap ${len(4)}`)
+  assert.ok(Math.abs(len(6) - LEN / WALK) < 0.1, `walk home ${len(6)}`)
+  const sit = fs.find((r) => r.pose === 'sit'), nap = fs.find((r) => r.pose === 'nap')
+  assert.deepEqual([sit.x, sit.z, sit.y, sit.dx], [DESK.x - 1.2, DESK.z - 0.35, 0, 1])
+  assert.deepEqual([nap.x, nap.z, nap.y, nap.dz], [DESK.x - 0.7, DESK.z - 0.35, 0.8, 1])
+  for (const r of fs.filter((f) => f.pose === 'jump')) assert.ok(r.y >= 0 && r.y <= 1, `jump y ${r.y}`)
+  for (const r of fs.slice(0, Math.round(rs[7][1] / 0.05))) assert.equal(r.desk, r.pose === 'sleep' ? null : 'w1:p2')
+})
+
+test('officeCat: a shell desk, an away desk, and a desk that is not idle never get a visit', () => {
+  const st = ['working', 'blocked', 'done', 'unknown']
+  const desks = O.desks.map((d, i) => i === 0 ? { ...d, status: 'idle', agent: null } : i === 1 ? { ...d, status: 'idle', away: { roomId: 'meeting', x: 0, z: 0, rot: 3 } } : { ...d, status: st[i % 4] })
+  const fs = cframes(fresh(), desks, 2000)
+  assert.ok(fs.every((r) => r.desk === null && r.doors.length === 0))
+  assert.ok(fs.some((r) => r.pose === 'walk'), 'the cat patrols')
+})
+
+test('officeCat: when the target leaves idle on the way out, the cat turns and walks back at WALK', () => {
+  const tw = wake(fresh(), IDLE), tq = (() => { let t = 0; while (t < tw + 10) t += 0.05; return t })()
+  const fs = cframes(fresh(), (t) => (t >= tw + 10 ? WORK : IDLE), tw + 60), s0 = WALK * (tq - tw)
+  const f = fs.find((r) => r.t >= tq + 2 - 1e-9), p = along(CPATH, s0 - 2 * WALK)
+  close(f.x, p.x, 'x'); close(f.z, p.z, 'z'); close(f.dx, -p.dx, 'dx'); close(f.dz, -p.dz, 'dz')
+  const home = fs.find((r) => r.t > tw && r.pose === 'sleep')
+  assert.ok(Math.abs(home.t - (tq + (tq - tw))) < 0.1, `in the basket at ${home.t}`)
+})
+
+test('officeCat: when the target leaves idle during the sit, the cat walks back with no jump', () => {
+  const tw = wake(fresh(), IDLE), sit = tw + LEN / WALK, tq = sit + 0.5
+  const rs = runs(cframes(fresh(), (t) => (t >= tq ? WORK : IDLE), tw + 200)).filter(([, t]) => t > tw - 0.001)
+  assert.deepEqual(rs.slice(0, 4).map(([k]) => k), ['walk', 'sit', 'walk', 'sleep'])
+  assert.ok(Math.abs(rs[3][1] - rs[2][1] - LEN / WALK) < 0.1, 'the walk home lasts len / WALK')
+})
+
+test('officeCat: when the target leaves idle in the jump up or the nap, the cat jumps down and walks back', () => {
+  const base = runs(cframes(fresh(), IDLE, 800)), up = base.find(([k]) => k === 'jump+')[1], nap = base.find(([k]) => k === 'nap')[1]
+  // a quit 0.1 s into the jump up: the jump up ends, then the jump down, then the walk home
+  let rs = runs(cframes(fresh(), (t) => (t >= up + 0.1 ? WORK : IDLE), up + 80)).filter(([, t]) => t >= up - 0.001)
+  assert.deepEqual(rs.slice(0, 4).map(([k]) => k), ['jump+', 'jump-', 'walk', 'sleep'])
+  assert.ok(Math.abs(rs[1][1] - (up + 0.4)) < 0.1 && Math.abs(rs[2][1] - (up + 0.8)) < 0.1, `jumps ${rs.map((r) => r[1])}`)
+  // a quit 20 s into the nap: the jump down comes at once
+  rs = runs(cframes(fresh(), (t) => (t >= nap + 20 ? WORK : IDLE), nap + 200)).filter(([, t]) => t >= nap - 0.001)
+  assert.deepEqual(rs.slice(0, 4).map(([k]) => k), ['nap', 'jump-', 'walk', 'sleep'])
+  assert.ok(Math.abs(rs[1][1] - (nap + 20)) < 0.1, `jump down at ${rs[1][1]}`)
+})
+
+test('officeCat: with no idle desk the cat patrols one band corridor and back, and a desk that turns idle does not end it', () => {
+  const i = Math.floor(catPlan(CAT, 0).corridor * (O.corridors.length - 1)), path = patrolRoute(O, i), len = pathLen(path)
+  const tw = wake(fresh(), WORK), a = cframes(fresh(), WORK, tw + len / WALK + 5)
+  for (const r of a.filter((f) => f.t >= tw && f.pose === 'walk')) {
+    const p = along(path, WALK * (r.t - tw))
+    close(r.x, p.x, 'x'); close(r.z, p.z, 'z'); assert.equal(r.y, 0)
+  }
+  const end = a.find((r) => r.t > tw && r.pose === 'sleep').t
+  assert.ok(Math.abs(end - tw - len / WALK) < 0.1, `the patrol lasts ${end - tw}`)
+  const b = cframes(fresh(), (t) => (t >= tw + len / WALK / 2 ? IDLE : WORK), tw + len / WALK + 5)
+  assert.deepEqual(b.map(({ x, z, pose, desk }) => [x, z, pose, desk]), a.map(({ x, z, pose, desk }) => [x, z, pose, desk]))
+})
+
+test('officeCat: a change of lay puts the cat in its basket at once, and the same lay keeps the nap', () => {
+  const c = fresh(), { t } = catUntil(c, IDLE, 0, (r) => r.pose === 'nap')
+  c.use(buildOffice(demoSnapshot(0), demoMeetings(0)), t)
+  assert.equal(c.step(IDLE, t + 0.1).pose, 'nap', 'the same lay')
+  const same = buildOffice(demoSnapshot(0), demoMeetings(0))
+  c.use({ ...same, rooms: same.rooms.map((r) => (r.kind === 'lobby' ? { ...r, x: r.x + 1, basket: { ...r.basket, x: r.basket.x + 1 } } : r)) }, t + 0.2)
+  const r = c.step(IDLE, t + 0.2)
+  assert.deepEqual([r.pose, r.x, r.z], ['sleep', BASKET.x + 1, BASKET.z])
+})
+
+const REPICK = 'The demo or the routes changed, so the first demo visit of CAT 13 no longer naps. Pick a new CAT: try seeds 1 to 300 with ' +
+  'catPlan(seed, 0), take the first seed whose pick lands on a long-idle agent (w1:p2, w2:p2, or w3:p3) that stays idle until the nap starts, ' +
+  'set CAT in model.js and in this file, and update the times of this test, docs/testing.md "Visual check in the browser", and the plan.'
+test('the demo cat: its first visit naps on w1:p2 while the worker takes a break, and walks back when w1:p2 works', () => {
+  const ticks = Array.from({ length: 331 }, (_, t) => demoSnapshot(t)), o = buildOffice(ticks[0], demoMeetings(0))
+  const breaks = idleBreaks(), cat = officeCat()
+  breaks.use(o, 0); cat.use(o, 0)
+  const fs = []
+  let breakDuringNap = false
+  for (let i = 0; i < 3300; i++) {
+    const t = i / 10, snap = ticks[Math.floor(t)]
+    const desks = o.desks.map((d) => ({ ...d, status: snap.agents.find((a) => a.pane_id === d.id)?.agent_status ?? d.status }))
+    const w1 = desks.find((d) => d.id === 'w1:p2')
+    for (const d of desks.filter((d) => d.agent && !d.away)) { const b = breaks.step(d, t); if (d.id === 'w1:p2' && b) w1.onBreak = true }
+    const r = cat.step(desks, t)
+    if (r.pose === 'nap' && w1.onBreak) breakDuringNap = true
+    fs.push({ t, ...r })
+  }
+  const near = (a, b, m) => assert.ok(Math.abs(a - b) <= 0.2, `${m}: ${a} is not ${b}. ${REPICK}`)
+  const first = (f) => fs.find(f)?.t
+  near(first((r) => r.pose !== 'sleep'), 122.9, 'wake')
+  assert.equal(fs.find((r) => r.pose === 'walk').desk, 'w1:p2', `target. ${REPICK}`)
+  near(first((r) => r.pose === 'nap'), 163.3, 'nap start')
+  assert.ok(breakDuringNap, `w1:p2 is on a break during the nap. ${REPICK}`)
+  const nap = first((r) => r.pose === 'nap')
+  near(first((r) => r.t > nap && r.pose !== 'nap'), 280.0, 'nap end')
+  const home = first((r) => r.t > nap && r.pose === 'sleep')
+  assert.ok(home && home <= 319.5, `in the basket at ${home}. ${REPICK}`)
 })

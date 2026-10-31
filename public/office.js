@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { daylight, STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, lightningPlan, flash, ghosts, ghostAt, snowflakes, flakeAt, twinkle, rng, outdoors, hash, season, calm, idleBreaks, nextStop } from './model.js'
+import { daylight, STATUS_RANK, STATUS_COLOR, buildOffice, demoSnapshot, demoMeetings, candleSpots, lightningPlan, flash, ghosts, ghostAt, snowflakes, flakeAt, twinkle, rng, outdoors, hash, season, calm, idleBreaks, nextStop, officeCat } from './model.js'
 import { box, seat, plant, clutter, workspaceDecor, kitchen, meeting, lobby, party, terrace, SNOW, LAMP, WOOD, WOOD_D, CREAM } from './decor.js'
 
 const $ = (id) => document.getElementById(id)
@@ -154,6 +154,7 @@ function door(r) {
   world.add(hinge)
   box(hinge, [1.08, 2.04, 0.06], [-s * 0.54, 0.02, 0], C.door)
   box(hinge, [0.05, 0.05, 0.16], [-s * 0.94, 1, 0], C.brass)
+  box(hinge, [0.3, 0.46, 0.07], [-s * 0.685, 0.04, 0], '#2b2a33') // cat flap: the cat crosses at doorX() in model.js, 0.145 off the door center (north door x 4.875 -> flap x 5.02)
   live.add(light).add(hinge)
   // Over the room, not the corridor: facing signs stay apart. Over a meeting room with a south door, the sign covers the
   // south seat about 2 west of it. Seats fill from the head (-x) end, so the sign moves to 1 from the +x wall.
@@ -282,6 +283,7 @@ function build(office, season) {
   }
   if (season === 'halloween') for (const s of candleSpots(office)) candelabra(s.x, s.z, s.axis, 3.2)
   spooks = season === 'halloween' ? ghosts(office.bounds).map((p, i) => Object.assign(ghost(p), { until: spooks[i]?.until ?? 0 })) : [] // a rebuild keeps a shown balloon
+  kitty = Object.assign(catBody(), { until: kitty?.until ?? 0 }) // a rebuild keeps a shown balloon
   lightBulbs()
   bake()
   // The sun moves with the clock (night()). Its shadow box holds the whole building for each direction.
@@ -418,6 +420,57 @@ function haunt(t) { // each ghost floats on its loop and turns to face the way i
   }
 }
 
+const CAT = '#1a1a1a', CATW = '#f4f1ea'
+let kitty = null // the cat view: { g, torso, head, legs, tail, boo, until }. build() makes it, and a rebuild keeps until
+let catRot = null // the eased heading of the cat. A rebuild keeps it
+let napped = null // the west clutter group that the cat hides now, or null
+const cat = officeCat() // use() in update(), step() in moveCat(): where the cat is now
+function catBody() { // a black cat with white chest, muzzle and paws, 0.45 long. It faces +z before the turn. y 0 is the floor under the paws.
+  const g = new THREE.Group()
+  world.add(g); live.add(g)
+  const pv = (parent, [x, y, z]) => { const o = new THREE.Group(); o.position.set(x, y, z); parent.add(o); return o }
+  const torso = pv(g, [0, 0.14, -0.15]) // the rear hip: a sit tips the front up
+  box(torso, [0.18, 0.16, 0.34], [0, 0, 0.15], CAT)
+  box(torso, [0.12, 0.1, 0.02], [0, 0.02, 0.33], CATW)
+  const head = pv(torso, [0, 0.1, 0.3])
+  box(head, [0.16, 0.14, 0.14], [0, 0, 0.03], CAT)
+  box(head, [0.08, 0.05, 0.02], [0, 0.01, 0.11], CATW)
+  for (const s of [-1, 1]) box(head, [0.04, 0.06, 0.03], [s * 0.05, 0.14, 0], CAT)
+  const legs = [[-1, 0.27], [1, 0.27], [-1, 0.03], [1, 0.03]].map(([s, z]) => { const l = pv(torso, [s * 0.06, 0, z]); box(l, [0.05, 0.14, 0.05], [0, -0.14, 0], CATW); return l }) // front left, front right, rear left, rear right
+  const tail = pv(torso, [0, 0.12, -0.02])
+  box(tail, [0.04, 0.04, 0.28], [0, -0.02, -0.14], CAT)
+  label(g, 'boo', [0, 0.6, 0]).textContent = 'Miauw!' // the click balloon: 2 s, shown by moveCat(). Not in tags, like the ghost balloon
+  const boo = g.children.at(-1)
+  boo.center.set(0.5, 1)
+  boo.visible = false
+  return { g, torso, head, legs, tail, boo }
+}
+function moveCat(t) { // poses the cat from cat.step(). Reduce motion: half the tail swing.
+  const c = cat.step(office.desks, t), k = kitty, amp = CALM.matches ? 0.5 : 1
+  const to = Math.atan2(c.dx, c.dz)
+  catRot = catRot == null ? to : catRot + (to - catRot - Math.round((to - catRot) / TAU) * TAU) * 0.25 // the shortest way round
+  k.g.position.set(c.x, c.y, c.z)
+  k.g.rotation.y = catRot
+  const curl = c.pose === 'sleep' || c.pose === 'nap', sit = c.pose === 'sit', jump = c.pose === 'jump', walk = c.pose === 'walk'
+  k.torso.position.y = curl ? 0.02 : 0.14
+  k.torso.rotation.x = sit ? -0.5 : 0
+  k.head.rotation.set(curl ? 0.5 : 0, curl ? 0.5 : 0, 0)
+  for (const l of k.legs) l.visible = !curl
+  const w = walk ? 0.5 * Math.sin(14 * t) : 0 // diagonal pairs
+  const fr = jump ? -0.6 : sit ? 0.5 : w, re = jump ? 0.6 : sit ? -1 : w // front legs forward in a jump, rear legs fold forward in a sit
+  k.legs[0].rotation.x = fr
+  k.legs[1].rotation.x = jump || sit ? fr : -w
+  k.legs[2].rotation.x = jump || sit ? re : -w
+  k.legs[3].rotation.x = re
+  k.tail.rotation.set(curl ? 0 : walk ? 1 : 1.3, curl ? -2.4 : 0, 0)
+  if (curl || sit) k.tail.rotation.y += 0.25 * amp * Math.sin(1.2 * t)
+  else if (walk) k.tail.rotation.y = 0.15 * amp * Math.sin(3 * t)
+  if (napped) napped.visible = true // the clutter item of the desk under the nap shows again when the cat leaves it
+  napped = c.pose === 'nap' || c.pose === 'jump' ? views.get(c.desk)?.west ?? null : null // each frame: a rebuild makes a new group
+  if (napped) napped.visible = false
+  k.boo.visible = t < k.until
+}
+
 // Merge every static box into one mesh per material: tens of draw calls instead of thousands.
 function bake() {
   world.updateMatrixWorld(true)
@@ -456,9 +509,10 @@ function desk(d) {
     box(g, [0.1, 0.03, 0.12], [0.47, 0.8, 0.01], '#2a2a35') // mouse, at the desk edge right of the keyboard (z -0.05..0.07): an idle worker browses with its right hand on it (the arm turns 0.3 rad toward it)
   }
   deskChair(g, 0, 0.5, 2) // the back on +z, behind the worker
-  clutter(g, hash(d.id, 1e6))
+  const west = clutter(g, hash(d.id, 1e6))
+  if (d.agent) live.add(west) // an agent desk can get a nap: the west item hides, so bake() must not merge it
   const away = d.away && seatAt(d.away) // in a meeting: the worker and its typing screen move to the head of the table
-  views.set(d.id, { desk: d, screen: away?.screen ?? screen, halo: away?.halo, logo: away?.logo, phase: d.x * 7 + d.z * 3, seed: hash(d.terminalId ?? d.id, 1e9), worker: d.agent && worker(away?.g ?? g, d) })
+  views.set(d.id, { desk: d, screen: away?.screen ?? screen, halo: away?.halo, logo: away?.logo, phase: d.x * 7 + d.z * 3, seed: hash(d.terminalId ?? d.id, 1e9), west: d.agent ? west : null, worker: d.agent && worker(away?.g ?? g, d) })
 }
 
 // A meeting seat (see the model): a group like a desk group, turned to the table, with a laptop under the typing hands.
@@ -927,6 +981,7 @@ function update(next) {
   const se = SEASON ?? season(new Date())
   const s = JSON.stringify([rooms, office.terraces, office.desks.map((d) => [d.id, d.x, d.z, d.agent ? d.agent.kind ?? '?' : 0, d.away]), office.subagents.map((s) => [s.id, s.x, s.z, s.rot, s.model]), se])
   breaks.use(office, last) // a change of the routes ends every trip, and a desk with away or no agent loses its trip. last: the frame time, so the game of a partner ends now
+  cat.use(office, last) // a change of the routes puts the cat in its basket
   if (s !== sig) {
     build(office, se)
     if (!sig) frame(office.rooms.find((r) => r.id === office.focus.workspaceId) ?? { x: 0, z: 0, w: office.bounds.w, d: office.bounds.d })
@@ -1210,12 +1265,14 @@ const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), pick = new THREE.B
 let down = [0, 0]
 renderer.domElement.addEventListener('pointerdown', (e) => { down = [e.clientX, e.clientY]; goal = follow = zoomTo = null })
 renderer.domElement.addEventListener('wheel', () => { zoomTo = null }) // the glide never fights the user's zoom
+// span(): where a ray enters and leaves a box, [t0, t1], or null. three.js gives the entry only.
+const span = (r, b) => { let t0 = -Infinity, t1 = Infinity; for (const k of ['x', 'y', 'z']) { const a = (b.min[k] - r.origin[k]) / r.direction[k], c = (b.max[k] - r.origin[k]) / r.direction[k]; t0 = Math.max(t0, Math.min(a, c)); t1 = Math.min(t1, Math.max(a, c)) } return t0 <= t1 && t1 >= 0 ? [t0, t1] : null }
 renderer.domElement.addEventListener('click', (e) => {
   if (!office || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return
   ray.setFromCamera(ndc.set((e.clientX / innerWidth) * 2 - 1, (-e.clientY / innerHeight) * 2 + 1), camera)
   const sq = (id, x, z) => [id, x - 0.45, z - 0.45, x + 0.45, z + 0.45]
   const seated = (id, s) => sq(id, s.x + 0.4 * Math.sin((s.rot * Math.PI) / 2), s.z + 0.4 * Math.cos((s.rot * Math.PI) / 2))
-  let best = null, near = Infinity, walker = false
+  let best = null, near = Infinity, exit = Infinity, walker = false
   for (const [id, x0, z0, x1, z1, walks = false, y0 = 0, y1 = 1.8] of [
     ...office.desks.map((d) => [d.id, d.x - 1, d.z - 0.8, d.x + 1, d.z + 0.9]),
     ...office.desks.filter((d) => d.away).map((d) => seated(d.id, d.away)),
@@ -1226,7 +1283,14 @@ renderer.domElement.addEventListener('click', (e) => {
     pick.min.set(x0, y0, z0)
     pick.max.set(x1, y1, z1)
     const t = ray.ray.intersectBox(pick, hit) && hit.distanceTo(ray.ray.origin)
-    if (t !== null && t < near) { near = t; best = id; walker = walks }
+    if (t !== null && t < near) { near = t; best = id; walker = walks; exit = span(ray.ray, pick)[1] }
+  }
+  if (kitty) { // the cat box lies inside the desk box of a nap or a sit, so the cat wins when the ray enters it before it leaves the best box
+    const { x, y, z } = kitty.g.position
+    pick.min.set(x - 0.25, y, z - 0.25)
+    pick.max.set(x + 0.25, y + 0.45, z + 0.25)
+    const c = span(ray.ray, pick)
+    if (c && (best === null || c[0] < exit)) { kitty.until = performance.now() / 1000 + 2; return } // the balloon for 2 s (moveCat() shows it), no panel, no follow
   }
   if (best?.boo) { best.until = performance.now() / 1000 + 2; return } // a ghost: the balloon for 2 s (haunt() shows it), no panel
   if (best) open(best)
@@ -1267,6 +1331,7 @@ renderer.setAnimationLoop((ms) => {
   snowfall(t)
   candles(t)
   haunt(t)
+  if (office) moveCat(t)
   bulbLights(t)
   lightning(t)
   if (office) swing(t - last)

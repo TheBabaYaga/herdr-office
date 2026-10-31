@@ -38,3 +38,7 @@ A rush of one player before 173.42 removes the game from `now()` in the same fra
 - `office.js` must call only `idleBreaks()`: `breaks.use()` in `update()`, `breaks.step()` in `pose()`, and `breaks.now()` in `rally()` and `tourStep()`.
 - A new trip kind changes the break module (`idleBreaks()` and its seam `stepBreak()`) and `stroll()`. `pose()` and `update()` do not change.
 - The heading ease and the chess turn stay in `office.js` until the pose moves to the model.
+
+## Note of 31 October 2026
+
+The `lay` text of `use()` now comes from `layOf(o)` in `public/model.js`. The office cat (`officeCat()`, INTENT.md decision 41) calls the same function for its own layout check. The inputs and the rule are the same.

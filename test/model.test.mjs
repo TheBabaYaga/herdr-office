@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { STATUS_RANK, STATUS_COLOR, rollup, buildOffice, demoSnapshot, demoMeetings, season, daylight, ghosts, ghostAt, snowflakes, flakeAt, twinkle, outdoors, nextStop } from '../public/model.js'
+import { STATUS_RANK, STATUS_COLOR, rollup, buildOffice, demoSnapshot, demoMeetings, season, daylight, ghosts, ghostAt, snowflakes, flakeAt, twinkle, outdoors, nextStop, catPlan } from '../public/model.js'
 
 // Synthetic snapshot. All values are made up.
 const area = { x: 10, y: 2, width: 100, height: 40 }
@@ -180,7 +180,31 @@ function assertPlan(o, snap, meetings = []) {
   }
   assertSpacing(o.desks)
   assertKitchen(o)
+  assertLobby(o)
   assertGames(o)
+}
+
+// The basket west of the reception, and the walk rects of the cat. The sizes come from decor.js: reception() at (w/2 + 0.6, d - 3.2)
+// with its chair (to d - 4.23) and its cream top (to d - 2.72), the entrance keep rect of lobby(), and waiting (logo and lounge) on the
+// west wall, which reaches 2.07 into the room.
+// Example: demo lobby (x 9.75, z 30, w 9.75, d 7) -> basket (13.425, 34), reception keep [14.075, 32.77, 16.575, 34.28].
+function assertLobby(o) {
+  const L = o.rooms.find(r => r.kind === 'lobby'), { w, d } = L, b = L.basket, at = (x0, z0, x1, z1) => [L.x + x0, L.z + z0, L.x + x1, L.z + z1]
+  assert.equal(L.door.side, 'north', 'the lobby door is in the north wall')
+  assert.deepEqual(b, { x: L.x + w / 2 - 1.2, z: L.z + d - 3 }, 'the basket stands west of the reception')
+  const keep = { reception: at(w / 2 - 0.65, d - 4.23, w / 2 + 1.85, d - 2.72), entrance: at(w / 2 - 1, d - 2, w / 2 + 1, d), waiting: at(0, 0, 2.1, d) }
+  for (const r of L.walk) {
+    assert.ok(r[0] >= L.x && r[1] >= L.z && r[2] <= L.x + L.w && r[3] <= L.z + L.d, `the lobby walk rect ${r} is inside the lobby`)
+    for (const [name, k] of Object.entries(keep)) assert.ok(!hits(r, k), `the lobby walk rect ${r} is on the ${name}`)
+  }
+  const foot = [b.x - 0.31, b.z - 0.33, b.x + 0.31, b.z + 0.33]
+  assert.ok(L.walk.some(r => r.every((v, i) => Math.abs(v - foot[i]) < EPS)), 'a walk rect is the basket footprint')
+  const x = L.door.x + 0.145, z = L.door.z + 1.4 // the flap of a north door (doorX() in model.js), and the lane
+  for (const [p, q] of [[[x, L.door.z], [x, z]], [[x, z], [b.x, z]], [[b.x, z], [b.x, b.z]]]) // the way from the flap to the basket
+    for (let f = 0; f <= 1; f += 0.05) {
+      const pt = { x: p[0] + (q[0] - p[0]) * f, z: p[1] + (q[1] - p[1]) * f }
+      assert.ok(L.walk.some(r => inRect(pt, r)), `(${pt.x}, ${pt.z}) on the way to the basket is off the walk rects`)
+    }
 }
 
 // The kitchen tables for a lunch: a table top is 0.9 x 0.9 round (x, z). A chair stands 0.8 west (rot 3, faces +x) or 0.8 east
@@ -985,4 +1009,19 @@ test('nextStop: each stop of the demo office lies inside the building', () => {
       assert.ok(o.rooms.some((r) => r.id === s.room), `${s.room} at tick ${tick}`)
     }
   }
+})
+
+test('catPlan is deterministic and stays in range', () => {
+  const firsts = new Set()
+  for (let seed = 0; seed < 200; seed++) for (let n = 0; n < 6; n++) {
+    const p = catPlan(seed * 4999 + 17, n), at = `seed ${seed} n ${n}`
+    assert.deepEqual(p, catPlan(seed * 4999 + 17, n))
+    assert.deepEqual(Object.keys(p), ['sleep', 'nap', 'pick', 'corridor'])
+    assert.ok(p.sleep >= 120 && p.sleep <= 300, `${at}: sleep ${p.sleep}`)
+    assert.ok(p.nap >= 180 && p.nap <= 360, `${at}: nap ${p.nap}`)
+    for (const k of ['pick', 'corridor']) assert.ok(p[k] >= 0 && p[k] < 1, `${at}: ${k} ${p[k]}`)
+    if (!n) firsts.add(p.sleep.toFixed(3))
+  }
+  assert.ok(firsts.size > 150, 'the seeds spread the first sleeps')
+  assert.notDeepEqual(catPlan(5, 1), catPlan(5, 2), 'each cycle has its own plan')
 })

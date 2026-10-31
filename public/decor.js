@@ -684,9 +684,19 @@ const xmasTree = prop([
 // The building entrance is in the middle of the lobby's south wall. The reception faces it.
 export function lobby(g, room, season) {
   const { w, d } = room, put = placer(g, room, [w / 2 - 1, d - 2, w / 2 + 1, d])
+  // The cat basket: its spot comes from buildOffice() (room.basket). It stands on a walk rect, so it skips put() and writes put.taken.
+  // Example: w 8 -> basket (2.8, 4) local, rect x 2.49..3.11, z 3.67..4.33.
+  const bx = room.basket.x - room.x, bz = room.basket.z - room.z
+  box(g, [0.62, 0.04, 0.66], [bx, 0, bz], WOOD_D)
+  for (const s of [-1, 1]) {
+    box(g, [0.62, 0.16, 0.06], [bx, 0, bz + s * 0.3], WOOD)
+    box(g, [0.06, 0.16, 0.54], [bx + s * 0.28, 0, bz], WOOD)
+  }
+  box(g, [0.5, 0.06, 0.54], [bx, 0.04, bz], CREAM)
+  put.taken.push([bx - 0.31, bz - 0.33, bx + 0.31, bz + 0.33])
   put(reception, w / 2 + 0.6, d - 3.2, 0)
   ;[d / 2 + 0.4, d / 2, d - 1.6].some((z) => put(waiting, E, z, 1))
-  if (season === 'halloween') for (const x of [w / 2 - 1.1, w / 2 + 2.3]) put(pumpkin, x, d - 3, 0)
+  if (season === 'halloween') for (const [x, z] of [[w / 2 - 1.2, d - 2.3], [w / 2 + 2.3, d - 3]]) put(pumpkin, x, z, 0)
   if (season === 'winter') [[1, 1], [w - 1, 1], [1, d - 1]].some(([x, z]) => put(xmasTree, x, z, 0))
   plants(put, corners(room), 2)
   furnish(put, room, LOBBY, season)
@@ -793,6 +803,9 @@ const CLUTTER = [
 ]
 export function clutter(g, seed) {
   const a = seed % 6, b = (a + 1 + (Math.floor(seed / 6) % 5)) % 6 // two different items, from the seed only
-  CLUTTER[a](g, -1)
+  const west = new THREE.Group() // its own group: office.js keeps it out of bake() and hides it under a napping cat
+  g.add(west)
+  CLUTTER[a](west, -1)
   CLUTTER[b](g, 1)
+  return west
 }
