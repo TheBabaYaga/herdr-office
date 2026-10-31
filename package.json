@@ -1,1 +1,1 @@
-{"name":"herdr-office","version":"0.3.0","license":"MIT","private":true,"type":"module","scripts":{"start":"node bridge.mjs","build":"node build.mjs","test":"node --test test/*.test.mjs"}}
+{"name":"herdr-office","version":"0.4.0","license":"MIT","private":true,"type":"module","scripts":{"start":"node bridge.mjs","build":"node build.mjs","test":"node --test test/*.test.mjs"}}
