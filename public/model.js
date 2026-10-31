@@ -5,7 +5,8 @@ export const STATUS_RANK = { unknown: 0, idle: 1, working: 2, done: 3, blocked: 
 export const STATUS_COLOR = { working: '#f9e2af', blocked: '#fa5252', done: '#94e2d5', idle: '#a6e3a1', unknown: '#6c7086' }
 
 const GAP_X = 2.4, GAP_Z = 2.2 // one desk cell: desk footprint 2 x 1.5 plus room to breathe
-const POD_GAP = 1.5, WALL = 1.5, HALL = 3, MAX_ROW = 30 // WALL: free floor between pods and a room wall. HALL: corridor width
+const POD_GAP = 1.5, WALL = 1.5, HALL = 3, MAX_ROW = 30, AISLE = 1.3 // WALL: free floor between pods and a room wall. HALL: corridor width. AISLE: free floor to each side of the door x
+// in each pod row but the first. The lamp post sets it: a worker walks 0.38 off the door center, needs 0.4 from the post that stands 0.5 west of a pod.
 const SEAT = 1.15, TABLE = (k) => k * SEAT + 0.8 // meeting table: length per chair on a long side. 0.4 free at each end
 
 export function rollup(statuses) {
@@ -167,7 +168,6 @@ function tidy(pts) {
 // A lunch route is a kitchen route to a chair: from the strip it goes straight to the chair point, 0.8 beside the table.
 // A game route goes along the main walk line of the target room to the x of the place, then straight to the place. A desk in the room
 // of the table does not cross the door: it goes along the door lane to the main walk line.
-// ponytail: a room with two pod rows (wider than MAX_ROW) may get a route across the lower pod row. It has no lane between the rows.
 export function route(o, deskId, spot, to = 'kitchen') {
   const d = o.desks.find(k => k.id === deskId), r = o.rooms.find(k => k.id === d.roomId), k = o.rooms.find(k => k.id === to)
   const p = r.pods.find(q => q.id === d.podId), z = laneZ(r, p), lane = d.z + 1.1, e = p.x + p.w + 0.4, x = doorX(r), y = stepX(r)
@@ -296,6 +296,7 @@ export function buildOffice(snap, meetings = [], prev = null) {
   const byNumber = (a, b) => a.number - b.number
   const desks = []
 
+  const block = new Map() // the width of the pod block of each workspace. The door x is its middle.
   const rooms = [...snap.workspaces].sort(byNumber).map(ws => {
     const pods = []
     let px = 0, pz = 0, rowD = 0, innerW = 0
@@ -331,6 +332,24 @@ export function buildOffice(snap, meetings = [], prev = null) {
       rowD = Math.max(rowD, d)
       innerW = Math.max(innerW, px - POD_GAP)
     }
+    // Each pod row but the first keeps an aisle at the door x free of pods, so a walker of a farther row passes it. The door x is
+    // the middle of the pod block. The pods of a row west of it move west as one group, the others east. Then the block grows on
+    // its short side, so the aisle stays in the middle. A north-door room swaps its rows in the band plan.
+    // Example: 8 tabs of 2 panes, door x 16.5 -> t8 moves from x 14.1..18.9 to 17.8..22.6.
+    const later = [...new Set(pods.map(p => p.z))].slice(1)
+    if (later.length) {
+      const c = innerW / 2, move = (p, dx) => { p.x += dx; for (const k of desks) if (k.podId === p.id) k.x += dx }
+      for (const z of later) {
+        const row = pods.filter(p => p.z === z), west = row.filter(p => p.x + p.w / 2 < c), east = row.filter(p => p.x + p.w / 2 >= c)
+        const dw = Math.min(0, c - AISLE - Math.max(...west.map(p => p.x + p.w))), de = Math.max(0, c + AISLE - Math.min(...east.map(p => p.x)))
+        for (const p of west) move(p, dw)
+        for (const p of east) move(p, de)
+      }
+      const half = Math.max(c - Math.min(...pods.map(p => p.x)), Math.max(...pods.map(p => p.x + p.w)) - c)
+      for (const p of pods) move(p, half - c)
+      innerW = 2 * half
+    }
+    block.set(ws.workspace_id, innerW)
     return {
       id: ws.workspace_id, kind: 'workspace', label: ws.label, number: ws.number,
       status: ws.agent_status ?? rollup(desks.filter(d => d.roomId === ws.workspace_id).map(d => d.status)),
@@ -384,9 +403,14 @@ export function buildOffice(snap, meetings = [], prev = null) {
     const d = Math.max(...row.map(r => r.d)), left = W - sum(row, 'w'), yard = left >= 4 - 1e-6, extra = yard ? 0 : left / row.length
     let x = 0
     for (const r of row) {
-      const iw = Math.max(0, ...r.pods.map(p => p.x + p.w)), ih = Math.max(0, ...r.pods.map(p => p.z + p.d))
+      const iw = block.get(r.id) ?? 0, ih = Math.max(0, ...r.pods.map(p => p.z + p.d))
       Object.assign(r, { x, z, w: r === row.at(-1) && !yard ? W - x : r.w + extra, d })
       r.door = { x: x + r.w / 2, z: i % 2 ? z : z + d, side: i % 2 ? 'north' : 'south' }
+      // A north door: the pod rows swap in z, so row 1 lies farthest from the door, as in a south-door room. Each row keeps its depth.
+      if (r.door.side === 'north') for (const pr of [...new Set(r.pods.map(p => p.z))].map(z0 => r.pods.filter(p => p.z === z0))) {
+        const sz = ih - 2 * pr[0].z - Math.max(...pr.map(p => p.d))
+        for (const p of pr) { p.z += sz; for (const k of desks) if (k.podId === p.id) k.z += sz }
+      }
       const dx = x + (r.w - iw) / 2, dz = z + (d - ih) / 2
       for (const p of r.pods) { p.x += dx; p.z += dz }
       for (const k of desks) if (k.roomId === r.id) { k.x += dx; k.z += dz }

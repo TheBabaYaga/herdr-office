@@ -319,7 +319,8 @@ function assertGames(o) {
 // Each other row with a spare width of 4 or more keeps its normal room widths, and a terrace fills the spare width at its east end:
 // from the last room to the cross corridor at W, with the row depth. Each other row stretches as before: every room gets the same extra width.
 const close = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${msg}: ${a} is not ${b}`)
-const span = (r) => r.pods.length ? Math.max(...r.pods.map(p => p.x + p.w)) - Math.min(...r.pods.map(p => p.x)) : 0
+// The pod block, as wide as the door centers it: with a door aisle one side of the block can hold empty floor.
+const span = (r) => r.pods.length ? 2 * Math.max(r.door.x - Math.min(...r.pods.map(p => p.x)), Math.max(...r.pods.map(p => p.x + p.w)) - r.door.x) : 0
 const normal = (r) => r.kind === 'workspace' ? Math.max(7, 3 + span(r)) : r.kind === 'meeting' ? Math.max(8, r.table.len + 2.6) : 8
 function assertRows(o, rows, W) {
   const spare = rows.map(row => W - row.filter(r => r.kind !== 'party').reduce((s, r) => s + normal(r), 0))
@@ -1024,4 +1025,49 @@ test('catPlan is deterministic and stays in range', () => {
   }
   assert.ok(firsts.size > 150, 'the seeds spread the first sleeps')
   assert.notDeepEqual(catPlan(5, 1), catPlan(5, 2), 'each cycle has its own plan')
+})
+
+// Rule:    row 1 lies farthest from the door, and no pod of another row reaches within 1.3 of the door x.
+// Example: 8 tabs of 2 panes, door x 16.5 -> t8 (row 2) at x 17.8..22.6, and the room is 33.0 wide.
+test('the door aisle: row 1 lies farthest from the door, and each other row keeps the aisle free', () => {
+  const grid = (c, r) => Array.from({ length: c * r }, (_, i) => [(i % c) * 100 / c, Math.floor(i / c) * 40 / r, 100 / c, 40 / r]) // a c x r grid of pane rects
+  const tabs = (n) => Array.from({ length: n }, () => grid(2, 1))
+  const rows = [[grid(2, 2), grid(3, 1), grid(2, 1), grid(2, 2), grid(3, 2), grid(2, 1), grid(2, 2), grid(2, 1)]]
+  // spec: one entry for each workspace, as a list of tabs, as a list of pane rects [x, y, w, h].
+  const snapOf = (spec) => {
+    const s = { version: '0.0.0', protocol: 20, focused_workspace_id: 'w1', focused_tab_id: 'w1:t1', focused_pane_id: 'w1:p1', workspaces: [], tabs: [], panes: [], layouts: [], agents: [] }
+    spec.forEach((tl, i) => {
+      const ws = `w${i + 1}`
+      s.workspaces.push({ workspace_id: ws, number: i + 1, label: ws })
+      tl.forEach((rects, j) => {
+        const tab = `${ws}:t${j + 1}`, r = {}
+        s.tabs.push({ tab_id: tab, workspace_id: ws, number: j + 1, label: 'main' })
+        for (const q of rects) {
+          const p = pane(`${ws}:p${s.panes.length + 1}`, tab, { agent: 'claude', agent_status: 'idle' })
+          s.panes.push(p)
+          s.agents.push(agent(p, 'claude', 'idle', s.agents.length + 1))
+          r[p.pane_id] = rect(...q)
+        }
+        s.layouts.push(layout(ws, tab, r, Object.keys(r)[0]))
+      })
+    })
+    return s
+  }
+  const cases = [
+    ['8 tabs, door south', [tabs(8)], 'south', 33.0], ['8 tabs, door north', [[grid(1, 1)], tabs(8)], 'north', 33.0],
+    ['14 tabs, door south', [tabs(14)], 'south', 40.4], ['14 tabs, door north', [[grid(1, 1)], tabs(14)], 'north', 40.4],
+    ['two full pod rows', rows, 'south', 32.6],
+  ]
+  for (const [name, spec, side, width] of cases) {
+    const r = buildOffice(snapOf(spec)).rooms.filter(r => r.kind === 'workspace').reduce((a, b) => b.pods.length > a.pods.length ? b : a)
+    const t1 = r.pods[0], other = r.pods.filter(p => p.z !== t1.z)
+    assert.equal(r.door.side, side, `${name}: door side`)
+    assert.ok(other.length, `${name}: has a second pod row`)
+    assert.ok(other.every(p => side === 'south' ? p.z > t1.z : p.z < t1.z), `${name}: row 1 lies farthest from the door`)
+    for (const p of other) assert.ok(p.x + p.w <= r.door.x - 1.3 + 1e-6 || p.x >= r.door.x + 1.3 - 1e-6, `${name}: ${p.id} at x ${p.x}..${p.x + p.w} is in the aisle at door x ${r.door.x}`)
+    const lo = Math.min(...r.pods.map(p => p.x)), hi = Math.max(...r.pods.map(p => p.x + p.w))
+    close(Math.max(r.door.x - lo, hi - r.door.x), (r.w - 3) / 2, `${name}: the block is centered on the door`)
+    close(r.w, width, `${name}: room width`)
+    if (name.startsWith('8 tabs')) { close(r.pods[7].x - r.x, 17.8, `${name}: t8 west edge`); close(r.pods[7].x - r.x + r.pods[7].w, 22.6, `${name}: t8 east edge`) }
+  }
 })

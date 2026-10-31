@@ -236,7 +236,7 @@ Do this after a change to `placer()`, `furnish()`, a pool, a prop size, `kitchen
 - The strip round also runs in an open room. It adds a second planter, shelf, bench, coat rack, tree, bean bag, or plant there.
 - The user does not want flat runners on the walk lanes (decision 25). A flat box on a lane also needs a height under the pod rugs (0.02 and 0.03) to stay clear of z-fighting.
 - Do not order the spots by the distance to the placed props. That rule sent the props to the corners and the walls, and the user rejected it (decision 25).
-- In a room full of pods (two pod rows, about 30 x 13), most props are thin props of the strip round: under a short pod between the desk lanes (`walkRects()` in `docs/model.md`), and in the band along the north wall. The band along the corridor side is about 0.5 deep after the gap, so it stays empty.
+- In a room full of pods (two pod rows, about 30 to 33 x 13), most props are thin props of the strip round: under a short pod between the desk lanes (`walkRects()` in `docs/model.md`), and in the band along the north wall. The band along the corridor side is about 0.5 deep after the gap, so it stays empty.
 - A new floor prop must cover the core [-0.2, 0.2] around its origin in each turn. Else the spot filter skips spots where it fits.
 - `FREE` comes from the demo rooms: "api" has 14 m² and "docs" 16.5 m² of free floor at the fill pass, so they get 0. "web" and "infra" (36 m²) also get 0. A smaller `FREE` or `PER` changes them.
 - A prop never stands on a walk rect. A new path in `route()` needs walk rects, or `checkRoute()` fails.

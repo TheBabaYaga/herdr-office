@@ -17,7 +17,7 @@ The file has no mutable state at module level. Each `buildOffice()` call makes n
 | Name | Holds | Used by |
 |---|---|---|
 | `STATUS_RANK`, `STATUS_COLOR` | the rank and the HTML color of each status | `rollup()`, and in `office.js` the label priority, the HUD, `COLOR`, the badges, the door signs |
-| `GAP_X`, `GAP_Z`, `POD_GAP`, `WALL`, `HALL`, `MAX_ROW` | the desk cell, the pod gap, the free floor to a wall, the corridor width, the widest pod row | `podLayout()`, `buildOffice()`, `bandZ()` |
+| `GAP_X`, `GAP_Z`, `POD_GAP`, `WALL`, `HALL`, `MAX_ROW`, `AISLE` | the desk cell, the pod gap, the free floor to a wall, the corridor width, the widest pod row, the free floor to each side of the door x in a pod row but the first (1.3, the lamp post sets it) | `podLayout()`, `buildOffice()`, `bandZ()` |
 | `SEAT`, `TABLE(k)` | the meeting table length | `buildOffice()` |
 | `LANE` | the half width of a walk rect | `walkRects()`, `games()` |
 | `GAMES`, `BIG`, `PAD` | the kinds of game table in search order with their footprint half widths and place offsets, the free floor of a big room (80 m²), and the gap round a table (0.3) | `games()` |
@@ -122,10 +122,18 @@ It does not change its inputs. A status change never moves a room, a pod, or a d
 
 - Workspaces sort by `number`. Tabs keep the order of `snap.tabs` (the tab-bar order), because `tab.number` is a creation counter.
 - A pane whose tab is not in `snap.tabs` gets no desk. A tab whose workspace is missing gets no pod. A pod that passes `MAX_ROW` starts a new pod row, unless it is the first pod of its row.
+- The door aisle: in each pod row but the first, no pod reaches within `AISLE` (1.3) of the door x, so the door lane runs free from the door to each row lane. The door x is the middle of the pod block, `innerW / 2`. The pods of a row west of the middle move west as one group (the nearer side), and the others move east. Then all pods shift so the block is centered on the door again, and `innerW` becomes twice the larger distance from the door x to a block edge. One side can hold empty floor. `block` (a `Map` from room id to `innerW`) keeps the block width, because `max(p.x + p.w)` drops that empty floor, so the band plan reads `block`. A north-door room swaps its pod rows in z in the band plan, because the door side is not known before it. So row 1 always lies farthest from the door. Each row keeps its depth. A room with one pod row does not change.
+
+```text
+Rule:    no pod of another row reaches within 1.3 of the door center x.
+Example: 8 tabs of 2 panes, door south, door x 16.5 -> t8 (row 2) moves from x 14.1..18.9 to 17.8..22.6. The room stays 33.0 wide.
+Cost:    10 tabs of 2 panes -> the block grows to the east, and the room from 33.0 to 40.4.
+```
+
 - The `podDesks` map sets the desk fields. `status` comes from the agent record in `snap.agents`, not from `pane.agent_status`. A pane with no agent record gets `'unknown'` and `agent: null`.
 - With no meetings, one meeting room has the id `meeting`, status `null`, and no `session`. `side(m)` is the chair count on one long side (4 or more), and the room gets wider with it.
 - The band plan tries each even row count. Each row holds a run of rooms in room order. The plan closest to square wins.
-- An even row is a north row with its doors in the south wall. The last row is always a south row. The rooms of a row share the row depth. The pods and desks of a room stay centered.
+- An even row is a north row with its doors in the south wall. The last row is always a south row. The rooms of a row share the row depth. The pod block of a room stays centered on the door x. With two pod rows, the block can hold empty floor on one side (the door aisle).
 - A row with 4 or more spare width (`W - sum(row, 'w')`, with a tolerance of 1e-6) keeps the width of each room. A terrace `{ id: 'terrace:<row index>', x, z, w, d }` takes the rest of the row, from the last room to `W`. Each other row stretches its rooms to `W`: each room gets the same extra width, and the last room takes the float rest. The party row has no spare width left, so it never gets a terrace.
 - A terrace is not in `rooms`, so doors, signs, routes, `opens()`, `lay`, the HUD, and the focus never see it. A terrace in the first row has `z` 0, and two terraces in back-to-back rows share an edge. `build()` in `office.js` reads both cases.
 - The party room comes after the band plan, so the plan score does not see it. It takes the spare width of its row, so the other rooms of that row get no extra width. Its `d` of 6 never makes the row deeper. A change of a room width (a meeting that starts, ends, or grows) can add, move, or remove the party room.
@@ -191,7 +199,7 @@ The legs follow the CLAUDE.md contract, in the order of the `pts` array. It read
 - A room in another band than the target room goes through the cross corridor center.
 - `tidy(pts)` does the cleanup. It drops a repeated point and the middle of three points on one line, also when the path turns back on that line. So a new leg must not turn back on its own line.
 - `catRoute()` and `patrolRoute()` call `tidy()` too.
-- Two `ponytail:` comments mark known limits: a room with two pod rows, and the slide through the chair edge.
+- One `ponytail:` comment marks a known limit: the slide through the chair edge.
 
 ### Breaks
 
@@ -383,7 +391,7 @@ A `DEMO_PANES` row is `[paneId, tabId, kind, rect, phase, name, long]`. `kind` `
 - With a party room, `rooms` comes again from `plan.rows`. The rows hold the rooms in room order, so the meeting order and the lobby place stay. A change to the band plan must keep that order.
 - The 4 of the terrace rule is also in `assertRows()` in `test/model.test.mjs`. Change both together. A terrace id holds the row index, and `terrace()` in `decor.js` seeds its fill with it.
 - `assertSpacing()` and `assertPlan()` copy `GAP_X`, `GAP_Z`, `WALL`, and `HALL`. A change of one needs a test change.
-- `normal()` in `test/model.test.mjs` copies the room widths: 7 and `2 * WALL` for a workspace, 8 and `TABLE + 2.6` for a meeting room, and 8 for the kitchen and the lobby. A change of one needs a test change.
+- `normal()` in `test/model.test.mjs` copies the room widths: 7 and `2 * WALL` plus the pod block `span()` for a workspace (the block that the door centers, so empty floor on one side counts), 8 and `TABLE + 2.6` for a meeting room, and 8 for the kitchen and the lobby. A change of one needs a test change.
 - The walk helpers, `calm()`, and `checkRoute()` copy the door numbers of `door()` and `OPEN`. The `opens` test uses 1.4 and 3. Change them together.
 - `opens()` reads the distance to the door center. A seat within 3 of its own door opens that door at the trip start.
 - `LAMP` in `decor.js` puts the lamp post on the west side of each pod. A lamp on the east side breaks the routes.

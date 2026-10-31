@@ -45,6 +45,15 @@ for (let n = 1; n <= 9; n++) {
   CASES[`${n} small workspaces`] = [snap(Array.from({ length: n }, () => [G(1, 1)])), []]
 }
 CASES['a deep room with one pod row'] = [snap([[G(3, 1)], [G(1, 6)]]), []] // w1 gets its game tables between the row lane and the door wall
+// Two or more pod rows: a walker of a farther row must pass the aisle at the door x, and no desk stands in the way.
+const TABS = (n) => Array.from({ length: n }, () => G(2, 1)) // n tabs of 2 panes. With 8, t8 in row 2 covers the door x
+CASES['8 tabs, door south'] = [snap([TABS(8)]), []]
+CASES['8 tabs, door north'] = [snap([[G(1, 1)], TABS(8)]), []]
+CASES['14 tabs, door south'] = [snap([TABS(14)]), []] // three pod rows
+CASES['14 tabs, door north'] = [snap([[G(1, 1)], TABS(14)]), []]
+// Two rows of 4 pods, with short and tall pods in each row. A pod of row 2 crosses the door x, and the block grows on one side.
+const ROWS = [[G(2, 2), G(3, 1), G(2, 1), G(2, 2), G(3, 2), G(2, 1), G(2, 2), G(2, 1)]]
+CASES['two full pod rows'] = [snap(ROWS), []]
 for (const n of [12, 18]) CASES[`${n} workspaces, with a meeting`] = [snap(Array.from({ length: n }, (_, i) => SHAPES[i % SHAPES.length])), demoMeetings(0)]
 const offices = Object.entries(CASES).map(([name, [s, m]]) => [name, buildOffice(s, m)])
 
@@ -1029,8 +1038,6 @@ test('the kitchen has 2 or more chairs at its tables, inside the room, off the w
   }
 })
 
-// Two rows of 4 pods, with short and tall pods in each row.
-const ROWS = [[G(2, 2), G(3, 1), G(2, 1), G(2, 2), G(3, 2), G(2, 1), G(2, 2), G(2, 1)]]
 test('under a short pod next to a tall pod, only a narrow lane below each last-row desk is a walk rect', () => {
   let n = 0
   for (const o of [...offices.map(([, o]) => o), buildOffice(snap(ROWS))]) {
