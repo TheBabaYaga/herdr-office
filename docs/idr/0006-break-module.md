@@ -6,7 +6,7 @@ Status: accepted
 
 ## Context
 
-`stepBreak()` in `public/model.js` was shallow. `public/office.js` owned its state (`trips`, `claimed`) and three lookups for each trip kind: kind to route, kind to room id, and spot key to index. Node cannot load `office.js`, so no test covered these lookups, the layout check (`lay`), or the end of the trip of an `away` desk. The chat branch (a84141f..b5af30f) added one trip kind and changed 12 files. The spec is `.local/specs/2026-10-30-break-module.md`. This record holds the technical choices of the refactor.
+`stepBreak()` in `public/model.js` was shallow. `public/office.js` owned its state (`trips`, `claimed`) and three lookups for each trip kind: kind to route, kind to room id, and spot key to index. Node cannot load `office.js`, so no test covered these lookups, the layout check (`lay`), or the end of the trip of an `away` desk. The chat branch (2f311e6..822d064) added one trip kind and changed 12 files. The spec is `.local/specs/2026-10-30-break-module.md`. This record holds the technical choices of the refactor.
 
 ## Decision
 
