@@ -154,6 +154,13 @@ test/model.test.mjs, test/walk.test.mjs -----> public/model.js
 - seat: a meeting chair position in `room.seats` (`{ x, z, rot }`), with the head seat at `seats[0]`. The worker seat at a desk is `(d.x, d.z + 0.4)`.
 - worker: the figure of an agent, from `worker()` in `office.js`. It sits at a desk or at a meeting seat.
 - ghost: a white sheet with two black eyes that floats through the office in the Halloween season. `ghosts()` in `model.js` gives its loop, and `ghost()` in `office.js` draws it. It is not a worker: it has no desk, no status, and no badge. A click on it shows a balloon with `Boohooo!` for 2 s.
+- cat: the one black and white cat of the office (decision 41). It sleeps in its basket, visits an idle desk, and patrols when no desk is idle. It is not a worker: it has no desk, no status, and no badge. A click on it shows a balloon with `Miauw!` for 2 s and opens no panel.
+- basket: the bed of the cat in the lobby, beside the reception.
+- sleep: the time that the cat spends in its basket.
+- visit: one walk of the cat from its basket to an idle desk, the nap, and the walk back. Never call it a trip or a break: those belong to the workers.
+- nap: the time that the cat lies on the west end of a desk during a visit.
+- patrol: one walk of the cat from its basket along one band corridor to its west dead end and back, when no desk is idle. Never call it a stroll: `stroll()` is the worker walk.
+- cat flap: the static dark flap at the bottom of each door leaf. The cat passes through it, so no door opens for the cat.
 - shell desk: a desk with `agent: null`. It has no worker, and its screen is dark (`SHELL`).
 - orchestrator: the claude desk with the same cwd as a meeting session. It gets `away`, and its subagents have its id as `deskId`.
 - subagent: a Claude Code subagent that still runs, an entry of `office.subagents`. It sits at a meeting seat and always shows `working`.

@@ -236,12 +236,22 @@ The user made these decisions between 2026-10-03 and 2026-10-31.
     - The license is MIT.
     - `INTENT.md` and `CLAUDE.md` stay in the public repo.
     - The primary GitHub address of the user does not change. For each merge in the browser, the user selects `info@kevintsyen.be` in the email drop-down of the merge box. The user chose this over the private-email setting: "I'll go for option 3".
+41. An office cat, from issue TheBabaYaga/herdr-office#7 (an office cat). The issue gives the reason: "When all agents work, nobody takes a break and nothing moves. A pet keeps some life in the office then, and the lobby gets a resident." The user approved the change to "Cut on purpose" and the design on 31 October 2026, in a grill of the issue. Nobody built it yet.
+    - The office has one cat, also in a big office. It is black (`#1a1a1a`) and white (`#f4f1ea`), with no eye color, so no part reads as a status. It looks the same in every season and does not react to a ghost.
+    - The cat sleeps 2 to 5 minutes in its basket beside the reception in the lobby. Then it visits an idle desk, or it patrols when no desk is idle.
+    - A visit: the cat walks to a desk that is `idle`, has an agent, and has no `away` (the rule of the breaks). A seeded random pick chooses the desk. The cat sits on the floor at the west side of the desk, jumps on the west end, and naps there for 3 to 6 minutes. The west clutter item hides during the nap. Then it jumps down and walks back to its basket.
+    - A worker that takes a break is still `idle`, so the nap goes on. When the worker leaves `idle`, during the walk out or the nap, the cat walks back to its basket. The cat walks at 1.6 and never runs.
+    - A patrol: a seeded pick chooses one band corridor. The cat walks from the lobby to the west dead end of that corridor, through the cross corridor if needed, and back at once. A desk that turns idle during a patrol does not end it: the cat sleeps first.
+    - The cat walks along the lines of the workers: the walk rects, the door lanes, and the corridor center lines. Each door gets a static dark cat flap at the bottom of its leaf. The cat passes through it, so no door opens for the cat, and decision 20 does not change.
+    - The poses: curled up in the basket and on the desk with a slow tail sway, a walk with the tail up, a sit of about 1 s, and a jump arc of about 0.4 s. With reduce motion, the tail sways at half swing, and the walk and the jump keep their speed.
+    - A click on the cat shows a balloon with `Miauw!` for 2 s, as the ghost balloon of decision 33. The nearest hit wins, so a click on another part of the desk under the cat opens the desk panel. The cat opens no panel, gets no follow (decision 23), and is no stop of the camera tour (decision 37).
+    - A change of `lay` puts the cat in its basket at once. When the office is offline, the cat goes on with the last snapshot, as the workers do.
 
 ## Cut on purpose
 
 The user cut these with "ponytail ultra" (decision 6). Do not add them again without the user's approval.
 
-- Walk animations, except the idle breaks (decision 19). A worker does not walk to a new desk and does not walk to the meeting room. Nobody else walks. The ghosts of decision 33 float, and they are not workers. An orchestrator moves to the meeting room without a walk: its worker sits at the head of the meeting table.
+- Walk animations, except the idle breaks (decision 19). A worker does not walk to a new desk and does not walk to the meeting room. Nobody else walks, except the cat of decision 41. The ghosts of decision 33 float, and they are not workers. An orchestrator moves to the meeting room without a walk: its worker sits at the head of the meeting table.
 - Toasts and sound. The office has no desk phone and no bell. The lightning of the Halloween night is silent too (decision 32). The one exception is the update dialog and the update notice of decision 38. They make no sound.
 - Zoom dimming. A zoomed herdr tab does not dim the other desks.
 - The herdr event subscription. The bridge polls `session.snapshot` every 500 ms instead. A status change can take up to 500 ms to show.
