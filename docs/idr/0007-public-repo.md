@@ -15,8 +15,8 @@ The code moves from the private repo `TheBabaYaga/herdhouse` into the public rep
 - `git filter-branch --env-filter` on a copy branch changes the author to `Kevin T'Syen <info@kevintsyen.be>`. Git has it built in, so nothing needs an install. The 2 public commits keep their authors.
 - release-please and the build run in one workflow. A tag or a release that `GITHUB_TOKEN` makes starts no other workflow. `GITHUB_TOKEN` replaces `RELEASES_TOKEN`, so the repo holds no personal token.
 - The config sets `draft` and `force-tag-creation`. Without `draft`, `/releases/latest` returns the new release before its files exist, and `install.sh` gets a 404. GitHub makes no tag for a draft until someone publishes it, so `force-tag-creation` makes the tag at once. Without the tag, release-please cannot find the last release.
-- The config sets `include-component-in-tag: false`. The tag stays `vX.Y.Z`. The default is `herdr-office-vX.Y.Z`, and `newer()` ignores that form.
-- `last-release-sha` is for the first release only. The public tag v0.3.0 points at the README commit `46362a3` (30 October 2026, 10:08). The water-cooler commits came after it, from 11:30 to 13:24, and v0.3.0 already holds them. Without the key, release-please lists them again in the next release. We set the key to the new id of the water-cooler merge after the author rewrite, and remove it after the first release-please release. The 10 commits after v0.3.0 hold no `feat` and no `fix`, so the first run opens no release PR.
+- The config sets `include-component-in-tag: false`. The tag stays `vX.Y.Z`. The default is `herdr-office-vX.Y.Z`, and `latestRelease()` rejects that form, so the update check finds nothing.
+- `last-release-sha` is for the first release only. The public tag v0.3.0 points at the README commit `46362a3` (30 October 2026, 10:08). The water-cooler commits came after it, from 11:30 to 13:24, and v0.3.0 already holds them. Without the key, release-please lists them again in the next release. We set the key to the new id of the water-cooler merge after the author rewrite, and remove it after the first release-please release. The commits after v0.3.0 hold no `feat` and no `fix`, so the first run opens no release PR.
 - The repo setting `can_approve_pull_request_reviews` must be `true`. Else release-please cannot open the release PR with `GITHUB_TOKEN`.
 - GitHub cannot move an issue from a private repo to a public repo. The links `TheBabaYaga/herdhouse#N` in the docs stay. A public reader cannot open them.
 
@@ -32,5 +32,6 @@ With draft: /releases/latest still shows 0.3.0 until the user publishes the draf
 ## Consequences
 
 - A release needs a merge of the release PR, then a manual publish of the draft (`docs/release.md` "Make a release").
-- A failed build leaves a draft with no files. "Re-run failed jobs" fills it, because `gh release upload --clobber` replaces a file.
+- A flaky build failure leaves a draft with no files. "Re-run failed jobs" fills it, because `gh release upload --clobber` replaces a file.
+- A build that fails because of the code leaves an empty draft and a tag. Push a `fix` commit, and release-please proposes the next patch version. Never publish the empty draft (`docs/release.md` "Make a release").
 - The old links to `herdhouse` issues stay dead for a public reader.

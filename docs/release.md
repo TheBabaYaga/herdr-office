@@ -64,7 +64,16 @@ Steps:
 3. Open the draft release. Check that it has three files: `herdr-office-darwin-arm64.tar.gz`, `herdr-office-linux-x64.tar.gz`, and `install.sh`.
 4. Publish the draft.
 
-After a failed build, use "Re-run failed jobs". The upload step replaces a file that exists (`--clobber`).
+After a flaky failure, use "Re-run failed jobs". The upload step replaces a file that exists (`--clobber`).
+
+If the code makes the build fail, "Re-run failed jobs" fails again. Push a `fix` commit. Then release-please proposes the next patch version. Never publish the empty draft, because `install.sh` then gets a 404. Keep the empty draft until the next release exists. Then delete it with `gh release delete vX.Y.Z`, which keeps the tag.
+
+```text
+10:00  The release PR merges. release-please makes the tag v0.4.0 and an empty draft.
+10:04  npm test fails in the linux job. The mac job succeeds, and release skips.
+10:06  "Re-run failed jobs" fails the same way.
+10:30  A fix commit lands. release-please takes v0.4.0 as released and proposes 0.4.1.
+```
 
 ## Update check
 

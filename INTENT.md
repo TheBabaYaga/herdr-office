@@ -51,7 +51,7 @@ The office watches. It has two writes to herdr: a focus and a message. A click o
 
 ## Decisions
 
-The user made these decisions between 2026-10-03 and 2026-10-29.
+The user made these decisions between 2026-10-03 and 2026-10-31.
 
 1. The goal, in the user's words: "Analyze how herdr works with the agents ... build a 3D office (can be in threejs) that uses the same concepts where I can see my agents working in a real office." The analysis is in `docs/herdr-agent-model.md`.
 2. Watch, plus a click to focus. A desk click opens a panel, and "Focus in herdr" sends `pane.focus`. The office never prompts agents and never answers blocked questions. Decision 21 changed the first part: the office now sends messages. It still never answers a blocked question.
