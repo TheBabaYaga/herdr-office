@@ -51,28 +51,28 @@ To uninstall, remove `~/.local/bin/herdr-office`.
 
 ## Make a release
 
-The workflow `.github/workflows/release.yml` runs on each tag that starts with `v`. The `linux` job runs `npm test`, runs `shellcheck install.sh`, and builds the Linux tar. The `mac` job builds the Mac tar and checks the signature. Each build job then starts the binary, fetches `/` and a three.js file, and checks `--version`. Each job stops after 20 minutes. The `release` job makes a draft release in `TheBabaYaga/herdr-office` with both tars and `install.sh`.
+The workflow `.github/workflows/release.yml` runs on each push to `main`. The `please` job runs release-please. It opens or updates the PR `chore(main): release X.Y.Z` when a `feat` or a `fix` commit is new. It makes a draft release and the tag `vX.Y.Z` when you merge that PR.
 
-Before the first release, make the README commit in `TheBabaYaga/herdr-office`. A release needs a tag, and a tag needs a commit.
+The `linux`, `mac`, and `release` jobs run only after such a merge. The `linux` job runs `npm test`, runs `shellcheck install.sh`, and builds the Linux tar. The `mac` job builds the Mac tar and checks the signature. Each build job then starts the binary, fetches `/` and a three.js file, and checks `--version`. Each job stops after 20 minutes. The `release` job uploads both tars and `install.sh` to the draft with `GITHUB_TOKEN`.
+
+The build runs in this workflow, because a tag or a release that `GITHUB_TOKEN` makes starts no other workflow. The config is `release-please-config.json`. The last version is `.release-please-manifest.json`. The draft and the forced tag are in `docs/idr/0007-public-repo.md`.
 
 Steps:
 
-1. Push a tag, for example `git tag v0.1.0 && git push origin v0.1.0`.
-2. Wait for the workflow to finish in the Actions tab of `TheBabaYaga/herdhouse`.
-3. Open the draft release in `TheBabaYaga/herdr-office`. Check that it has three files: `herdr-office-darwin-arm64.tar.gz`, `herdr-office-linux-x64.tar.gz`, and `install.sh`.
+1. Merge the release PR in the browser.
+2. Wait for the workflow to finish in the Actions tab of `TheBabaYaga/herdr-office`.
+3. Open the draft release. Check that it has three files: `herdr-office-darwin-arm64.tar.gz`, `herdr-office-linux-x64.tar.gz`, and `install.sh`.
 4. Publish the draft.
 
-Before you re-run the workflow for the same tag, delete the old draft, because `gh release create` fails when the release exists.
-
-The `release` step uses the secret `RELEASES_TOKEN`. The token must be a fine-grained token with "Contents: read and write" on `TheBabaYaga/herdr-office` only. Only that step can read it. The workflow makes a draft only, so a failed run publishes nothing.
+After a failed build, use "Re-run failed jobs". The upload step replaces a file that exists (`--clobber`).
 
 ## Update check
 
 The binary asks GitHub for the latest release at its start and then each hour (`INTENT.md` decision 38). `latestRelease()` in `bridge.mjs` sends one GET to `https://api.github.com/repos/TheBabaYaga/herdr-office/releases/latest`. `npm start` and `--command` never send it.
 
-- `/releases/latest` skips drafts and pre-releases. So a colleague sees an update only after step 4 of "Make a release" (publish the draft).
+- `/releases/latest` skips drafts and pre-releases. So a colleague sees an update only after the publish step of "Make a release".
 - A colleague sees the dialog at the next start of herdr-office, or the notice in the bottom-right corner within one hour.
-- The tag must be `vX.Y.Z`, for example `v0.2.0`. The workflow runs only on a tag that starts with `v`. The check ignores a tag that is not `X.Y.Z` after the `v`, for example `v0.2.0-beta`, and changes nothing.
+- The tag must be `vX.Y.Z`, for example `v0.2.0`. release-please makes the tag `vX.Y.Z`. The check ignores a tag that is not `X.Y.Z` after the `v`, for example `v0.2.0-beta`, and changes nothing.
 - A build without `HERDR_OFFICE_VERSION` has the version `0.0.0-dev`. `newer()` gives false for it, so that binary never shows an update.
 - The dialog shows the install command of "Install" and the link `releases/tag/v<version>`. After the install, the notice stays until herdr-office starts again.
 

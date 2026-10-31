@@ -2,15 +2,33 @@ name: release
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
-  linux:
+  please:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      created: ${{ steps.rp.outputs.release_created }}
+      tag: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7  # v5.0.0
+        id: rp
+
+  linux:
+    needs: please
+    if: needs.please.outputs.created == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      HERDR_OFFICE_VERSION: ${{ needs.please.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -22,15 +40,13 @@ jobs:
           command -v shellcheck || sudo apt-get install -y shellcheck
           shellcheck install.sh
       - run: npm run build
-        env:
-          HERDR_OFFICE_VERSION: ${{ github.ref_name }}
       - name: Smoke test the binary
         run: |
           HERDR_OFFICE_NO_OPEN=1 HERDR_SOCKET_PATH=/tmp/none.sock PORT=4848 dist/herdr-office &
           pid=$!
           curl -fsS --retry 5 --retry-connrefused -o /dev/null http://127.0.0.1:4848/vendor/three@0.186.1/build/three.core.js
           curl -fsS http://127.0.0.1:4848/ | grep -q office-token
-          test "$(dist/herdr-office --version)" = "${GITHUB_REF_NAME#v}"
+          test "$(dist/herdr-office --version)" = "${HERDR_OFFICE_VERSION#v}"
           kill "$pid"
       - uses: actions/upload-artifact@v7
         with:
@@ -39,16 +55,18 @@ jobs:
           if-no-files-found: error
 
   mac:
+    needs: please
+    if: needs.please.outputs.created == 'true'
     runs-on: macos-15
     timeout-minutes: 20
+    env:
+      HERDR_OFFICE_VERSION: ${{ needs.please.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
       - run: npm run build
-        env:
-          HERDR_OFFICE_VERSION: ${{ github.ref_name }}
       - run: codesign --verify --strict dist/herdr-office
       - name: Smoke test the binary
         run: |
@@ -56,7 +74,7 @@ jobs:
           pid=$!
           curl -fsS --retry 5 --retry-connrefused -o /dev/null http://127.0.0.1:4848/vendor/three@0.186.1/build/three.core.js
           curl -fsS http://127.0.0.1:4848/ | grep -q office-token
-          test "$(dist/herdr-office --version)" = "${GITHUB_REF_NAME#v}"
+          test "$(dist/herdr-office --version)" = "${HERDR_OFFICE_VERSION#v}"
           kill "$pid"
       - uses: actions/upload-artifact@v7
         with:
@@ -66,19 +84,18 @@ jobs:
 
   release:
     runs-on: ubuntu-24.04
-    needs: [linux, mac]
+    needs: [please, linux, mac]
     timeout-minutes: 20
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
-      - name: Make the draft release
+      - name: Upload the files to the draft release
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-        run: >-
-          gh release create "$GITHUB_REF_NAME" --draft
-          --repo TheBabaYaga/herdr-office
-          --title "$GITHUB_REF_NAME"
-          dist/*.tar.gz install.sh
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.please.outputs.tag }}
+        run: gh release upload "$TAG" --clobber dist/*.tar.gz install.sh

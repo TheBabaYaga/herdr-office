@@ -56,7 +56,8 @@ npm run build                   # dist/herdr-office and its tar (see docs/releas
 - `bridge.mjs`: the Node HTTP server and the herdr socket client. Exports `socketPath`, `herdrRequest`, `readMeetings`, `readMessages`, `readCodexMessages`, `messagesIn`, `codexMessagesIn`, `bundleIdsIn` (the distinct valid bundle ids in `ps eww` texts), `pickTerminal`, `raiser` (the raise closure, with the start pick as its fallback), `openUrl`, `newer` (true when one `X.Y.Z` version is newer than another), `latestRelease` (the version of the latest GitHub release), and `startBridge`.
 - `README.md` and `demo.png`: the README and the screenshot of the repo.
 - `LICENSE`: the MIT license.
-- `.github/workflows/release.yml`: the workflow that tests, builds, and makes a draft release on a tag.
+- `.github/workflows/release.yml`: the workflow that runs release-please on each push to `main`, and tests, builds, and uploads the files of a new draft release.
+- `release-please-config.json` and `.release-please-manifest.json`: the release-please config and the last version.
 - `.nvmrc`: the Node version of the CI jobs.
 - `public/index.html`: the importmap, the CSS, the HUD (`#hud`, with the tour note `#tour`), and the side panel (`#panel`, with `#last`), the chat window (`#chat`), the update dialog (`#update`), and the update notice (`#updateNote`). The bridge replaces `__OFFICE_TOKEN__` in the `office-token` meta tag with the token.
 - `public/model.js`: the pure model, with no imports and no DOM, so the Node tests can import it. Exports `STATUS_RANK`, `STATUS_COLOR`, `rollup`, `buildOffice`, `route`, `along`, `tripAt`, `breakPlan`, `hash`, `rng`, `calm`, `opens`, `pathLen`, `stepBreak`, `endBreak`, `idleBreaks`, `nextStop`, `season`, `daylight`, `candleSpots`, `lightningPlan`, `flash`, `ghosts`, `ghostAt`, `snowflakes`, `flakeAt`, `twinkle`, `outdoors`, `WALK`, `RUN`, `WAIT`, `demoSnapshot`, and `demoMeetings`.
