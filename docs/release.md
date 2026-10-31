@@ -95,6 +95,8 @@ Failure:   GitHub does not answer at 11:00. Nothing changes. The next check come
 
 ## README
 
-`README.md` and `demo.png` at the root are the README and the screenshot.
+`README.md` and `demo.png` at the root are the README and the screenshot. The README also shows the detail shots in `docs/screenshots/`.
 
 To take `demo.png` again, start `dist/herdr-office` with `HERDR_OFFICE_NO_OPEN=1` on a free port. Open `/?demo&season=none&time=15:00` in headless Chrome at 1280 x 800 within 30 s of the start, because the binary exits when no `/events` client connects.
+
+To take a detail shot again, use the same page and size on a check bridge (`PORT=4848 npm start`). Use `/?demo&season=halloween` for `halloween.png`. Pan and zoom to the room. Give input at least once in 5 minutes, or the camera tour starts. `chess.png` needs the game at about 117 s after load, and `lunch.png` needs the lunch at about 491 s ("Visual check in the browser" in `docs/testing.md`). The times can run late.

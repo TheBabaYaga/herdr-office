@@ -54,7 +54,7 @@ npm run build                   # dist/herdr-office and its tar (see docs/releas
 ## Files
 
 - `bridge.mjs`: the Node HTTP server and the herdr socket client. Exports `socketPath`, `herdrRequest`, `readMeetings`, `readMessages`, `readCodexMessages`, `messagesIn`, `codexMessagesIn`, `bundleIdsIn` (the distinct valid bundle ids in `ps eww` texts), `pickTerminal`, `raiser` (the raise closure, with the start pick as its fallback), `openUrl`, `newer` (true when one `X.Y.Z` version is newer than another), `latestRelease` (the version of the latest GitHub release), and `startBridge`.
-- `README.md` and `demo.png`: the README and the screenshot of the repo.
+- `README.md` and `demo.png`: the README and the screenshot of the repo. `docs/screenshots/` holds the detail shots of the README.
 - `LICENSE`: the MIT license.
 - `.github/workflows/release.yml`: the workflow that runs release-please on each push to `main`, and tests, builds, and uploads the files of a new draft release.
 - `release-please-config.json` and `.release-please-manifest.json`: the release-please config and the last version.

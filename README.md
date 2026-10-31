@@ -4,6 +4,28 @@ herdr-office shows your herdr agents as workers in a 3D voxel office. Each works
 
 ![The herdr-office demo](demo.png)
 
+## What you see
+
+![A blocked agent and the side panel](docs/screenshots/panel.png)
+
+Each desk shows the status of its agent. A blocked agent raises a hand, and its screen turns red. Click a desk to open the side panel. From the panel, you can focus the pane in herdr or send a message to the agent. The panel also shows the last reply of a Claude or Codex agent.
+
+![An orchestrator and its subagents in the meeting room](docs/screenshots/meeting.png)
+
+When a Claude session runs subagents, its agent leaves the desk and sits at the head of a meeting table. Each subagent sits at the same table, with its name and its model.
+
+![Two idle agents play chess](docs/screenshots/chess.png)
+
+An idle agent takes breaks. Two idle agents can play chess or ping-pong in a big room.
+
+![An idle agent eats lunch in the kitchen](docs/screenshots/lunch.png)
+
+An idle agent can also get a drink at the kitchen counter, eat lunch, talk at the water cooler, or dance in the party room. When its status changes, it runs back to its desk.
+
+![The office on Halloween night](docs/screenshots/halloween.png)
+
+From 24 October to 1 November, the office is dark, with candles, bats, and ghosts. From 1 December to 6 January, it has Christmas trees and snow.
+
 ## Requirements
 
 - macOS on Apple Silicon (`darwin-arm64`), or Linux x64 (`linux-x64`).
