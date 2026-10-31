@@ -54,7 +54,8 @@ npm run build                   # dist/herdr-office and its tar (see docs/releas
 ## Files
 
 - `bridge.mjs`: the Node HTTP server and the herdr socket client. Exports `socketPath`, `herdrRequest`, `readMeetings`, `readMessages`, `readCodexMessages`, `messagesIn`, `codexMessagesIn`, `bundleIdsIn` (the distinct valid bundle ids in `ps eww` texts), `pickTerminal`, `raiser` (the raise closure, with the start pick as its fallback), `openUrl`, `newer` (true when one `X.Y.Z` version is newer than another), `latestRelease` (the version of the latest GitHub release), and `startBridge`.
-- `release/`: `README.md` and `demo.png`, the README and the screenshot of the public releases repo.
+- `README.md` and `demo.png`: the README and the screenshot of the repo.
+- `LICENSE`: the MIT license.
 - `.github/workflows/release.yml`: the workflow that tests, builds, and makes a draft release on a tag.
 - `.nvmrc`: the Node version of the CI jobs.
 - `public/index.html`: the importmap, the CSS, the HUD (`#hud`, with the tour note `#tour`), and the side panel (`#panel`, with `#last`), the chat window (`#chat`), the update dialog (`#update`), and the update notice (`#updateNote`). The bridge replaces `__OFFICE_TOKEN__` in the `office-token` meta tag with the token.

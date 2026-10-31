@@ -84,8 +84,8 @@ Tue 09:00  Anna starts herdr-office 0.1.0 again. The start check finds 0.2.0. Th
 Failure:   GitHub does not answer at 11:00. Nothing changes. The next check comes at 12:00.
 ```
 
-## README of the releases repo
+## README
 
-`release/README.md` and `release/demo.png` are the README and the screenshot of `TheBabaYaga/herdr-office`. That repo holds only these files and the releases. Copy both files to it by hand. The agent does not touch the public repo.
+`README.md` and `demo.png` at the root are the README and the screenshot.
 
 To take `demo.png` again, start `dist/herdr-office` with `HERDR_OFFICE_NO_OPEN=1` on a free port. Open `/?demo&season=none&time=15:00` in headless Chrome at 1280 x 800 within 30 s of the start, because the binary exits when no `/events` client connects.

@@ -195,7 +195,7 @@ The user made these decisions between 2026-10-03 and 2026-10-29.
     - One install command puts the `herdr-office` binary on the `PATH`. The command `herdr-office` starts the bridge and opens the office in the browser. It does not start at login, and it has no Dock or launcher entry.
     - On the Mac, the office opens in a tab of the default browser. On Omarchy (Arch Linux with Hyprland), it opens in a Chromium app window (`chromium --app=<url>`), else in a tab of the default browser.
     - No Apple Developer ID. The binary ships unsigned for Gatekeeper. In the user's words: "A signed app won't be the case."
-    - The source repo `TheBabaYaga/herdhouse` stays private. CI builds the binaries and makes a draft release in a public releases repo with no source. In the user's words: "Anyone may download the app. A public release repo is fine, also with the code readable in the binary."
+    - The source repo `TheBabaYaga/herdhouse` stays private. CI builds the binaries and makes a draft release in a public releases repo with no source. This held until decision 40. In the user's words: "Anyone may download the app. A public release repo is fine, also with the code readable in the binary."
     - Apple Silicon only. In the user's words: "No Intel Macs. Keep the arm64-only build."
     - The user tests the binary on this Mac first.
 37. A camera tour when nobody uses the office, from issue TheBabaYaga/herdhouse#12. The issue gives the reason: "The office often runs on a second monitor that nobody touches. The camera then stays on one room. A tour shows the whole office and brings a blocked agent into view." The user answered on 28 October 2026: "yes, 5 min seems good and 10 seconds is fine as a stop and yes, show a tour note". On 29 October 2026, the user answered about reduce motion: "With reduce motion, keep the tour as it is: the 0.5 s glide every 10 s." The user answered about offline and approved the tour on 29 October 2026: "Yes, the tour can start again at once after an offline period. Write decision 37."
@@ -229,6 +229,12 @@ The user made these decisions between 2026-10-03 and 2026-10-29.
     - The main session moved the fridge to the west wall in a kitchen with a north door. A fridge east of the cooler hides the cooler from the camera, and the east wall hides a fridge in the east corner.
     - The main session made `w1:p2` a third long-idle agent of the demo. With a fifth kind, the demo agents `w2:p2` and `w3:p3` get only chats, and the demo must also show a game.
     - A chat is no stop of the camera tour (decision 37).
+40. The source moves into the public repo `TheBabaYaga/herdr-office`, and release-please makes each release. The user asked: "currently we push the code to this repo and push a release to the other repo, would it be a good idea to move the code also to the other repo and make it public available? Then we could setup release please to create releases wdyt?" The technical choices are in `docs/idr/0007-public-repo.md`.
+    - The author of the public commits is `Kevin T'Syen <info@kevintsyen.be>`. The user said: "We caould also use info@kevintsyen.be? That's the mail from py personal public website"
+    - The user answered the open choices: "Kevin T'Syen ; leave the public commits ; MIT license ; INTENT.md and CLAUDE.md stay".
+    - The 2 commits that already exist in the public repo stay.
+    - The license is MIT.
+    - `INTENT.md` and `CLAUDE.md` stay in the public repo.
 
 ## Cut on purpose
 
