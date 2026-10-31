@@ -235,6 +235,7 @@ The user made these decisions between 2026-10-03 and 2026-10-31.
     - The 2 commits that already exist in the public repo stay.
     - The license is MIT.
     - `INTENT.md` and `CLAUDE.md` stay in the public repo.
+    - The primary GitHub address of the user does not change. For each merge in the browser, the user selects `info@kevintsyen.be` in the email drop-down of the merge box. The user chose this over the private-email setting: "I'll go for option 3".
 
 ## Cut on purpose
 

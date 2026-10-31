@@ -59,7 +59,7 @@ The build runs in this workflow, because a tag or a release that `GITHUB_TOKEN` 
 
 Steps:
 
-1. Merge the release PR in the browser.
+1. Merge the release PR in the browser with "Create a merge commit". Select `info@kevintsyen.be` in the email drop-down (`INTENT.md` decision 40). GitHub shows that drop-down for a merge commit, but not for a squash merge of a PR by another author.
 2. Wait for the workflow to finish in the Actions tab of `TheBabaYaga/herdr-office`.
 3. Open the draft release. Check that it has three files: `herdr-office-darwin-arm64.tar.gz`, `herdr-office-linux-x64.tar.gz`, and `install.sh`.
 4. Publish the draft.
